@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quadringent — IBM i CDC replication to Snowflake</title>
+<meta name="description" content="Open-source CDC engine, API and cockpit for replicating IBM i journals to Snowflake on your AWS or GCP infrastructure. Apache-2.0 Community edition, DEV/INT preview.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cg fill='none' stroke='%23151615' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4.5 8.5h8.75c3.7 0 5.75 2.35 5.75 5.75v3.5c0 3.4 2.05 5.75 5.75 5.75h2.75'/%3E%3Cpath d='M4.5 23.5h7.75c3.7 0 5.75-2.35 5.75-5.75v-3.5c0-3.4 2.05-5.75 5.75-5.75h3.75'/%3E%3C/g%3E%3Ccircle cx='27.5' cy='23.5' r='2.4' fill='%23151615'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+
+<header class="topbar">
+  <div class="wrap topbar__inner">
+    <a class="product-mark" href="#content" aria-label="Quadringent, top of page">
+      <svg class="forge-mark" width="26" height="26" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><path d="M4.5 8.5h8.75c3.7 0 5.75 2.35 5.75 5.75v3.5c0 3.4 2.05 5.75 5.75 5.75h2.75"/><path d="M4.5 23.5h7.75c3.7 0 5.75-2.35 5.75-5.75v-3.5c0-3.4 2.05-5.75 5.75-5.75h3.75"/><circle cx="27.5" cy="23.5" r="2.25"/></svg>
+      <strong>Quadringent</strong>
+      <span class="product-mark__edition">Community</span>
+    </a>
+    <nav class="site-nav" aria-label="Sections">
+      <ul>
+        <li><a href="#how-it-works">How it works</a></li>
+        <li><a href="#cockpit">Cockpit</a></li>
+        <li><a href="#install">Install</a></li>
+        <li><a href="#qualification">Qualification</a></li>
+        <li><a href="#limits">Limits</a></li>
+        <li><a href="#services">Services</a></li>
+        <li><a data-repo-root="true" href="../README.md">Source code <span aria-hidden="true">↗</span></a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="content" class="wrap" tabindex="-1">
+
+  <section class="hero" aria-labelledby="title">
+    <div class="hero__copy">
+      <p class="eyebrow">CDC replication · IBM i to Snowflake · Apache-2.0</p>
+      <h1 id="title">Replicate IBM i journals to Snowflake, with separate evidence for reading and delivery.</h1>
+      <p class="hero__lead">For <strong>data teams and IBM i operators</strong> who need a Snowflake mirror of their journaled tables on their own AWS or GCP infrastructure. An open-source engine, API and cockpit observe journal reading, raw storage, durable checkpoints and loading separately. Delivery is checked by reading back the source, history and mirror.</p>
+      <div class="actions">
+        <a class="action-button action-button--primary" data-repo-path="docs/product/install-default.md" href="../docs/product/install-default.md">Install Community</a>
+        <a class="action-button" data-repo-path="docs/product/positioning-and-offer.md" href="../docs/product/positioning-and-offer.md">Pilot preparation guide</a>
+        <a class="action-button" href="#qualification">View qualification results</a>
+      </div>
+    </div>
+    <dl class="release-facts" aria-label="Release status">
+      <div><dt>License</dt><dd>Apache-2.0, with no activation key or commercial table limit</dd></div>
+      <div><dt>Version</dt><dd><span class="mono">0.3.1</span> DEV/INT preview</dd></div>
+      <div><dt>Qualifications</dt><dd>Versions <span class="mono">0.2.x</span>, DEV/INT, four cloud targets</dd></div>
+      <div><dt>Production</dt><dd>Not qualified, no SLA</dd></div>
+    </dl>
+  </section>
+
+  <figure class="product-frame">
+    <div class="product-frame__bar">
+      <span class="product-frame__title">Cockpit · “Sales” connection</span>
+      <span class="provenance-note"><strong>Demonstration</strong> synthetic data</span>
+    </div>
+    <picture><source srcset="assets/cockpit-connection-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/cockpit-connection.png" width="1440" height="900" alt="Quadringent cockpit, demonstration connection: four tables with their state, lag, throughput, source and Snowflake row counts, and a banner indicating that one table needs verification."></picture>
+    <figcaption>Cockpit <span class="mono">0.3.1</span> rendered in development mode using its built-in demonstration dataset (fictional “Sales” and “Inventory” connections). None of the figures in this image comes from a deployed installation.</figcaption>
+  </figure>
+
+  <section class="section" id="how-it-works" aria-labelledby="how-it-works-title">
+    <div class="section__head">
+      <p class="eyebrow">How it works</p>
+      <h2 id="how-it-works-title">Four stages, observed separately.</h2>
+      <p>Active capture does not mean Snowflake is up to date. Quadringent observes each stage independently and never infers one from another.</p>
+    </div>
+    <ol class="route">
+      <li class="route__step">
+        <span class="route__index">01</span>
+        <h3>IBM i journal</h3>
+        <p>A Java/JTOpen reader reads journal entries over TLS, starting from the last acquired position.</p>
+        <div class="route__out"><span>Produces</span><code>journal entries</code></div>
+      </li>
+      <li class="route__step">
+        <span class="route__index">02</span>
+        <h3>Raw storage</h3>
+        <p>Each batch is retained unchanged in S3 or GCS, with a receipt, before loading.</p>
+        <div class="route__out"><span>Produces</span><code>RAW files + receipts</code></div>
+      </li>
+      <li class="route__step">
+        <span class="route__index">03</span>
+        <h3>Checkpoint</h3>
+        <p>The read position is recorded outside the reader. Pausing or restarting resumes from that point.</p>
+        <div class="route__out"><span>Produces</span><code>durable position</code></div>
+      </li>
+      <li class="route__step">
+        <span class="route__index">04</span>
+        <h3>Snowflake mirror</h3>
+        <p>The loader applies batches to history and mirror tables; readback compares the source, history and mirror.</p>
+        <div class="route__out"><span>Produces</span><code>history + mirror</code></div>
+      </li>
+    </ol>
+    <div class="reading">
+      <p class="eyebrow">Read state and provenance</p>
+      <dl>
+        <div>
+          <dt><span class="status-word status-word--live"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Capture enabled</span></span></dt>
+          <dd>Table state: capture is enabled in configuration. This does not prove delivery.</dd>
+        </div>
+        <div>
+          <dt><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">measured</span></span></dt>
+          <dd>Provenance of a recorded, timestamped value, distinct from an “estimated” value.</dd>
+        </div>
+        <div>
+          <dt><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">absent</span></span></dt>
+          <dd>The value is missing: the screen displays “—”, with no zero or silent estimate.</dd>
+        </div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="section" id="cockpit" aria-labelledby="cockpit-title">
+    <div class="section__head">
+      <p class="eyebrow">Cockpit</p>
+      <h2 id="cockpit-title">Distinguish activity from evidence.</h2>
+      <p>The desktop cockpit presents each connection and table with its state in words, then available actions and their observed effects.</p>
+    </div>
+    <div class="split">
+      <ul class="feature-list">
+        <li>
+          <h3>Connections and tables</h3>
+          <p>State, lag, throughput, source and Snowflake row counts, last arrival. One banner highlights what needs verification.</p>
+        </li>
+        <li>
+          <h3>Checkpoints and recovery</h3>
+          <p>The read position is retained outside the reader. Pause and resume are controlled from the cockpit; retention of RAW data and checkpoints after complete site loss was verified for specific versions (see Qualification). The Logs tab lists timestamped table events, as in the adjacent demonstration.</p>
+        </li>
+        <li>
+          <h3>Confirmations</h3>
+          <p>Removing a table, restarting an initial copy, replaying a journal range or suspending the entire organization requires human approval. An agent connected through MCP cannot approve its own action without explicit administrator preauthorization. Every call is audited.</p>
+        </li>
+        <li>
+          <h3>Missing data stays visible</h3>
+          <p>A missing measurement displays “— absent”. The Evidence tab remains empty until the control plane publishes delivery evidence for the table.</p>
+        </li>
+      </ul>
+      <figure class="product-frame">
+        <div class="product-frame__bar">
+          <span class="product-frame__title">Table log</span>
+          <span class="provenance-note"><strong>Demonstration</strong> synthetic data</span>
+        </div>
+        <picture><source srcset="assets/cockpit-logs-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/cockpit-logs.png" width="1440" height="900" loading="lazy" alt="Logs tab for a demonstration table: reading resumes from the last checkpoint, a delivery window is confirmed in Snowflake, then increasing lag and a refused connection are correlated with an incident."></picture>
+        <figcaption>The same demonstration dataset: fictional timestamped events and a correlated incident.</figcaption>
+      </figure>
+    </div>
+    <div class="legend" aria-label="The five table states in the cockpit">
+      <p class="eyebrow legend__title">The five table states</p>
+      <span class="status-word status-word--live"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Capture enabled</span></span>
+      <span class="status-word status-word--copying"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Copying</span></span>
+      <span class="status-word status-word--paused"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Paused</span></span>
+      <span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Attention</span></span>
+      <span class="status-word status-word--stopped"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Stopped</span></span>
+    </div>
+  </section>
+
+  <section class="section" id="install" aria-labelledby="install-title">
+    <div class="section__head">
+      <p class="eyebrow">Install Community</p>
+      <h2 id="install-title">Try locally, then install on your cloud.</h2>
+      <p>A real site requires an IBM i journal and TLS access, a scoped Snowflake role, raw storage and limited cloud permissions. Read the <a data-repo-path="SECURITY.md" href="../SECURITY.md">security policy</a> before exposing the cockpit.</p>
+    </div>
+    <div class="install">
+      <article class="install__card">
+        <p class="eyebrow">1 · Local trial</p>
+        <h3>Cockpit on 127.0.0.1</h3>
+        <pre class="code" tabindex="0" aria-label="Local trial commands"><code>python3 -m venv .venv
+.venv/bin/python -m pip install .
+npm ci --prefix ui
+npm run build --prefix ui
+sh scripts/start_local.sh</code></pre>
+        <p>From a clone, with Python 3.12+ and Node 24 or 26, then open <code>http://127.0.0.1:8844</code>. The supplied configuration is fictional: it connects to neither IBM i, AWS nor Snowflake. A connection created here is declared, with no running replication.</p>
+        <div class="actions"><a class="action-button" data-repo-path="README.md" href="../README.md">Read the README</a></div>
+      </article>
+      <article class="install__card">
+        <p class="eyebrow">2 · Cloud installation</p>
+        <h3>AWS or GCP, VM or cluster</h3>
+        <pre class="code" tabindex="0" aria-label="Cloud installation preview command"><code><span class="comment"># Complete plan, without executing it</span>
+quadringent install --cloud gcp --target cluster \
+  --region europe-west1 --project my-project \
+  --name my-site --release-manifest release-manifest.json \
+  --dry-run</code></pre>
+        <p>The CLI comes from the wheel, the chart and Terraform modules from the sdist, and the three images from the manifest, pinned by digest. Remove <code>--dry-run</code> after reviewing the plan. Alternatives: <code>--cloud aws</code>, <code>--target vm</code>.</p>
+        <p class="provenance-note"><strong>DEV/INT preview</strong> Verify the release, its checksums and its scope before installing.</p>
+        <div class="actions">
+          <a class="action-button action-button--primary" data-repo-path="docs/product/install-default.md" href="../docs/product/install-default.md">Installation guide</a>
+          <a class="action-button" data-repo-path="docs/product/install-client.md" href="../docs/product/install-client.md">Expert Helm guide</a>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" id="qualification" aria-labelledby="qualification-title">
+    <div class="section__head">
+      <p class="eyebrow">Qualification</p>
+      <h2 id="qualification-title">What was measured, where, and when.</h2>
+      <p>Each result remains bound to its version, targets and observation window: DEV/INT tests on isolated installations using synthetic tables. None qualifies version <span class="mono">0.3.1</span>. The qualification harness sets a threshold of <span class="mono">10 s</span> per write; each version identifies where the clock starts.</p>
+    </div>
+    <div class="metrics">
+      <section class="metric-tile" aria-label="IBM i acknowledgment to mirror, version 0.2.22">
+        <p class="metric-tile__label">IBM i acknowledgment → mirror</p>
+        <p class="metric-tile__value">5.013–7.776<span class="metric-tile__unit">s</span></p>
+        <p class="metric-tile__provenance metric-tile__provenance--mesure">measured · <span class="mono">0.2.22</span> · October 2026</p>
+        <p class="metric-tile__scope">One native write, five installations. Excludes cold start, container startup and source authentication.</p>
+      </section>
+      <section class="metric-tile" aria-label="Thirty-update series, version 0.2.18">
+        <p class="metric-tile__label">Series of 30 updates</p>
+        <p class="metric-tile__value">2.317–7.992<span class="metric-tile__unit">s</span></p>
+        <p class="metric-tile__provenance metric-tile__provenance--mesure">measured · <span class="mono">0.2.18</span> · October 5–6, 2026</p>
+        <p class="metric-tile__scope">120 observations from IBM i acknowledgment to mirror, over ten minutes on four targets. Applies only to this window and these profiles.</p>
+      </section>
+      <section class="metric-tile" aria-label="Qualification of version 0.3.1">
+        <p class="metric-tile__label">Qualification 0.3.1</p>
+        <p class="metric-tile__value metric-tile__value--absent">—</p>
+        <p class="metric-tile__provenance metric-tile__provenance--absent">absent</p>
+        <p class="metric-tile__scope">The final artifacts of this version have not yet been installed and qualified on the cloud targets.</p>
+      </section>
+    </div>
+    <dl class="platforms" aria-label="Test platforms">
+      <div><dt class="eyebrow">AWS</dt><dd>EC2 VM with k3s, or existing EKS; S3 raw storage</dd></div>
+      <div><dt class="eyebrow">GCP</dt><dd>Compute Engine VM with k3s, or existing GKE; GCS raw storage</dd></div>
+      <div><dt class="eyebrow">Snowflake</dt><dd>History and mirror in a dedicated schema, scoped role</dd></div>
+      <div><dt class="eyebrow">IBM i</dt><dd>Journal read over TLS; synthetic journaled tables with before and after images</dd></div>
+    </dl>
+    <p class="note table-note" id="results-note">Results by version, newest first. Details and conditions in the <a data-repo-path="README.md" href="../README.md">README</a>. See the <a data-repo-path="CHANGELOG.md" href="../CHANGELOG.md">changelog</a> for the current release.</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-labelledby="results-note">
+      <table class="banded-table" aria-describedby="results-note">
+        <caption class="sr-only">Qualification results by version</caption>
+        <thead>
+          <tr><th scope="col">Version</th><th scope="col">Result</th><th scope="col">Verification</th><th scope="col">Targets</th><th scope="col">Detail</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row">0.3.1</th><td><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not qualified</span></span></td><td>DEV/INT preview</td><td>—</td><td>Final artifacts require cloud installation and qualification.</td>
+          </tr>
+          <tr>
+            <th scope="row">0.2.26</th><td><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">To establish</span></span></td><td>Autonomous path, source client prepared</td><td>Autonomous harness</td><td>Clock starts when each write is sent to the prepared client. Runtime result not yet established.</td>
+          </tr>
+          <tr>
+            <th scope="row">0.2.24–0.2.25</th><td><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Above threshold</span></span></td><td>End-to-end autonomous path</td><td>Autonomous harness</td><td>First write visible in the mirror in <span class="mono">12.28 s</span> then <span class="mono">10.37 s</span>, including Docker/JVM startup for the source request.</td>
+          </tr>
+          <tr>
+            <th scope="row">0.2.23</th><td><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Incomplete</span></span></td><td>End-to-end autonomous path</td><td>Autonomous harness</td><td>154 events and 110 rows reconciled, including after journal rotation; latency phase failed before any write.</td>
+          </tr>
+          <tr>
+            <th scope="row">0.2.22</th><td><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Measured</span></span></td><td>Native write and full readback</td><td>AWS VM, EKS, GCP VM, GKE and one fresh installation</td><td><span class="mono">5.013–7.776 s</span> from IBM i acknowledgment; <span class="mono">7.827 s</span> at most from the start of the JDBC statement. 110 typed rows, with no duplicates.</td>
+          </tr>
+          <tr>
+            <th scope="row">0.2.22</th><td><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Verified</span></span></td><td>Isolated backup restoration</td><td>GCP VM</td><td>Identities, keys and four declared tables retained.</td>
+          </tr>
+          <tr>
+            <th scope="row">0.2.19</th><td><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Measured</span></span></td><td>Native write after artifact admission</td><td>AWS VM, EKS, GCP VM, GKE</td><td>Write visible in all four mirrors in <span class="mono">4.904–7.041 s</span> ; eight source, history and mirror readbacks.</td>
+          </tr>
+          <tr>
+            <th scope="row">0.2.18</th><td><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Measured</span></span></td><td>30 updates over ten minutes</td><td>AWS VM, EKS, GCP VM, GKE</td><td>120 observations from IBM i acknowledgment to mirror, <span class="mono">2.317–7.992 s</span>.</td>
+          </tr>
+          <tr>
+            <th scope="row">0.2.16</th><td><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Verified</span></span></td><td>Rebuild after complete site loss</td><td>AWS VM, EKS, GCP VM, GKE</td><td>PostgreSQL and original keys restored; RAW data and checkpoints retained, with no regression.</td>
+          </tr>
+          <tr>
+            <th scope="row">0.2.15 → 0.2.13 → 0.2.15</th><td><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Verified</span></span></td><td>Upgrade and rollback</td><td>Affected sites</td><td>Data and identities retained.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="section" id="limits" aria-labelledby="limits-title">
+    <div class="section__head">
+      <p class="eyebrow">Open limitations</p>
+      <h2 id="limits-title">What remains to be demonstrated.</h2>
+      <p>These known items are tracked and inform operational decisions.</p>
+    </div>
+    <ul class="limits">
+      <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Release gate</span></span><span><strong>Release 0.3.1.</strong> CI, three signed images and admission must refer to the same commit.</span></li>
+      <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">To repeat</span></span><span><strong>Final artifacts.</strong> Install on AWS VM, EKS, GCP VM and GKE, then perform complete copies to Snowflake.</span></li>
+      <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">To demonstrate</span></span><span><strong>Reader failure.</strong> Real reader outage with IBM i writes during the outage, then continuity without duplicates, upgrade and rollback.</span></li>
+      <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Above threshold</span></span><span><strong>Autonomous path.</strong> Latency incomplete in 0.2.23; the 10 s threshold was exceeded in 0.2.24 and 0.2.25. The 0.2.26 result remains to be established.</span></li>
+      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not qualified</span></span><span><strong>Production.</strong> No PROD qualification; the chart rejects promotion to PROD.</span></li>
+      <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">To protect</span></span><span><strong>Cockpit access.</strong> Unauthenticated loopback by default; secure access before exposing it.</span></li>
+      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Bounded</span></span><span><strong>Latency.</strong> No universal ten-second guarantee for every workload or startup.</span></li>
+      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Absent</span></span><span><strong>Evidence per table.</strong> The cockpit Evidence tab awaits publication by the control plane.</span></li>
+      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Partial</span></span><span><strong>Historical archives.</strong> Historical RAW archives remain incomplete on two test sites.</span></li>
+      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Desktop</span></span><span><strong>Workstations.</strong> Cockpit designed for desktop workstations, with a 1440 px keyboard-and-mouse reference; other sizes are not qualified.</span></li>
+    </ul>
+  </section>
+
+  <section class="section" id="services" aria-labelledby="services-title">
+    <div class="section__head">
+      <p class="eyebrow">Model</p>
+      <h2 id="services-title">Start freely, get help when needed.</h2>
+      <p>The software remains open source. Proposed assistance would cover installation and validation work. No paid offer has been launched or priced.</p>
+    </div>
+    <ol class="offer">
+      <li class="offer__step">
+        <p class="eyebrow">Free</p>
+        <h3>Community</h3>
+        <p>Engine, API, cockpit and chart under Apache-2.0. IBM i, cloud and Snowflake costs remain the operator’s responsibility.</p>
+      </li>
+      <li class="offer__step">
+        <p class="eyebrow">First proposed service</p>
+        <h3>Installation and pilot</h3>
+        <p>On your infrastructure, with table scope, acceptance criteria and evidence deliverables agreed before engagement.</p>
+      </li>
+      <li class="offer__step">
+        <p class="eyebrow">Next</p>
+        <h3>Support</h3>
+        <p>A separate agreement after the pilot, based on observed needs.</p>
+      </li>
+      <li class="offer__step offer__step--quiet">
+        <p class="eyebrow">If demand is confirmed</p>
+        <h3>Managed hosting</h3>
+        <p>Considered only after a real need is confirmed.</p>
+      </li>
+    </ol>
+    <div class="closing">
+      <p>The preparation guide lists tables, access, infrastructure budget, acceptance criteria and pilot deliverables. It creates no sales request or service commitment.</p>
+      <div class="actions">
+        <a class="action-button action-button--primary" data-repo-path="docs/product/positioning-and-offer.md" href="../docs/product/positioning-and-offer.md">Read the preparation guide</a>
+        <a class="action-button" data-repo-path="docs/licensing.md" href="../docs/licensing.md">Understand the license</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap site-footer__inner">
+    <p>Quadringent Community · Apache-2.0 · DEV/INT preview</p>
+    <ul aria-label="References">
+      <li><a data-repo-path="LICENSE" href="../LICENSE">License</a></li>
+      <li><a data-repo-path="THIRD_PARTY_NOTICES.md" href="../THIRD_PARTY_NOTICES.md">Third-party notices</a></li>
+      <li><a href="assets/fonts/OFL-IBM-Plex-Sans.txt">IBM Plex Sans (OFL-1.1)</a></li>
+      <li><a href="assets/fonts/OFL-IBM-Plex-Mono.txt">IBM Plex Mono (OFL-1.1)</a></li>
+      <li><a data-repo-path="SECURITY.md" href="../SECURITY.md">Security</a></li>
+      <li><a data-repo-path="CHANGELOG.md" href="../CHANGELOG.md">Changes</a></li>
+    </ul>
+  </div>
+</footer>
+</body>
+</html>

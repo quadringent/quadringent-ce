@@ -1,0 +1,552 @@
+name: release
+
+# Manual activation requires review of the exact release.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Exact validated tag (e.g. v0.3.1)"
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  validate:
+    if: ${{ success() && (!(github.event.repository.private && vars.PRIVATE_RUNNER_LABELS != '') || (github.event_name == 'workflow_dispatch' && github.ref == format('refs/tags/{0}', vars.PRIVATE_APPROVED_TAG) && github.workflow_ref == format('{0}/.github/workflows/release.yml@refs/tags/{1}', github.repository, vars.PRIVATE_APPROVED_TAG) && inputs.version == vars.PRIVATE_APPROVED_TAG && github.sha == vars.PRIVATE_APPROVED_SHA)) }}
+    runs-on: ${{ fromJSON(github.event.repository.private && github.event_name == 'workflow_dispatch' && github.ref == format('refs/tags/{0}', vars.PRIVATE_APPROVED_TAG) && github.workflow_ref == format('{0}/.github/workflows/release.yml@refs/tags/{1}', github.repository, vars.PRIVATE_APPROVED_TAG) && inputs.version == vars.PRIVATE_APPROVED_TAG && github.sha == vars.PRIVATE_APPROVED_SHA && vars.PRIVATE_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Match tag and canonical source
+        id: version
+        env:
+          RELEASE_TAG: ${{ inputs.version }}
+          APPROVED_SHA: ${{ vars.PRIVATE_APPROVED_SHA }}
+          APPROVED_TAG: ${{ vars.PRIVATE_APPROVED_TAG }}
+        run: |
+          test "$GITHUB_REF" = "refs/tags/$RELEASE_TAG"
+          if test "$GITHUB_EVENT_NAME" = workflow_dispatch && test "${{ github.event.repository.private }}" = true && test -n "${{ vars.PRIVATE_RUNNER_LABELS }}"; then
+            test "$RELEASE_TAG" = "$APPROVED_TAG"
+            test "$GITHUB_SHA" = "$APPROVED_SHA"
+            test "$GITHUB_WORKFLOW_REF" = "$GITHUB_REPOSITORY/.github/workflows/release.yml@refs/tags/$APPROVED_TAG"
+            git fetch --no-tags origin refs/heads/main
+            test "$(git rev-parse FETCH_HEAD)" = "$GITHUB_SHA"
+            test "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")" = "$GITHUB_SHA"
+          fi
+          python scripts/sync_version.py --check --release "$RELEASE_TAG"
+          echo "version=${RELEASE_TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+      - name: Validate the seven CI checks for the exact commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/check_release_ci.py --repository "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA"
+      - name: Prepare both Python lockfiles for the early scan
+        id: dependency_locks
+        run: python scripts/check_release_dependencies.py prepare --root "${RUNNER_TEMP}/release-dependencies"
+      - name: Early Trivy scan of locked Python dependencies
+        id: dependency_scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: ${{ runner.temp }}/release-dependencies/locks
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: json
+          list-all-pkgs: true
+          timeout: 2m
+          output: ${{ runner.temp }}/release-dependencies/report.json
+      - name: Reject an empty or partial scan of both lockfiles
+        if: always() && steps.dependency_locks.outcome == 'success'
+        run: python scripts/check_release_dependencies.py check --root "${RUNNER_TEMP}/release-dependencies"
+  images:
+    needs: [validate]
+    environment: publication-approved
+    if: ${{ success() && (vars.PUBLICATION_APPROVED == 'true') && (!(github.event.repository.private && vars.PRIVATE_RUNNER_LABELS != '') || (github.event_name == 'workflow_dispatch' && github.ref == format('refs/tags/{0}', vars.PRIVATE_APPROVED_TAG) && github.workflow_ref == format('{0}/.github/workflows/release.yml@refs/tags/{1}', github.repository, vars.PRIVATE_APPROVED_TAG) && inputs.version == vars.PRIVATE_APPROVED_TAG && github.sha == vars.PRIVATE_APPROVED_SHA)) }}
+    runs-on: ${{ fromJSON(github.event.repository.private && github.event_name == 'workflow_dispatch' && github.ref == format('refs/tags/{0}', vars.PRIVATE_APPROVED_TAG) && github.workflow_ref == format('{0}/.github/workflows/release.yml@refs/tags/{1}', github.repository, vars.PRIVATE_APPROVED_TAG) && inputs.version == vars.PRIVATE_APPROVED_TAG && github.sha == vars.PRIVATE_APPROVED_SHA && vars.PRIVATE_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 40
+    env:
+      DOCKER_BUILD_RECORD_UPLOAD: "false"
+    permissions:
+      contents: read
+      packages: write
+      security-events: write # upload vulnerability SARIF to code scanning
+      id-token: write # keyless cosign signature (OIDC Fulcio)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version to publish
+        id: version
+        env:
+          VERSION_INPUT: ${{ needs.validate.outputs.tag }}
+        run: echo "version=$VERSION_INPUT" >> "$GITHUB_OUTPUT"
+
+      - name: Lowercase OCI repository
+        id: registry
+        run: |
+          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          image="ghcr.io/$owner/quadringent-ce"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+        with:
+          name: ${{ runner.environment == 'self-hosted' && 'quadringent-private' || '' }}
+          keep-state: ${{ runner.environment == 'self-hosted' }}
+      - name: Private local OCI directory
+        run: install -d -m 700 "${RUNNER_TEMP}/oci"
+
+      - name: Capture image (multi-architecture)
+        id: capture
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          provenance: false
+          outputs: type=oci,dest=${{ runner.temp }}/oci/capture,tar=false
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.validate.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          tags: ${{ steps.registry.outputs.image }}:${{ steps.version.outputs.version }}-capture
+
+      - name: Control plane image
+        id: control_plane
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/control-plane.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          provenance: false
+          outputs: type=oci,dest=${{ runner.temp }}/oci/control-plane,tar=false
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.validate.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          tags: ${{ steps.registry.outputs.image }}:${{ steps.version.outputs.version }}-control-plane
+
+      - name: Verifier image
+        id: verifier
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/verifier.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: false
+          provenance: false
+          outputs: type=oci,dest=${{ runner.temp }}/oci/verifier,tar=false
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.validate.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          tags: ${{ steps.registry.outputs.image }}:${{ steps.version.outputs.version }}-verifier
+
+      - name: Release build cache before scans
+        run: |
+          set -euo pipefail
+          # All three OCI exports are complete. Prune only the temporary builder
+          # cache; preserve the layouts in RUNNER_TEMP.
+          df -h "$RUNNER_TEMP" /tmp
+          df -i "$RUNNER_TEMP" /tmp
+          docker buildx du
+          docker buildx prune --all --force
+          docker buildx du
+          df -h "$RUNNER_TEMP" /tmp
+          df -i "$RUNNER_TEMP" /tmp
+
+      - name: Verify the six local variants and their exact digests
+        env:
+          CAPTURE_DIGEST: ${{ steps.capture.outputs.digest }}
+          CONTROL_PLANE_DIGEST: ${{ steps.control_plane.outputs.digest }}
+          VERIFIER_DIGEST: ${{ steps.verifier.outputs.digest }}
+        run: |
+          python3 scripts/release_oci.py prepare --root "${RUNNER_TEMP}/oci" \
+            --receipt "${RUNNER_TEMP}/oci/passed.json" --revision "$GITHUB_SHA" \
+            --capture-digest "$CAPTURE_DIGEST" --control-plane-digest "$CONTROL_PLANE_DIGEST" \
+            --verifier-digest "$VERIFIER_DIGEST"
+          du -sh "${RUNNER_TEMP}/oci"
+          df -h "$RUNNER_TEMP" /tmp
+          df -i "$RUNNER_TEMP" /tmp
+
+      # Published images reuse scanned bytes; reject any digest carrying
+      # a HIGH or CRITICAL vulnerability with an available upstream fix
+      # before announcing the release.
+      - name: Scan Trivy — capture
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          input: ${{ runner.temp }}/oci/capture-amd64
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: sarif
+          limit-severities-for-sarif: true
+          output: trivy-capture.sarif
+
+      - name: SARIF report — capture
+        if: always()
+        continue-on-error: true # private code scanning requires GitHub Advanced Security
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-capture.sarif
+          category: capture
+
+      - name: Scan Trivy — control-plane
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          input: ${{ runner.temp }}/oci/control-plane-amd64
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: sarif
+          limit-severities-for-sarif: true
+          output: trivy-control-plane.sarif
+
+      - name: SARIF report — control-plane
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-control-plane.sarif
+          category: control-plane
+
+      - name: Scan Trivy — verifier
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          input: ${{ runner.temp }}/oci/verifier-amd64
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          format: sarif
+          limit-severities-for-sarif: true
+          output: trivy-verifier.sarif
+
+      - name: SARIF report — verifier
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-verifier.sarif
+          category: verifier
+
+      # Uploaded SARIF contains vulnerability findings only.
+      # Each OCI view contains one exact manifest; Trivy --platform
+      # does not select an architecture from a local layout.
+      # Keep secret JSON on the runner; never upload detected secret excerpts
+      # to an artifact that could become public.
+      - name: Scan arm64 and secrets in variants and all their layers
+        env:
+          CAPTURE_IMAGE: ${{ runner.temp }}/oci/capture
+          CONTROL_PLANE_IMAGE: ${{ runner.temp }}/oci/control-plane
+          VERIFIER_IMAGE: ${{ runner.temp }}/oci/verifier
+        run: |
+          set -euo pipefail
+          umask 077
+          command -v trivy >/dev/null
+          scan_image() {
+            local name="$1" image="$2"
+            trivy image --input "${image}-arm64" --platform linux/arm64 \
+              --scanners vuln --severity HIGH,CRITICAL \
+              --ignore-unfixed --exit-code 1 --quiet --format json \
+              --output "${RUNNER_TEMP}/trivy-${name}-arm64-vuln.json"
+            for platform in linux/amd64 linux/arm64; do
+              trivy image --input "${image}-${platform#linux/}" --platform "$platform" \
+                --scanners secret --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+                --exit-code 1 --quiet --format json \
+                --output "${RUNNER_TEMP}/trivy-${name}-${platform#linux/}-secrets.json"
+            done
+            # Image scans can omit base layers and deleted files.
+            # These private copies retain every entry separately.
+            trivy fs --scanners secret --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+              --exit-code 1 --quiet --format json \
+              --output "${RUNNER_TEMP}/trivy-${name}-layers-secrets.json" "${image}-secret-files"
+          }
+          scan_image capture "$CAPTURE_IMAGE"
+          scan_image control-plane "$CONTROL_PLANE_IMAGE"
+          scan_image verifier "$VERIFIER_IMAGE"
+          echo 'amd64 and arm64 variants: no detected secrets; arm64: no fixable HIGH/CRITICAL vulnerabilities.' >> "$GITHUB_STEP_SUMMARY"
+
+      # Six SPDX SBOMs from the same local views, without rebuilding.
+      - name: SBOM SPDX — capture
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          input: ${{ runner.temp }}/oci/capture-amd64
+          format: spdx-json
+          output: quadringent-${{ steps.version.outputs.version }}-capture.spdx.json
+
+      - name: SBOM SPDX — control-plane
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          input: ${{ runner.temp }}/oci/control-plane-amd64
+          format: spdx-json
+          output: quadringent-${{ steps.version.outputs.version }}-control-plane.spdx.json
+
+      - name: SBOM SPDX — verifier
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          input: ${{ runner.temp }}/oci/verifier-amd64
+          format: spdx-json
+          output: quadringent-${{ steps.version.outputs.version }}-verifier.spdx.json
+
+      - name: SPDX SBOM — arm64 variants
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          CAPTURE_IMAGE: ${{ runner.temp }}/oci/capture-arm64
+          CONTROL_PLANE_IMAGE: ${{ runner.temp }}/oci/control-plane-arm64
+          VERIFIER_IMAGE: ${{ runner.temp }}/oci/verifier-arm64
+        run: |
+          set -euo pipefail
+          trivy image --input "$CAPTURE_IMAGE" --quiet --format spdx-json \
+            --output "quadringent-${VERSION}-capture-arm64.spdx.json"
+          trivy image --input "$CONTROL_PLANE_IMAGE" --quiet --format spdx-json \
+            --output "quadringent-${VERSION}-control-plane-arm64.spdx.json"
+          trivy image --input "$VERIFIER_IMAGE" --quiet --format spdx-json \
+            --output "quadringent-${VERSION}-verifier-arm64.spdx.json"
+
+      - name: Seal the six scans before any publication authentication
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python3 scripts/release_oci.py seal --root "${RUNNER_TEMP}/oci" \
+            --receipt "${RUNNER_TEMP}/oci/passed.json" --private-reports "$RUNNER_TEMP" \
+            --public-reports "$GITHUB_WORKSPACE" --version "$VERSION"
+
+      - name: Export the 21 original sealed OCI metadata files
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          python3 scripts/release_oci.py export-metadata --root "${RUNNER_TEMP}/oci" \
+            --receipt "${RUNNER_TEMP}/oci/passed.json" --revision "$GITHUB_SHA" \
+            --version "$VERSION" --repository "$GITHUB_REPOSITORY" \
+            --output "${RUNNER_TEMP}/oci-admission-metadata"
+
+      - name: Scan exported OCI metadata for secrets
+        run: |
+          umask 077
+          trivy fs --quiet --scanners secret --severity UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL \
+            --exit-code 1 --format json --output "${RUNNER_TEMP}/oci-metadata-secrets.json" \
+            "${RUNNER_TEMP}/oci-admission-metadata"
+
+      # Fingerprint receipt only, separate from release assets.
+      # Never include secret reports or layer contents in this artifact.
+      - name: Temporarily retain the OCI scan receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: oci-scan-receipt
+          path: ${{ runner.temp }}/oci/passed.json
+          retention-days: 1
+          if-no-files-found: error
+
+      # Original metadata only, without layers or reports; never attach to the release.
+      - name: Temporarily retain original OCI metadata
+        uses: actions/upload-artifact@v4
+        with:
+          name: oci-admission-metadata
+          path: ${{ runner.temp }}/oci-admission-metadata/
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Install OCI promotion without rebuilding
+        run: sudo apt-get update && sudo apt-get install -y skopeo
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote exactly the three scanned OCI indexes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          CAPTURE_DIGEST: ${{ steps.capture.outputs.digest }}
+          CONTROL_PLANE_DIGEST: ${{ steps.control_plane.outputs.digest }}
+          VERIFIER_DIGEST: ${{ steps.verifier.outputs.digest }}
+        run: |
+          set -euo pipefail
+          python3 scripts/release_oci.py verify --root "${RUNNER_TEMP}/oci" \
+            --receipt "${RUNNER_TEMP}/oci/passed.json"
+          promote() {
+            local component="$1" expected="$2"
+            skopeo copy --all --preserve-digests --authfile "${DOCKER_CONFIG:-$HOME/.docker}/config.json" \
+              --digestfile "${RUNNER_TEMP}/${component}-promoted.digest" \
+              "oci:${RUNNER_TEMP}/oci/${component}" "docker://${IMAGE}:${VERSION}-${component}"
+            test "$(cat "${RUNNER_TEMP}/${component}-promoted.digest")" = "$expected"
+          }
+          promote capture "$CAPTURE_DIGEST"
+          promote control-plane "$CONTROL_PLANE_DIGEST"
+          promote verifier "$VERIFIER_DIGEST"
+
+      - name: Installation and digest image manifests
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+          CAPTURE: ${{ steps.capture.outputs.digest }}
+          CONTROL_PLANE: ${{ steps.control_plane.outputs.digest }}
+          VERIFIER: ${{ steps.verifier.outputs.digest }}
+        run: |
+          python3 scripts/write_release_manifest.py \
+            --repository "$IMAGE" --capture "$CAPTURE" --control-plane "$CONTROL_PLANE" \
+            --verifier "$VERIFIER" --version "$VERSION"
+
+      - name: Published digests — use in site values
+        run: |
+          {
+            echo "### ${IMAGE}@${{ steps.version.outputs.version }}"
+            echo "- image.digest (capture) : \`${{ steps.capture.outputs.digest }}\`"
+            echo "- controlPlane.image.digest : \`${{ steps.control_plane.outputs.digest }}\`"
+            echo "- observability.imageDigest : \`${{ steps.verifier.outputs.digest }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Keyless signatures bind the published digests; images installed through
+      # helm upgrade remain verifiable by their signed digest.
+      - uses: sigstore/cosign-installer@v4.1.2
+
+      - name: Sign the published digests
+        run: |
+          cosign sign --yes "${IMAGE}@${{ steps.capture.outputs.digest }}"
+          cosign sign --yes "${IMAGE}@${{ steps.control_plane.outputs.digest }}"
+          cosign sign --yes "${IMAGE}@${{ steps.verifier.outputs.digest }}"
+
+      - name: SBOM and scan reports artifact
+        if: always() # retain reports when a scan blocks the release
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-trivy-reports
+          path: |
+            *.sarif
+            *.spdx.json
+            images.json
+            release-manifest.json
+          if-no-files-found: warn
+
+  chart:
+    needs: [validate]
+    environment: publication-approved
+    if: ${{ success() && (vars.PUBLICATION_APPROVED == 'true') && (!(github.event.repository.private && vars.PRIVATE_RUNNER_LABELS != '') || (github.event_name == 'workflow_dispatch' && github.ref == format('refs/tags/{0}', vars.PRIVATE_APPROVED_TAG) && github.workflow_ref == format('{0}/.github/workflows/release.yml@refs/tags/{1}', github.repository, vars.PRIVATE_APPROVED_TAG) && inputs.version == vars.PRIVATE_APPROVED_TAG && github.sha == vars.PRIVATE_APPROVED_SHA)) }}
+    runs-on: ${{ fromJSON(github.event.repository.private && github.event_name == 'workflow_dispatch' && github.ref == format('refs/tags/{0}', vars.PRIVATE_APPROVED_TAG) && github.workflow_ref == format('{0}/.github/workflows/release.yml@refs/tags/{1}', github.repository, vars.PRIVATE_APPROVED_TAG) && inputs.version == vars.PRIVATE_APPROVED_TAG && github.sha == vars.PRIVATE_APPROVED_SHA && vars.PRIVATE_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v4.1.4
+
+      - name: Version to publish
+        id: version
+        env:
+          VERSION_INPUT: ${{ needs.validate.outputs.tag }}
+        run: echo "version=$VERSION_INPUT" >> "$GITHUB_OUTPUT"
+
+      - name: Package the chart for release
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          helm package chart --version "$RELEASE_VERSION" --app-version "$RELEASE_VERSION"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Python distribution
+        run: |
+          python -m pip install build
+          python -m build
+      - name: Normalize sdist ownership metadata
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          epoch="$(git show -s --format=%ct HEAD)"
+          python scripts/normalize_release_archive.py "dist/quadringent-${RELEASE_VERSION}.tar.gz" --epoch "$epoch"
+      - name: Verify sdist installation files
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import tarfile
+
+          version = os.environ["RELEASE_VERSION"]
+          archive = Path("dist") / f"quadringent-{version}.tar.gz"
+          prefix = f"quadringent-{version}/"
+          with tarfile.open(archive) as tar:
+              names = set(tar.getnames())
+          required = {
+              "chart/Chart.yaml",
+              "deploy/terraform/aws/base/main.tf",
+              "deploy/terraform/aws/eks-addon/main.tf",
+              "deploy/terraform/aws/vm/main.tf",
+              "deploy/terraform/gcp/base/main.tf",
+              "deploy/terraform/gcp/gke-addon/main.tf",
+              "deploy/terraform/gcp/vm/main.tf",
+          }
+          missing = sorted(path for path in required if prefix + path not in names)
+          forbidden = sorted(name for name in names if "/.terraform/" in name or name.endswith((".tfstate", ".tfstate.backup", "/tfplan", "/site.auto.tfvars.json")))
+          if missing or forbidden:
+              raise SystemExit(f"Invalid sdist: missing files={missing}, forbidden files={forbidden}")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-packages
+          path: |
+            quadringent-*.tgz
+            dist/*.whl
+            dist/*.tar.gz
+
+  release:
+    # Create the GitHub release only after scanned images and chart succeed;
+    # a blocking scan prevents any release announcement.
+    needs: [images, chart, validate]
+    environment: publication-approved
+    if: ${{ success() && (!(github.event.repository.private && vars.PRIVATE_RUNNER_LABELS != '') || (github.event_name == 'workflow_dispatch' && github.ref == format('refs/tags/{0}', vars.PRIVATE_APPROVED_TAG) && github.workflow_ref == format('{0}/.github/workflows/release.yml@refs/tags/{1}', github.repository, vars.PRIVATE_APPROVED_TAG) && inputs.version == vars.PRIVATE_APPROVED_TAG && github.sha == vars.PRIVATE_APPROVED_SHA)) }}
+    runs-on: ${{ fromJSON(github.event.repository.private && github.event_name == 'workflow_dispatch' && github.ref == format('refs/tags/{0}', vars.PRIVATE_APPROVED_TAG) && github.workflow_ref == format('{0}/.github/workflows/release.yml@refs/tags/{1}', github.repository, vars.PRIVATE_APPROVED_TAG) && inputs.version == vars.PRIVATE_APPROVED_TAG && github.sha == vars.PRIVATE_APPROVED_SHA && vars.PRIVATE_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the GitHub release
+    steps:
+      - name: Version to publish
+        id: version
+        env:
+          VERSION_INPUT: ${{ needs.validate.outputs.tag }}
+        run: echo "version=$VERSION_INPUT" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sbom-trivy-reports
+          path: supply-chain
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-packages
+          path: packages
+
+      - name: GitHub release with SBOM and Trivy reports
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: ${{ steps.version.outputs.version }}
+          generate_release_notes: true
+          draft: true
+          fail_on_unmatched_files: true
+          files: |
+            supply-chain/*
+            packages/**/*.whl
+            packages/**/*.tar.gz
+            packages/*.tgz

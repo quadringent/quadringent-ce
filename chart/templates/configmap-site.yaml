@@ -1,0 +1,236 @@
+{{- /*
+  Identité du site déclarée : chaque valeur d'installation vit dans les values
+  du site (infra-values/), jamais dans la chart. Ce ConfigMap porte les
+  variables QUADRINGENT_* consommées par quadringent.site_config ; les pods le
+  chargent via envFrom et le runtime revalide chaque champ.
+*/ -}}
+{{- $site := .Values.site }}
+{{- /* site.awsAccountId et aws.region ne concernent que le backend AWS —
+  gap (c) de docs/product/install-default.md. Sur GCS, ces deux champs
+  restent vides : les gardes ci-dessous ne s'appliquent qu'au backend actif. */ -}}
+{{- $storageBackend := .Values.storage.backend | default "aws" }}
+{{- /* gap (a) de docs/product/install-default.md : tant qu'aucune connexion
+  IBM i n'est déclarée (avant l'assistant en trois écrans), les champs de
+  connexion IBM i/Snowflake ci-dessous ne sont ni exigés ni validés — la
+  chart se rend avec l'identité de site et le stockage connus de
+  l'installateur, sans jamais poser de valeur fictive à leur place. */ -}}
+{{- $connectionDeclared := $site.connectionDeclared }}
+{{ include "quadringent.siteGuards" . }}
+{{- if not (regexMatch "^[a-z0-9]([a-z0-9-]{0,28}[a-z0-9])?$" (required "site.id is required" $site.id)) }}
+{{- fail "site.id must be a bounded lowercase identifier" }}
+{{- end }}
+{{- if eq $storageBackend "aws" }}
+{{- if not (regexMatch "^[0-9]{12}$" (required "site.awsAccountId is required when storage.backend=aws" $site.awsAccountId)) }}
+{{- fail "site.awsAccountId must be a twelve-digit AWS account" }}
+{{- end }}
+{{- if not (regexMatch "^[a-z]{2}(-[a-z]+)+-[0-9]$" (required "aws.region is required when storage.backend=aws" .Values.aws.region)) }}
+{{- fail "aws.region must be a valid AWS region" }}
+{{- end }}
+{{- else if eq $storageBackend "gcs" }}
+{{- if $site.awsAccountId }}
+{{- fail "site.awsAccountId applies only to storage.backend=aws" }}
+{{- end }}
+{{- if .Values.aws.region }}
+{{- fail "aws.region applies only to storage.backend=aws" }}
+{{- end }}
+{{- end }}
+{{- if not (regexMatch "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$" (required "site.rawBucket is required" $site.rawBucket)) }}
+{{- fail "site.rawBucket must be a valid S3 bucket name" }}
+{{- end }}
+{{- if not (regexMatch "^[a-z0-9][a-z0-9._-]{0,62}(/[a-z0-9][a-z0-9._-]{0,62}){0,7}$" (required "site.rawPrefixRoot is required" $site.rawPrefixRoot)) }}
+{{- fail "site.rawPrefixRoot must remain a bounded relative prefix" }}
+{{- end }}
+{{- /* site.checkpointTable (table DynamoDB) ne concerne que storage.backend=aws,
+  comme site.awsAccountId/aws.region ci-dessus (gap (c)) : storage.checkpointBucket
+  porte l'équivalent GCS. Aucune valeur fictive n'est acceptée hors AWS. */ -}}
+{{- if eq $storageBackend "aws" }}
+{{- if not (regexMatch "^[a-z0-9][a-z0-9-]{0,62}$" (required "site.checkpointTable is required when storage.backend=aws" $site.checkpointTable)) }}
+{{- fail "site.checkpointTable must be a bounded identifier" }}
+{{- end }}
+{{- else if $site.checkpointTable }}
+{{- fail "site.checkpointTable applies only to storage.backend=aws" }}
+{{- end }}
+{{- if $connectionDeclared }}
+{{- range $name, $value := dict "sourceSchema" $site.sourceSchema "proofTable" $site.proofTable "journalName" $site.journalName "ibmiUser" $site.ibmiUser }}
+{{- if not (regexMatch "^[A-Z][A-Z0-9_]{0,29}$" (required (printf "site.%s is required" $name) $value)) }}
+{{- fail (printf "site.%s must be a valid IBM i identifier" $name) }}
+{{- end }}
+{{- end }}
+{{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$" (required "site.ibmiHost is required" $site.ibmiHost)) }}
+{{- fail "site.ibmiHost must be a bounded IBM i host" }}
+{{- end }}
+{{- if contains ".." $site.ibmiHost }}
+{{- fail "site.ibmiHost must be a bounded IBM i host" }}
+{{- end }}
+{{- range $name, $value := dict "destinationDatabase" $site.destinationDatabase "destinationSchema" $site.destinationSchema }}
+{{- if not (regexMatch "^[A-Za-z_][A-Za-z0-9_$]{0,62}$" (required (printf "site.%s is required" $name) $value)) }}
+{{- fail (printf "site.%s must be a Snowflake identifier" $name) }}
+{{- end }}
+{{- end }}
+{{- if not (regexMatch "^[a-z0-9][a-z0-9-]{0,62}$" (required "site.destinationId is required" $site.destinationId)) }}
+{{- fail "site.destinationId must be a bounded identifier" }}
+{{- end }}
+{{- if not (regexMatch "^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$" (required "site.snowflakeAccount is required" $site.snowflakeAccount)) }}
+{{- fail "site.snowflakeAccount must be a bounded account identifier" }}
+{{- end }}
+{{- if or (not (kindIs "slice" $site.fleetTables)) (not $site.fleetTables) }}
+{{- fail "site.fleetTables must declare at least one table" }}
+{{- end }}
+{{- if gt (len $site.fleetTables) 64 }}
+{{- fail "site.fleetTables exceeds the manifest limit" }}
+{{- end }}
+{{- if not (has $site.proofTable $site.fleetTables) }}
+{{- fail "site.proofTable must belong to the declared manifest" }}
+{{- end }}
+{{- /* Même alphabet que quadringent.site_config._IDENTIFIER : la chart est la
+  première source déclarée, le runtime revalide — la forme ne doit pas
+  diverger entre les deux. */ -}}
+{{- range $name, $list := dict "fleetTables" $site.fleetTables "keyedTables" $site.keyedTables "provisionedStages" $site.provisionedStages "reservableTables" $site.reservableTables "proofKeyColumns" $site.proofKeyColumns }}
+{{- if and $list (not (kindIs "slice" $list)) }}
+{{- fail (printf "site.%s must be a list of identifiers" $name) }}
+{{- end }}
+{{- if kindIs "slice" $list }}
+{{- range $entry := $list }}
+{{- if not (regexMatch "^[A-Z][A-Z0-9_]{0,29}$" (toString $entry)) }}
+{{- fail (printf "site.%s contains an invalid IBM i identifier" $name) }}
+{{- end }}
+{{- end }}
+{{- if ne (len (uniq $list)) (len $list) }}
+{{- fail (printf "site.%s contient un doublon" $name) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- range $name, $list := dict "keyedTables" $site.keyedTables "provisionedStages" $site.provisionedStages "reservableTables" $site.reservableTables }}
+{{- range $table := $list }}
+{{- if not (has $table $site.fleetTables) }}
+{{- fail (printf "site.%s must remain within the declared manifest" $name) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if gt (len $site.proofKeyColumns) 16 }}
+{{- fail "site.proofKeyColumns is limited to sixteen columns" }}
+{{- end }}
+{{- /* Nom de document de preuve autonome : objet S3 nu dont le nom fait
+  partie du contrat IAM du site. Optionnel — le runtime applique son défaut. */ -}}
+{{- with $site.autonomousProofName }}
+{{- if not (regexMatch "^[a-z0-9][a-z0-9._-]{0,126}\\.json$" (toString .)) }}
+{{- fail "site.autonomousProofName must be a bounded .json document name without a path" }}
+{{- end }}
+{{- end }}
+{{- /* Préfixe des objets Snowflake provisionnés (tables, warehouse, rôle) :
+  contrat d'infra du site. Optionnel — le runtime applique son défaut. */ -}}
+{{- with $site.destinationPrefix }}
+{{- if not (regexMatch "^[A-Za-z_][A-Za-z0-9_$]{0,62}$" (toString .)) }}
+{{- fail "site.destinationPrefix must be a bounded Snowflake identifier" }}
+{{- end }}
+{{- end }}
+{{- with $site.snowflakeWarehouse }}
+{{- if not (regexMatch "^[A-Za-z_][A-Za-z0-9_$]{0,62}$" (toString .)) }}
+{{- fail "site.snowflakeWarehouse must be a bounded Snowflake identifier" }}
+{{- end }}
+{{- end }}
+{{- /* Même borne que _TLS_CA_FILE côté runtime : chemin absolu borné, sans
+  remontée de répertoire. */ -}}
+{{- if or (not (regexMatch "^/[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$" (required "as400.tlsCaFile is required" .Values.as400.tlsCaFile))) (contains ".." .Values.as400.tlsCaFile) }}
+{{- fail "as400.tlsCaFile must be a bounded absolute path without .." }}
+{{- end }}
+{{- else if or $site.ibmiHost $site.ibmiUser $site.sourceSchema $site.proofTable $site.journalName $site.destinationDatabase $site.destinationSchema $site.destinationId $site.snowflakeAccount $site.fleetTables $site.keyedTables $site.provisionedStages $site.reservableTables $site.proofKeyColumns $site.autonomousProofName $site.destinationPrefix $site.snowflakeWarehouse .Values.as400.tlsCaFile }}
+{{- fail "site.connectionDeclared=false requires IBM i/Snowflake connection fields (site.ibmiHost, site.proofTable, ..., as400.tlsCaFile) to remain empty: no partial or fictitious value accepted" }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quadringent.fullname" . }}-site
+  annotations:
+    quadringent.io/environment: {{ .Values.deployment.environment }}
+    quadringent.io/production-promotion: forbidden
+  labels:
+    {{- include "quadringent.labels" . | nindent 4 }}
+data:
+  QUADRINGENT_ENVIRONMENT: {{ .Values.deployment.environment | quote }}
+  QUADRINGENT_COST_NAMESPACE: {{ $site.namespace | quote }}
+  QUADRINGENT_SITE_ID: {{ $site.id | quote }}
+  {{- /* Le runtime (quadringent.site_config) lit cette variable pour savoir
+    si QUADRINGENT_AWS_ACCOUNT_ID/QUADRINGENT_AWS_REGION s'appliquent. */}}
+  QUADRINGENT_STORAGE_BACKEND: {{ $storageBackend | quote }}
+  {{- /* Vides sur storage.backend=gcs (voir gardes ci-dessus) : le runtime
+    refuse désormais explicitement ces deux champs hors storage_backend=aws. */}}
+  QUADRINGENT_AWS_ACCOUNT_ID: {{ $site.awsAccountId | quote }}
+  QUADRINGENT_AWS_REGION: {{ .Values.aws.region | quote }}
+  QUADRINGENT_RAW_BUCKET: {{ $site.rawBucket | quote }}
+  QUADRINGENT_RAW_PREFIX_ROOT: {{ $site.rawPrefixRoot | quote }}
+  {{- /* Vide sur storage.backend=gcs (garde ci-dessus) : jamais la table
+    DynamoDB fictive publiée avant ce correctif. */}}
+  QUADRINGENT_CHECKPOINT_TABLE: {{ $site.checkpointTable | quote }}
+  {{- /* Consommé par l'exécuteur de pipeline v2 pour construire l'EvidenceReader
+    sur GCS (build_pipeline_executor, src/quadringent_control_plane/v2/entrypoint.py) —
+    absent ici, storage.backend=gcs résolvait toujours une chaîne vide. */}}
+  {{- if eq $storageBackend "gcs" }}
+  QUADRINGENT_CHECKPOINT_BUCKET: {{ required "storage.checkpointBucket is required when storage.backend=gcs" .Values.storage.checkpointBucket | quote }}
+  {{- end }}
+  QUADRINGENT_SOURCE_SCHEMA: {{ $site.sourceSchema | quote }}
+  QUADRINGENT_PROOF_TABLE: {{ $site.proofTable | quote }}
+  QUADRINGENT_JOURNAL_NAME: {{ $site.journalName | quote }}
+  QUADRINGENT_DESTINATION_DATABASE: {{ $site.destinationDatabase | quote }}
+  QUADRINGENT_DESTINATION_SCHEMA: {{ $site.destinationSchema | quote }}
+  QUADRINGENT_DESTINATION_ID: {{ $site.destinationId | quote }}
+  QUADRINGENT_IBMI_TLS_CA_FILE: {{ .Values.as400.tlsCaFile | quote }}
+  QUADRINGENT_SNOWFLAKE_ACCOUNT: {{ $site.snowflakeAccount | quote }}
+  QUADRINGENT_IBMI_HOST: {{ $site.ibmiHost | quote }}
+  QUADRINGENT_IBMI_USER: {{ $site.ibmiUser | quote }}
+  {{- /* Nom et clé de la référence Secret : métadonnées publiques, jamais la
+     valeur du secret — le control plane les publie pour pré-remplir le
+     formulaire d'installation sans recopie manuelle. Obligatoires même sans
+     connexion déclarée : ce sont des noms d'objets Kubernetes du site (créés
+     ou non), pas des informations de connexion IBM i. */}}
+  QUADRINGENT_IBMI_PASSWORD_SECRET: {{ required "ibmi.passwordSecret.name is required" .Values.ibmi.passwordSecret.name | quote }}
+  QUADRINGENT_IBMI_PASSWORD_KEY: {{ required "ibmi.passwordSecret.key is required" .Values.ibmi.passwordSecret.key | quote }}
+  QUADRINGENT_FLEET_TABLES: {{ join "," $site.fleetTables | quote }}
+  {{- with $site.keyedTables }}
+  QUADRINGENT_KEYED_TABLES: {{ join "," . | quote }}
+  {{- end }}
+  {{- with $site.provisionedStages }}
+  QUADRINGENT_PROVISIONED_STAGES: {{ join "," . | quote }}
+  {{- end }}
+  {{- with $site.reservableTables }}
+  QUADRINGENT_RESERVABLE_TABLES: {{ join "," . | quote }}
+  {{- end }}
+  {{- with $site.proofKeyColumns }}
+  QUADRINGENT_PROOF_KEY_COLUMNS: {{ join "," . | quote }}
+  {{- end }}
+  {{- with $site.forbiddenFragments }}
+  QUADRINGENT_FORBIDDEN_FRAGMENTS: {{ join "," . | quote }}
+  {{- end }}
+  {{- with $site.snowflakeConnection }}
+  QUADRINGENT_SNOWFLAKE_CONNECTION: {{ . | quote }}
+  {{- end }}
+  {{- with $site.snowflakeWarehouse }}
+  QUADRINGENT_SNOWFLAKE_WAREHOUSE: {{ . | upper | quote }}
+  {{- end }}
+  {{- with $site.awsProfile }}
+  QUADRINGENT_AWS_PROFILE: {{ . | quote }}
+  {{- end }}
+  {{- with $site.autonomousProofName }}
+  QUADRINGENT_AUTONOMOUS_PROOF_NAME: {{ . | quote }}
+  {{- end }}
+  {{- with $site.destinationPrefix }}
+  QUADRINGENT_DESTINATION_PREFIX: {{ . | upper | quote }}
+  {{- end }}
+  {{- $destinationMode := $site.destinationMode | default "copy_merge" }}
+  {{- if not (or (eq $destinationMode "copy_merge") (eq $destinationMode "streaming")) }}
+  {{- fail "site.destinationMode must be empty, copy_merge or streaming" }}
+  {{- end }}
+  QUADRINGENT_DESTINATION_MODE: {{ $destinationMode | quote }}
+  {{- if eq $destinationMode "streaming" }}
+  QUADRINGENT_STREAMING_PROFILE_JSON: {{ printf "%s/%s" .Values.streaming.mountPath .Values.streaming.profileSecret.key | quote }}
+  {{- end }}
+
+{{- $price := toString .Values.site.snowflakeCreditPrice }}
+{{- $currency := toString .Values.site.costCurrency }}
+{{- if or (ne $price "") (ne $currency "") }}
+{{- if or (not (regexMatch "^[0-9]{1,8}(\\.[0-9]{1,6})?$" $price)) (not (regexMatch "^[A-Z]{3}$" $currency)) }}
+{{- fail "site.snowflakeCreditPrice et site.costCurrency doivent former un tarif decimal positif ou nul et une devise a trois lettres" }}
+{{- end }}
+  QUADRINGENT_SNOWFLAKE_CREDIT_PRICE: {{ $price | quote }}
+  QUADRINGENT_COST_CURRENCY: {{ $currency | quote }}
+{{- end }}

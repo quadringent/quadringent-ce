@@ -1,0 +1,1425 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://quadringent.io/schemas/chart-values.json",
+  "title": "Valeurs du chart quadringent",
+  "description": "Validation schema for Quadringent chart values.yaml (IBM i → S3/GCS → Snowflake). Covers expert self-hosting: undeclared properties are rejected by additionalProperties=false, except documented extensible maps (nodeSelector, tolerations, matchLabels, headers).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "image",
+    "deployment",
+    "site",
+    "serviceAccount",
+    "replicaCount",
+    "resources",
+    "ibmi",
+    "as400",
+    "tuning",
+    "storage",
+    "aws"
+  ],
+  "definitions": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "Immutable image digest (sha256:<64 hex>). Never a mutable tag."
+    },
+    "optionalDigest": {
+      "type": "string",
+      "pattern": "^(sha256:[a-f0-9]{64})?$",
+      "description": "Image digest; empty permitted when the chart default applies."
+    },
+    "pullPolicy": {
+      "type": "string",
+      "enum": [
+        "Always",
+        "IfNotPresent",
+        "Never"
+      ],
+      "description": "Container image pull policy."
+    },
+    "namePattern": {
+      "type": "string",
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+      "description": "Kubernetes name (DNS-1123 label): lowercase letters, digits and hyphens, up to 63 characters."
+    },
+    "positiveInt": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Strictly positive integer."
+    },
+    "nonNegativeInt": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Nonnegative integer."
+    },
+    "positiveNumber": {
+      "description": "Strictly positive number (integer or decimal). String form also accepted: --set converts only integers automatically; decimals such as 15.1 remain strings.",
+      "oneOf": [
+        {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+$"
+        }
+      ]
+    },
+    "stringOrNumber": {
+      "type": [
+        "string",
+        "number"
+      ],
+      "description": "String or number: accepts textual or numeric --set."
+    },
+    "stringOrStringList": {
+      "type": [
+        "string",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "description": "Single string or string list (accepts --set scalar and list forms)."
+    },
+    "boundedString": {
+      "type": "string",
+      "description": "Free string (site-declared identifier, host or path)."
+    },
+    "secretRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Site Kubernetes Secret name."
+        },
+        "key": {
+          "type": "string",
+          "description": "Secret key containing the value."
+        }
+      },
+      "description": "Reference to a Kubernetes Secret managed outside the chart."
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Kubernetes container resource requests and limits.",
+      "properties": {
+        "requests": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cpu": {
+              "type": "string",
+              "description": "Requested CPU, e.g. 50m or \"1\"."
+            },
+            "memory": {
+              "type": "string",
+              "description": "Requested memory, e.g. 512Mi."
+            }
+          }
+        },
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cpu": {
+              "type": "string",
+              "description": "Maximum CPU, e.g. \"1\"."
+            },
+            "memory": {
+              "type": "string",
+              "description": "Maximum memory, e.g. 2Gi."
+            }
+          }
+        }
+      }
+    },
+    "tolerations": {
+      "type": "array",
+      "description": "Standard Kubernetes tolerations (passed through to the manifest).",
+      "items": {
+        "type": "object"
+      }
+    },
+    "labelMap": {
+      "type": "object",
+      "description": "Extensible Kubernetes label/selector map (arbitrary key/value).",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "podSecurityContext": {
+      "type": "object",
+      "description": "Pod-level securityContext, separate from the chart-managed container securityContext. Empty by default: behavior unchanged.",
+      "additionalProperties": true
+    }
+  },
+  "properties": {
+    "gcpIdentityMode": {
+      "type": "string",
+      "enum": [
+        "gke-workload-identity",
+        "vm-metadata"
+      ],
+      "description": "GKE: Workload Identity annotation; dedicated Compute Engine VM: node metadata identity without a GKE annotation."
+    },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repository",
+        "pullPolicy"
+      ],
+      "description": "Main container image (journal reader).",
+      "properties": {
+        "repository": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Image registry/repository, e.g. ghcr.io/quadringent/quadringent."
+        },
+        "digest": {
+          "$ref": "#/definitions/optionalDigest"
+        },
+        "pullPolicy": {
+          "$ref": "#/definitions/pullPolicy"
+        },
+        "pullSecret": {
+          "type": "string",
+          "description": "Kubernetes imagePullSecret name for a private registry. Empty: no imagePullSecret mounted."
+        }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "environment",
+        "productionPromotionAllowed"
+      ],
+      "description": "Deployment tier. The chart is nonproduction: no PROD profile accepted.",
+      "properties": {
+        "environment": {
+          "type": "string",
+          "enum": [
+            "dev",
+            "int",
+            "test",
+            "staging"
+          ],
+          "description": "Declared nonproduction environment. No PROD promotion path."
+        },
+        "productionPromotionAllowed": {
+          "type": "boolean",
+          "const": false,
+          "description": "Must remain false; rendering otherwise fails."
+        }
+      }
+    },
+    "site": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Declared site identity injected into the -site ConfigMap (QUADRINGENT_*). No default: a release without site declaration is refused.",
+      "properties": {
+        "connectionDeclared": {
+          "type": "boolean",
+          "description": "false: no IBM i connection declared yet (default installer before the wizard); IBM i/Snowflake connection fields stay empty and are not required. true (default): connection fields are required."
+        },
+        "snowflakeCreditPrice": {
+          "$ref": "#/definitions/stringOrNumber",
+          "description": "Customer contract price per Snowflake credit. Declare with costCurrency."
+        },
+        "costCurrency": {
+          "type": "string",
+          "description": "Price currency (e.g. EUR, USD). Declare with snowflakeCreditPrice."
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]{0,63}$",
+          "description": "Short site identifier (lowercase letters, digits, hyphens)."
+        },
+        "awsAccountId": {
+          "type": "string",
+          "pattern": "^([0-9]{12})?$",
+          "description": "Twelve-digit AWS account. Required for storage.backend=aws; empty for storage.backend=gcs."
+        },
+        "namespace": {
+          "type": "string",
+          "pattern": "^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)?$",
+          "description": "Declared Kubernetes namespace: rendering fails for any other namespace. Empty: deployment.environment/siteGuards requires an explicit declaration with a dedicated message."
+        },
+        "ibmiHost": {
+          "type": "string",
+          "description": "IBM i partition host or IP."
+        },
+        "ibmiUser": {
+          "type": "string",
+          "description": "IBM i reader user."
+        },
+        "sourceSchema": {
+          "type": "string",
+          "description": "IBM i source schema (library)."
+        },
+        "proofTable": {
+          "type": "string",
+          "description": "Proof-path table: must belong to fleetTables."
+        },
+        "journalName": {
+          "type": "string",
+          "description": "Observed IBM i journal name."
+        },
+        "rawBucket": {
+          "type": "string",
+          "description": "Site raw S3/GCS bucket."
+        },
+        "rawPrefixRoot": {
+          "type": "string",
+          "description": "Object prefix root, e.g. <product>/<library>."
+        },
+        "checkpointTable": {
+          "type": "string",
+          "description": "DynamoDB checkpoint table."
+        },
+        "destinationDatabase": {
+          "type": "string",
+          "description": "Snowflake destination database."
+        },
+        "destinationSchema": {
+          "type": "string",
+          "description": "Snowflake destination schema."
+        },
+        "destinationId": {
+          "type": "string",
+          "description": "Snowflake destination identifier."
+        },
+        "destinationPrefix": {
+          "type": "string",
+          "pattern": "^([A-Z][A-Z0-9_]*)?$",
+          "description": "Provisioned Snowflake object prefix. Empty: runtime uses QUADRINGENT."
+        },
+        "destinationMode": {
+          "type": "string",
+          "pattern": "^(copy_merge|streaming)?$",
+          "description": "Mirror/history path. Empty or copy_merge: COPY INTO + MERGE. streaming: Snowpipe Streaming + loader-driven mirror MERGE (requires streaming.profileSecret)."
+        },
+        "snowflakeAccount": {
+          "type": "string",
+          "description": "Site Snowflake account."
+        },
+        "snowflakeConnection": {
+          "type": "string",
+          "description": "Optional Snowflake connection alias."
+        },
+        "snowflakeWarehouse": {
+          "type": "string",
+          "description": "Existing Snowflake warehouse, never created or suspended by the chart. Empty: dedicated warehouse derived from the prefix."
+        },
+        "awsProfile": {
+          "type": "string",
+          "description": "Optional local AWS profile."
+        },
+        "autonomousProofName": {
+          "type": "string",
+          "description": "Autonomous proof document name. Empty: runtime uses quadringent-autonomous-latest.json."
+        },
+        "fleetTables": {
+          "type": "array",
+          "description": "Fleet table manifest.",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_]+$"
+          }
+        },
+        "keyedTables": {
+          "type": "array",
+          "description": "Manifest tables with a business key.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "provisionedStages": {
+          "type": "array",
+          "description": "Already provisioned Snowflake stages.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reservableTables": {
+          "type": "array",
+          "description": "Reservable tables beyond the proof table. Empty by default.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "proofKeyColumns": {
+          "type": "array",
+          "description": "Proof-path key columns.",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_]+$"
+          }
+        },
+        "forbiddenFragments": {
+          "type": "array",
+          "description": "Forbidden fragments in generated identifiers (collision guard).",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "nameOverride": {
+      "type": "string",
+      "description": "Override chart short name."
+    },
+    "fullnameOverride": {
+      "type": "string",
+      "description": "Override full resource names."
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Capture ServiceAccount (journal reader and v2 pipeline Jobs/Deployments; site S3/GCS/DynamoDB access).",
+      "properties": {
+        "create": {
+          "type": "boolean",
+          "description": "true (default): chart creates the ServiceAccount and cloud identity annotation according to storage.backend. false: provided outside the chart."
+        },
+        "name": {
+          "$ref": "#/definitions/namePattern",
+          "description": "Site Pod Identity ServiceAccount (S3/GCS, DynamoDB)."
+        },
+        "roleArn": {
+          "type": "string",
+          "description": "AWS IAM role ARN (IRSA) associated with the ServiceAccount. Required and exclusive of gcpServiceAccount when create=true and storage.backend=aws."
+        },
+        "gcpServiceAccount": {
+          "type": "string",
+          "description": "Expected GCP account, bound through GKE Workload Identity or attached to the VM. Required and exclusive of roleArn when create=true and storage.backend=gcs."
+        },
+        "annotations": {
+          "type": "object",
+          "description": "Additional ServiceAccount annotations, merged with the chart-managed cloud annotation (eks.amazonaws.com/role-arn or iam.gke.io/gcp-service-account).",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "replicaCount": {
+      "type": "integer",
+      "enum": [
+        0,
+        1
+      ],
+      "description": "Only 0 or 1: IBM i does not tolerate concurrent journal readers."
+    },
+    "pilot": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Bounded certification tier: one Job runs the worker with a strict budget; permanent Deployment remains at zero.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable the bounded pilot Job."
+        },
+        "runId": {
+          "type": "string",
+          "description": "Fresh identifier reserved by the worker before source access."
+        },
+        "maxPolls": {
+          "$ref": "#/definitions/positiveInt",
+          "description": "Maximum polls before pilot shutdown."
+        },
+        "maxSeconds": {
+          "$ref": "#/definitions/positiveInt",
+          "description": "Maximum pilot time budget in seconds."
+        },
+        "shutdownMarginSeconds": {
+          "$ref": "#/definitions/nonNegativeInt",
+          "description": "Graceful shutdown margin before maxSeconds."
+        },
+        "ttlSecondsAfterFinished": {
+          "$ref": "#/definitions/nonNegativeInt",
+          "description": "Completed Job TTL."
+        },
+        "proofWindow": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Pilot proof window.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable the proof window."
+            },
+            "id": {
+              "type": "string",
+              "description": "Proof window identifier."
+            },
+            "seconds": {
+              "$ref": "#/definitions/positiveInt",
+              "description": "Window duration in seconds."
+            },
+            "count": {
+              "$ref": "#/definitions/positiveInt",
+              "description": "Number of windows in a durable chain. Omitted: historical single-window capture."
+            }
+          }
+        }
+      }
+    },
+    "verifierServiceAccountName": {
+      "type": "string",
+      "description": "Verification workload ServiceAccount (observability CronJob and verifier Job), created outside the chart with its dedicated IAM role."
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Site proof-path observer. Creates no role or permission.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable the verifier Job."
+        },
+        "publishProof": {
+          "type": "boolean",
+          "description": "Publish verified evidence."
+        },
+        "slo": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable SLO verification."
+            },
+            "policyJson": {
+              "type": "string",
+              "description": "Versioned SLO policy loaded with --set-file."
+            }
+          }
+        },
+        "imageDigest": {
+          "$ref": "#/definitions/optionalDigest"
+        }
+      }
+    },
+    "observability": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Independent refresh of existing evidence; never starts capture.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable the observability CronJob."
+        },
+        "suspend": {
+          "type": "boolean",
+          "description": "Suspend the CronJob without deleting it."
+        },
+        "schedule": {
+          "type": "string",
+          "description": "Collection cron expression."
+        },
+        "policyJson": {
+          "type": "string",
+          "description": "Embedded SLO policy."
+        },
+        "imageDigest": {
+          "$ref": "#/definitions/optionalDigest"
+        },
+        "alerts": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional SLO alerts. Without a declared destination, the CronJob measures silently.",
+          "properties": {
+            "webhookUrl": {
+              "type": "string",
+              "description": "Optional alert webhook."
+            },
+            "snsTopic": {
+              "type": "string",
+              "description": "Optional alert SNS topic."
+            }
+          }
+        }
+      }
+    },
+    "fleetObserve": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Periodic fleet Snowflake delivery measurement.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable the fleet-observe CronJob."
+        },
+        "suspend": {
+          "type": "boolean",
+          "description": "Suspend the CronJob without deleting it."
+        },
+        "schedule": {
+          "type": "string",
+          "description": "Collection cron expression."
+        },
+        "imageDigest": {
+          "$ref": "#/definitions/optionalDigest"
+        },
+        "manifestBudget": {
+          "$ref": "#/definitions/positiveInt",
+          "description": "S3 manifest reads limited per cycle."
+        }
+      }
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxConsecutiveErrors": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3,
+          "description": "Never more than 3: each error is another IBM i sign-on."
+        }
+      }
+    },
+    "bootstrap": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Explicit reader bootstrap.",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "checkpoint",
+            "tail",
+            "explicit"
+          ],
+          "description": "checkpoint requires durable state; tail reads a finite window; explicit requires receiver + sequence."
+        },
+        "receiver": {
+          "type": "string",
+          "description": "Starting receiver (explicit mode)."
+        },
+        "sequence": {
+          "type": "string",
+          "description": "Starting sequence (explicit mode)."
+        }
+      }
+    },
+    "nodeSelector": {
+      "type": "object",
+      "description": "Kubernetes node selector for the site's cluster.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "tolerations": {
+      "$ref": "#/definitions/tolerations"
+    },
+    "podAntiAffinity": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Declared anti-affinity against other site-cluster workloads.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable anti-affinity."
+        },
+        "namespaces": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Namespaces targeted by anti-affinity."
+        },
+        "matchLabels": {
+          "$ref": "#/definitions/labelMap"
+        }
+      }
+    },
+    "affinity": {
+      "type": "object",
+      "description": "Raw Kubernetes affinity/nodeAffinity/podAffinity rule, passed through. Expert alternative to podAntiAffinity.",
+      "additionalProperties": true
+    },
+    "resources": {
+      "$ref": "#/definitions/resources"
+    },
+    "podSecurityContext": {
+      "$ref": "#/definitions/podSecurityContext"
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "description": "Additional imagePullSecrets beyond image.pullSecret for multiple registries.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
+    },
+    "podAnnotations": {
+      "type": "object",
+      "description": "Additional reader Pod annotations.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "podLabels": {
+      "type": "object",
+      "description": "Additional reader Pod labels.",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "extraEnv": {
+      "type": "array",
+      "description": "Additional reader container environment variables (Kubernetes EnvVar format).",
+      "items": {
+        "type": "object"
+      }
+    },
+    "extraVolumes": {
+      "type": "array",
+      "description": "Additional reader Pod volumes (Kubernetes Volume format).",
+      "items": {
+        "type": "object"
+      }
+    },
+    "extraVolumeMounts": {
+      "type": "array",
+      "description": "Additional reader container mounts (Kubernetes VolumeMount format).",
+      "items": {
+        "type": "object"
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional namespace NetworkPolicy. Disabled by default; existing network behavior unchanged.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable a basic NetworkPolicy."
+        }
+      }
+    },
+    "ibmi": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Reader runtime configuration.",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "IBM i host."
+        },
+        "user": {
+          "type": "string",
+          "description": "IBM i user."
+        },
+        "schema": {
+          "type": "string",
+          "description": "Source schema (library)."
+        },
+        "table": {
+          "type": "string",
+          "description": "Observed table."
+        },
+        "journalLibrary": {
+          "type": "string",
+          "description": "Journal library."
+        },
+        "journalName": {
+          "type": "string",
+          "description": "Journal name."
+        },
+        "sourceTimeZone": {
+          "type": "string",
+          "description": "Explicit IANA zone verified against IBM i at connection. Never inferred as UTC."
+        },
+        "passwordSecret": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Secret containing the IBM i password. Never in values.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string",
+              "default": "ISERIES_PASSWORD"
+            }
+          }
+        }
+      }
+    },
+    "as400": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "TLS settings and JTOpen ports.",
+      "properties": {
+        "tls": {
+          "type": "boolean",
+          "const": true,
+          "description": "Must remain true: IBM i plaintext is forbidden."
+        },
+        "allowPlaintext": {
+          "type": "boolean",
+          "const": false,
+          "description": "Must remain false."
+        },
+        "tlsCaFile": {
+          "type": "string",
+          "pattern": "^(/[^\\s]*[^/\\s])?$",
+          "description": "Absolute TLS authority path without directory traversal."
+        },
+        "tlsCaSecret": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string",
+              "default": "ca.crt"
+            }
+          }
+        },
+        "databasePort": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "description": "JTOpen database port override. Empty: driver default."
+        },
+        "signonPort": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "description": "JTOpen sign-on port override. Empty: driver default."
+        },
+        "commandPort": {
+          "type": [
+            "string",
+            "integer"
+          ],
+          "description": "JTOpen command port override. Empty: driver default."
+        }
+      }
+    },
+    "consoleSnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Enable console snapshot publication."
+        },
+        "s3Key": {
+          "type": "string",
+          "description": "Console snapshot object key."
+        },
+        "intervalSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Publication interval in seconds. Must be > 0."
+        }
+      }
+    },
+    "streaming": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Snowpipe Streaming profile, used only when site.destinationMode=streaming.",
+      "properties": {
+        "profileSecret": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Secret containing the Snowpipe SDK profile.json. Never in values.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string",
+              "default": "profile.json"
+            }
+          }
+        },
+        "mountPath": {
+          "type": "string",
+          "default": "/app/secrets/streaming",
+          "description": "Secret volume mount path containing profile.json."
+        }
+      }
+    },
+    "controlPlane": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Read-only observation API, independent of the IBM i reader.",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "licenseKey": {
+          "type": "string",
+          "description": "Obsolete: nonempty values refused at render (no commercial license required). Empty tolerated for compatibility."
+        },
+        "licenseSecret": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Legacy license Secret reference, tolerated but never injected into the pod.",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            }
+          }
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string"
+            },
+            "digest": {
+              "$ref": "#/definitions/optionalDigest"
+            },
+            "pullPolicy": {
+              "$ref": "#/definitions/pullPolicy"
+            },
+            "allowedRepositories": {
+              "type": "array",
+              "description": "Allowed control plane image registries (immutable digest always required). An entry may be null when --set populates an isolated index.",
+              "items": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "replicaCount": {
+          "type": "integer",
+          "const": 1,
+          "description": "Always 1: this version's read-only control plane is not sized for multiple replicas."
+        },
+        "source": {
+          "type": "string",
+          "description": "Control plane live-read source."
+        },
+        "windowProof": {
+          "type": "string",
+          "description": "Optional immutable destination-window evidence."
+        },
+        "infrastructureCostsSource": {
+          "type": "string",
+          "description": "Infrastructure cost collection source (separate file)."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Control plane listening port."
+        },
+        "refreshSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Live-read refresh interval."
+        },
+        "catalogRefreshSeconds": {
+          "$ref": "#/definitions/nonNegativeInt",
+          "description": "IBM i catalog collection interval. Zero disables periodic collection."
+        },
+        "progressionSeconds": {
+          "$ref": "#/definitions/positiveInt",
+          "description": "Optional progress measurement interval; runtime default 30 seconds."
+        },
+        "host": {
+          "type": "string",
+          "description": "Listening address. Loopback only without authentication."
+        },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Authentication delegated to the site's IdP through a trusted proxy.",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "userHeader": {
+              "type": "string",
+              "description": "HTTP user identity header set by the proxy."
+            },
+            "groupsHeader": {
+              "type": "string",
+              "description": "HTTP group header set by the proxy."
+            },
+            "operatorGroups": {
+              "$ref": "#/definitions/stringOrStringList",
+              "description": "IdP groups permitted to launch actions."
+            },
+            "adminGroups": {
+              "$ref": "#/definitions/stringOrStringList",
+              "description": "Administrator IdP groups."
+            },
+            "proxySecret": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Shared Secret attesting passage through the proxy.",
+              "properties": {
+                "secretName": {
+                  "type": "string"
+                },
+                "secretKey": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "telemetry": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Opt-in product telemetry, disabled by default.",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "endpoint": {
+              "type": "string",
+              "description": "Empty: vendor endpoint; otherwise HTTPS required."
+            }
+          }
+        },
+        "serviceAccount": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "create": {
+              "type": "boolean"
+            },
+            "name": {
+              "$ref": "#/definitions/namePattern"
+            },
+            "roleArn": {
+              "type": "string",
+              "description": "AWS IAM role ARN (IRSA) associated with the ServiceAccount. Required and exclusive of gcpServiceAccount when storage.backend=aws."
+            },
+            "gcpServiceAccount": {
+              "type": "string",
+              "description": "Expected GCP account, bound through GKE Workload Identity or attached to the VM. Required and exclusive of roleArn when storage.backend=gcs."
+            },
+            "annotations": {
+              "type": "object",
+              "description": "Additional ServiceAccount annotations, merged with the chart-managed cloud annotation (eks.amazonaws.com/role-arn or iam.gke.io/gcp-service-account).",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "launch": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Controller-driven capture Job launch. Disabled by default.",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "jobTemplate": {
+              "type": "string",
+              "description": "Job JSON template loaded with --set-file."
+            },
+            "fleetCatalog": {
+              "type": "string",
+              "description": "Fleet JSON catalog loaded with --set-file."
+            },
+            "fleetSidecar": {
+              "type": "string",
+              "description": "Fleet JSON sidecar loaded with --set-file."
+            },
+            "fleetConsoleSource": {
+              "type": "string",
+              "description": "Optional fleet console source, derived by default from storage.rawBucket/site.rawPrefixRoot."
+            }
+          }
+        },
+        "fleetState": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "persistence": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "true: persistent PVC. false: volatile emptyDir."
+                },
+                "size": {
+                  "type": "string",
+                  "pattern": "^[0-9]+(\\.[0-9]+)?(Ei|Pi|Ti|Gi|Mi|Ki|E|P|T|G|M|k)?$",
+                  "description": "PVC size, e.g. 256Mi."
+                },
+                "storageClassName": {
+                  "type": "string",
+                  "description": "\"\": default StorageClass; \"-\": dynamic provisioning disabled."
+                }
+              }
+            }
+          }
+        },
+        "resources": {
+          "$ref": "#/definitions/resources"
+        },
+        "v2": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "v2 surface (FastAPI/uvicorn, PostgreSQL), a second container beside v1 in the same Pod. Disabled by default.",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "image": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "repository": {
+                  "type": "string",
+                  "description": "Empty: controlPlane.image.repository."
+                },
+                "digest": {
+                  "$ref": "#/definitions/optionalDigest",
+                  "description": "Empty: controlPlane.image.digest."
+                }
+              }
+            },
+            "port": {
+              "$ref": "#/definitions/positiveInt"
+            },
+            "orgId": {
+              "type": "string",
+              "description": "v2 organization identifier; empty: site.id."
+            },
+            "readerPollSeconds": {
+              "$ref": "#/definitions/positiveNumber"
+            },
+            "loaderPollSeconds": {
+              "$ref": "#/definitions/positiveNumber"
+            },
+            "loaderHistoryMode": {
+              "type": "string",
+              "enum": [
+                "streaming",
+                "sql"
+              ],
+              "description": "Snowpipe Streaming or synchronous SQL MERGE for small CDC flows."
+            },
+            "loaderFlushEachBatch": {
+              "type": "boolean",
+              "description": "Force Snowpipe flush after each batch to reduce latency; may increase costs and request frequency."
+            },
+            "resources": {
+              "$ref": "#/definitions/resources"
+            }
+          }
+        }
+      }
+    },
+    "postgres": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Embedded PostgreSQL for v2 control plane state. Enabled by default; externalDatabase replaces it in expert mode.",
+      "properties": {
+        "runAsUser": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Image postgres user UID (70 on Alpine, 999 on Debian), required by runAsNonRoot."
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string"
+            },
+            "digest": {
+              "$ref": "#/definitions/digest"
+            },
+            "pullPolicy": {
+              "$ref": "#/definitions/pullPolicy"
+            }
+          }
+        },
+        "database": {
+          "type": "string",
+          "description": "PostgreSQL database name."
+        },
+        "username": {
+          "type": "string",
+          "description": "PostgreSQL application user."
+        },
+        "port": {
+          "$ref": "#/definitions/positiveInt"
+        },
+        "storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "size": {
+              "type": "string",
+              "pattern": "^[0-9]+(\\.[0-9]+)?(Ei|Pi|Ti|Gi|Mi|Ki|E|P|T|G|M|k)?$",
+              "description": "PostgreSQL volume size, e.g. 5Gi."
+            },
+            "storageClassName": {
+              "type": "string",
+              "description": "\"\": cluster default StorageClass."
+            }
+          }
+        },
+        "resources": {
+          "$ref": "#/definitions/resources"
+        },
+        "backup": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Periodic logical pg_dump backup to site object storage. Disabled by default.",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "schedule": {
+              "type": "string",
+              "description": "Cron expression (UTC)."
+            },
+            "destinationPrefix": {
+              "type": "string",
+              "description": "Backup object prefix under storage.rawBucket."
+            },
+            "serviceAccountName": {
+              "type": "string",
+              "description": "Empty: site's default capture identity."
+            }
+          }
+        }
+      }
+    },
+    "externalDatabase": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "External managed PostgreSQL, mutually exclusive alternative to postgres.",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "Full SQLAlchemy DSN (postgresql+psycopg://...). Alternative to existingSecret."
+        },
+        "existingSecret": {
+          "type": "string",
+          "description": "Site Secret containing the DSN under existingSecretKey."
+        },
+        "existingSecretKey": {
+          "type": "string"
+        }
+      }
+    },
+    "preflight": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Bounded preflight diagnostic. Disabled by default.",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "serviceAccountName": {
+          "type": "string",
+          "description": "Preflight Pod ServiceAccount."
+        },
+        "snowflakeOidc": {
+          "type": "boolean",
+          "description": "Mount a projected OIDC token and enable the in-cluster Snowflake check."
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string",
+              "description": "Default: controlPlane.image.repository."
+            },
+            "digest": {
+              "$ref": "#/definitions/optionalDigest"
+            }
+          }
+        }
+      }
+    },
+    "tuning": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Reader tuning verified by the 2026-08-27 soak. Remeasure before changing it.",
+      "required": [
+        "batchEntries",
+        "maxDecodedEntries",
+        "journalBufferSize",
+        "readerTimeoutSeconds",
+        "retrieveTimeoutMs",
+        "moreDataTimeoutMs",
+        "finalPositionTimeoutMs",
+        "pollSeconds",
+        "emptyProbe",
+        "catalogQueryTimeoutSeconds",
+        "receiverMetadataLimit",
+        "catalogCachePolls",
+        "catalogCacheSeconds",
+        "catalogMaxStale",
+        "catchUpBatchEntries",
+        "catchUpDivisor",
+        "metricsIntervalSeconds",
+        "minPollSeconds",
+        "tailProbe"
+      ],
+      "properties": {
+        "batchEntries": {
+          "$ref": "#/definitions/positiveInt",
+          "description": "Journal sequence window per call."
+        },
+        "maxDecodedEntries": {
+          "$ref": "#/definitions/positiveInt"
+        },
+        "journalBufferSize": {
+          "$ref": "#/definitions/positiveInt"
+        },
+        "readerTimeoutSeconds": {
+          "$ref": "#/definitions/positiveNumber",
+          "description": "Decimal values (e.g. 15.1) accepted; included in pilot budget calculation."
+        },
+        "retrieveTimeoutMs": {
+          "$ref": "#/definitions/positiveInt"
+        },
+        "moreDataTimeoutMs": {
+          "$ref": "#/definitions/positiveInt"
+        },
+        "finalPositionTimeoutMs": {
+          "$ref": "#/definitions/positiveInt"
+        },
+        "pollSeconds": {
+          "$ref": "#/definitions/positiveInt"
+        },
+        "emptyProbe": {
+          "type": "boolean",
+          "description": "Conditional probe: only when lag <= window."
+        },
+        "minPollSeconds": {
+          "$ref": "#/definitions/positiveNumber",
+          "description": "Adaptive idle-wait floor: after a nonempty window, wait this many seconds, then double up to pollSeconds."
+        },
+        "tailProbe": {
+          "type": "boolean",
+          "description": "Bounded ATTACHED receiver probe each poll: a new entry is visible without rereading the full catalog."
+        },
+        "catalogQueryTimeoutSeconds": {
+          "$ref": "#/definitions/positiveInt"
+        },
+        "receiverMetadataLimit": {
+          "$ref": "#/definitions/positiveInt"
+        },
+        "catalogCachePolls": {
+          "$ref": "#/definitions/positiveInt"
+        },
+        "catalogCacheSeconds": {
+          "$ref": "#/definitions/positiveInt"
+        },
+        "catalogMaxStale": {
+          "$ref": "#/definitions/positiveInt"
+        },
+        "catchUpBatchEntries": {
+          "$ref": "#/definitions/positiveInt"
+        },
+        "catchUpDivisor": {
+          "$ref": "#/definitions/positiveInt"
+        },
+        "metricsIntervalSeconds": {
+          "$ref": "#/definitions/positiveInt",
+          "description": "Summarize quiet polls; otherwise logs can be verbose."
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": [
+            "aws",
+            "gcs"
+          ],
+          "description": "Durable storage backend: aws (S3+DynamoDB) or gcs (one GCS bucket)."
+        },
+        "rawBucket": {
+          "type": "string",
+          "description": "Raw S3/GCS bucket."
+        },
+        "rawPrefix": {
+          "type": "string",
+          "description": "Observed table object prefix."
+        },
+        "streamKey": {
+          "type": "string",
+          "description": "Checkpoint stream key."
+        },
+        "checkpointTable": {
+          "type": "string",
+          "description": "DynamoDB checkpoint table (aws backend)."
+        },
+        "checkpointBucket": {
+          "type": "string",
+          "description": "GCS checkpoint bucket (gcs backend)."
+        }
+      }
+    },
+    "aws": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "region": {
+          "type": "string",
+          "description": "Site AWS region, e.g. eu-west-3. Required when storage.backend=aws."
+        }
+      }
+    },
+    "costGuardrail": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Indicative S3 threshold for an external alert; the chart creates no alarm or budget.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Display the indicative threshold in AWS Helm notes."
+        },
+        "requestAlarmThresholdPerDay": {
+          "$ref": "#/definitions/positiveInt",
+          "description": "Indicative daily S3 request count for an external alert."
+        }
+      }
+    }
+  }
+}

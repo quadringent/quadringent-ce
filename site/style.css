@@ -401,7 +401,7 @@ code, .mono {
 
 .metric-tile__provenance { font-size: var(--t-micro); color: var(--text-muted); }
 .metric-tile__provenance--mesure { color: var(--signal-ok); }
-.metric-tile__provenance--absent { color: var(--text-subtle); }
+.metric-tile__provenance--absent { color: var(--text-muted); }
 .metric-tile__scope { font-size: var(--t-small); color: var(--text-muted); margin-top: var(--space-1); }
 
 /* --- BandedTable (identique à foundation.css) --- */
@@ -604,7 +604,7 @@ h3 { color: var(--text-strong); font-size: var(--t-lead); font-weight: 560; lett
   transform: rotate(45deg);
 }
 
-.route__index { font-family: var(--font-mono); font-size: var(--t-micro); color: var(--text-subtle); }
+.route__index { font-family: var(--font-mono); font-size: var(--t-micro); color: var(--text-muted); }
 .route__step p { color: var(--text-muted); font-size: var(--t-small); }
 .route__out { display: grid; gap: 2px; margin-top: auto; padding-top: var(--space-3); border-top: 1px solid var(--line-subtle); }
 .route__out span { font-size: var(--t-micro); font-weight: var(--w-medium); letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }

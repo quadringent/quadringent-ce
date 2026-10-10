@@ -136,7 +136,7 @@
         </li>
         <li>
           <h3>Missing data stays visible</h3>
-          <p>A missing measurement displays “— absent”. The Evidence tab remains empty until the control plane publishes delivery evidence for the table.</p>
+          <p>The Evidence tab separates journal capture, Snowflake delivery and reconciliation, with timestamps and measured scope. A missing value displays “—”; an unmeasured stage stays “Not measured”.</p>
         </li>
       </ul>
       <figure class="product-frame">
@@ -283,7 +283,7 @@ quadringent install --cloud gcp --target cluster \
       <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not qualified</span></span><span><strong>Production.</strong> No PROD qualification; the chart rejects promotion to PROD.</span></li>
       <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">To protect</span></span><span><strong>Cockpit access.</strong> Unauthenticated loopback by default; secure access before exposing it.</span></li>
       <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Bounded</span></span><span><strong>Latency.</strong> No universal ten-second guarantee for every workload or startup.</span></li>
-      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Absent</span></span><span><strong>Evidence per table.</strong> The cockpit Evidence tab awaits publication by the control plane.</span></li>
+      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Partial</span></span><span><strong>Evidence per table.</strong> Separate stages are available; capture and reconciliation still need their own observations. Missing measurements remain explicit.</span></li>
       <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Partial</span></span><span><strong>Historical archives.</strong> Historical RAW archives remain incomplete on two test sites.</span></li>
       <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Desktop</span></span><span><strong>Workstations.</strong> Cockpit designed for desktop workstations, with a 1440 px keyboard-and-mouse reference; other sizes are not qualified.</span></li>
     </ul>

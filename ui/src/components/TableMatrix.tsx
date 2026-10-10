@@ -3,17 +3,8 @@ import { sequences } from '../domain/format.ts';
 import type { BoardTableRow } from '../domain/liveBoard.ts';
 import { copiedCopy, identityStatusLabel, journalImagesLabel } from './SourceTables.tsx';
 
-/**
- * Matrice des tables — le remplacement visuel du tableau texte.
- *
- * Une cellule par table : la couleur porte l'état (vert certifiée, ambre
- * live ou à vérifier, gris non mesuré/préparé, rouge bloquée), la hauteur
- * de remplissage code le volume relatif de la table dans le catalogue.
- * Le nom tient en un mot sous la cellule ; les chiffres exacts vivent en
- * tooltip et dans le panneau d'expansion — jamais en surface.
- *
- * L'honnêteté est intacte : « non mesuré » rend « — », jamais 0 ni vert.
- */
+// Cell color follows the measured phase; fill height shows relative volume.
+// Missing measurements remain absent in the tooltip and expanded facts.
 
 type CellTone = 'ok' | 'live' | 'warn' | 'down' | 'off';
 

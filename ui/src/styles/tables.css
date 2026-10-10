@@ -67,7 +67,7 @@
 
 .tables__row--copiee .tables__state { color: var(--signal-ok); }
 .tables__row--bloquee .tables__state { color: var(--signal-incident); }
-.tables__row--encours .tables__state { color: var(--signal-attention); }
+.tables__row--encours .tables__state { color: var(--signal-live); }
 
 .tables__progress {
   display: block;
@@ -80,7 +80,7 @@
 .tables__progress-fill {
   display: block;
   height: 100%;
-  background: var(--signal-attention);
+  background: var(--signal-live);
 }
 
 .tables__rows {

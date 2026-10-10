@@ -54,7 +54,7 @@ export function LiveLagChart({ pipeline, current }: { readonly pipeline: Pipelin
   const [subordinationHeadline, subordinationHint] = splitSubordination(subordination);
   const lagUnit = pipeline.lagSequences === null
     ? ''
-    : pipeline.lagSequences === 1 ? ' enregistrement' : " records";
+    : pipeline.lagSequences === 1 ? ' record' : " records";
 
   return (
     <section className={`live-evidence live-evidence--${pipeline.quality.evidenceKind}${currentLive ? ' live-evidence--fresh-live' : ' live-evidence--retained'}${subordination ? ' live-evidence--subordinated' : ''}`} aria-labelledby="lag-series-title">
@@ -85,11 +85,11 @@ export function LiveLagChart({ pipeline, current }: { readonly pipeline: Pipelin
             <p className="section-kicker">{trendLabel}</p>
             <strong>{trend.label}</strong>
             <small>{trendAnswer}</small>
-            {trend.delta === null ? null : <span className="live-reading__delta">Variation · {trend.delta > 0 ? '+' : ''}{integerFormat.format(trend.delta)} {Math.abs(trend.delta) === 1 ? 'enregistrement' : "records"}</span>}
+            {trend.delta === null ? null : <span className="live-reading__delta">Change · {trend.delta > 0 ? '+' : ''}{integerFormat.format(trend.delta)} {Math.abs(trend.delta) === 1 ? 'record' : "records"}</span>}
           </div>
           <div className="live-reading__value">
             <p className="section-kicker">{lagLabel}</p>
-            <p><strong>{lagValue}</strong>{pipeline.lagSequences === null ? null : <span>{pipeline.lagSequences === 1 ? 'enregistrement' : "records"}</span>}</p>
+            <p><strong>{lagValue}</strong>{pipeline.lagSequences === null ? null : <span>{pipeline.lagSequences === 1 ? 'record' : "records"}</span>}</p>
           </div>
         </div>
       )}

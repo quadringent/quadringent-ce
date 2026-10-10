@@ -241,9 +241,9 @@
 .tcell--ok .tcell__fill { background: var(--signal-ok); opacity: 0.75; }
 .tcell--ok .tcell__glyph { color: var(--signal-ok); }
 
-.tcell--live .tcell__box { border-color: var(--signal-attention); }
-.tcell--live .tcell__fill { background: var(--signal-attention); opacity: 0.75; }
-.tcell--live .tcell__glyph { color: var(--signal-attention); }
+.tcell--live .tcell__box { border-color: var(--signal-live); }
+.tcell--live .tcell__fill { background: var(--signal-live); opacity: 0.75; }
+.tcell--live .tcell__glyph { color: var(--signal-live); }
 
 .tcell--warn .tcell__box { border-color: var(--signal-attention); border-style: dashed; }
 .tcell--warn .tcell__fill { background: var(--signal-attention); opacity: 0.45; }

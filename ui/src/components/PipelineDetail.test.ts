@@ -829,8 +829,8 @@ test('Mesures subordinates a budget-stopped capture before lag 0 and the graph',
   assert.doesNotMatch(markup, /<p class="section-kicker">Last observed lag<\/p>/);
   assert.doesNotMatch(markup, /live-reading__value/);
   assert.doesNotMatch(markup, />0<\/strong><span>records<\/span>/);
-  assert.ok(markup.indexOf("Reader stopped par budget") < markup.indexOf('class="lag-chart"'));
-  assert.ok(markup.indexOf("last observed lag 0 enregistrements") < markup.indexOf('class="lag-chart"'));
+  assert.ok(markup.indexOf("Reader stopped by budget") < markup.indexOf('class="lag-chart"'));
+  assert.ok(markup.indexOf("last observed lag 0 records") < markup.indexOf('class="lag-chart"'));
   assert.ok(markup.indexOf("not a current health signal") < markup.indexOf('class="lag-chart"'));
   assert.match(markup, /lag-chart__floor/);
   assert.match(markup, /Lag at 0 — subordinate measurement/);

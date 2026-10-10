@@ -110,7 +110,7 @@ export function measureSubordination(pipeline: Pipeline): string | null {
 
 export function lagBoardFact(pipeline: Pipeline | null): string {
   if (!pipeline) return "lag not established";
-  if (pipeline.lagSequences !== null) return qualifyZeroLag(pipeline, `lag of ${sequences(pipeline.lagSequences)} ${enregistrementsLabel(pipeline.lagSequences)}`);
+  if (pipeline.lagSequences !== null) return qualifyZeroLag(pipeline, `lag of ${sequences(pipeline.lagSequences)} ${recordsLabel(pipeline.lagSequences)}`);
   return lagFact(pipeline);
 }
 
@@ -216,12 +216,12 @@ function captureFacts(pipeline: Pipeline | null): string {
 
 function lagFact(pipeline: Pipeline): string {
   if (pipeline.lagSeconds !== null) return qualifyZeroLag(pipeline, `lag of ${formatDuration(pipeline.lagSeconds)}`);
-  if (pipeline.lagSequences !== null) return qualifyZeroLag(pipeline, `lag of ${sequences(pipeline.lagSequences)} ${enregistrementsLabel(pipeline.lagSequences)}`);
+  if (pipeline.lagSequences !== null) return qualifyZeroLag(pipeline, `lag of ${sequences(pipeline.lagSequences)} ${recordsLabel(pipeline.lagSequences)}`);
   return "lag not established";
 }
 
-function enregistrementsLabel(count: number): string {
-  return count === 1 ? 'enregistrement' : "records";
+function recordsLabel(count: number): string {
+  return count === 1 ? 'record' : "records";
 }
 
 function qualifyZeroLag(pipeline: Pipeline, fact: string): string {

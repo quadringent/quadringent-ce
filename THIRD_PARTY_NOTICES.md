@@ -68,6 +68,13 @@ their notices and never sold separately. The static site build copies Latin
 notices in `ui/dist/assets/third-party-notices.txt`, served at the same path
 in the cockpit.
 
+The unchanged Latin variable IBM Plex Sans 5.3.0 file
+ibm-plex-sans-latin-wght-normal.woff2 has SHA-256
+e2291e842cf5af167122a22881a740c7f2dda7716f1e8cd76680264f4a859470.
+Its compressed bytes produce a known identity-review false positive. The
+exception covers only these exact bytes, verified against the integrity-pinned
+official npm archive; decoded text metadata remains subject to review.
+
 The npm build graph includes MIT, ISC, BSD-3-Clause, Apache-2.0, OFL-1.1 and
 CC-BY-4.0 (`caniuse-lite`, build data). These tools are not copied wholesale
 into the final image. Redistribution must retain applicable attribution.

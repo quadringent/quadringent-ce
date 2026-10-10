@@ -6,6 +6,35 @@ import pytest
 from build_site import build, repository_base
 
 
+def test_published_site_has_canonical_metadata_and_discovery_files(tmp_path):
+    root = tmp_path / "source"
+    (root / "site").mkdir(parents=True)
+    (root / "site/index.html").write_text('<html><head><title>Quadringent</title></head><body><h1>IBM i to Snowflake</h1></body></html>')
+    (root / "site/style.css").write_text("")
+    (root / "README.md").write_text("# Getting started\n\nInstall Community.\n\n[Security](SECURITY.md)\n\n![Cockpit](site/assets/cockpit.png)")
+    (root / "SECURITY.md").write_text("# Security\n\nUse scoped identities.")
+    out = tmp_path / "built"
+    build("https://github.com/example/project", out, source_root=root, site_url="https://example.github.io/project/")
+    home = (out / "index.html").read_text()
+    assert 'rel="canonical" href="https://example.github.io/project/"' in home
+    assert 'property="og:title"' in home
+    assert 'application/ld+json' in home
+    assert 'https://example.github.io/project/docs/security/' in (out / "sitemap.xml").read_text()
+    assert "Sitemap: https://example.github.io/project/sitemap.xml" in (out / "robots.txt").read_text()
+    guide = (out / "docs/getting-started/index.html").read_text()
+    assert 'href="../security/"' in guide
+    assert 'href="../../style.css"' in guide
+    assert 'src="../../assets/cockpit.png"' in guide
+
+
+@pytest.mark.parametrize("url", ["http://example.invalid", "https://user:password@example.invalid", "https://example.invalid/?token=x", "https://example.invalid/#x"])
+def test_invalid_site_identity_does_not_create_output(tmp_path, url):
+    out = tmp_path / "built"
+    with pytest.raises(ValueError):
+        build("https://github.com/example/project", out, site_url=url)
+    assert not out.exists()
+
+
 @pytest.mark.parametrize("url", [
     "http://github.com/example/project",
     "https://example.invalid/example/project",

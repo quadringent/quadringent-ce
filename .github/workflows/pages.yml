@@ -56,13 +56,17 @@ jobs:
           cache-dependency-path: ui/package-lock.json
       - name: Cockpit fonts from locked npm packages
         run: npm ci --prefix ui --ignore-scripts
+      - uses: actions/configure-pages@v5
+        id: pages-config
+      - name: Install pinned documentation renderer
+        run: python -m pip install 'Markdown==3.11'
       - name: Build pages and documentation links
         env:
           REPOSITORY_URL: ${{ github.server_url }}/${{ github.repository }}
-        run: python scripts/build_site.py --repository-url "$REPOSITORY_URL" --output _site
+          SITE_URL: ${{ steps.pages-config.outputs.base_url }}
+        run: python scripts/build_site.py --repository-url "$REPOSITORY_URL" --site-url "$SITE_URL" --output _site
       - name: Scan Pages output before upload
         run: gitleaks dir _site --config .gitleaks.toml --redact --no-banner
-      - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

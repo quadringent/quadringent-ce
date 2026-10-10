@@ -50,6 +50,51 @@ def test_unmapped_pipeline_returns_absent_with_reason() -> None:
     assert observation.absent_reasons["observed_state"] == NO_MAPPING_REASON
 
 
+def test_evidence_is_bound_to_declared_pipeline_and_preserves_provenance(tmp_path):
+    origin = _write_document(tmp_path, counters={"events_published": 120})
+    adapter = ProjectionRepositoryObservationAdapter(
+        lambda pipeline_id: f"simulation:demo:{origin}" if pipeline_id == "ppl1" else None
+    )
+    evidence = adapter.evidence("ppl1")
+    assert evidence.evidence_kind == "simulation"
+    assert evidence.reading.event_count == 120
+    assert evidence.delivery.state == "absent"
+    assert evidence.reconciliation.duplicate_count is None
+    assert adapter.evidence("another-table").reading.event_count is None
+
+
+def test_reconciliation_keeps_its_own_timestamp_and_journal_scope(tmp_path):
+    from test_control_plane_projection import fresh_destination_proof_document
+
+    now = datetime.now(timezone.utc)
+    document = fresh_destination_proof_document()
+
+    def refresh_dates(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if key in {"generated_at", "observed_at", "capture_observed_at"} and isinstance(item, str):
+                    value[key] = (now - timedelta(seconds=5)).isoformat()
+                else:
+                    refresh_dates(item)
+        elif isinstance(value, list):
+            for item in value:
+                refresh_dates(item)
+
+    refresh_dates(document)
+    document["destination_proof"]["target"]["environment"] = "local"
+    reconciled_at = (now - timedelta(seconds=2)).isoformat()
+    document["destination_proof"]["reconciliation"]["observed_at"] = reconciled_at
+    document["destination_proof"]["observed_at"] = (now - timedelta(seconds=1)).isoformat()
+    path = tmp_path / "complete.json"
+    path.write_text(json.dumps(document))
+    adapter = ProjectionRepositoryObservationAdapter(lambda _: f"live:src1:file://{path}")
+    evidence = adapter.evidence("ppl1")
+    assert evidence.reconciliation.state == "observed"
+    assert evidence.reconciliation.observed_at == reconciled_at
+    assert evidence.reconciliation.duplicate_count == 0
+    assert "Journal window (" in evidence.reconciliation.detail
+
+
 def test_observe_reads_status_from_the_real_console_document(tmp_path) -> None:
     origin = _write_document(tmp_path, counters={"events_published": 120, "events_in_target": 118})
     adapter = ProjectionRepositoryObservationAdapter(lambda pipeline_id: f"live:src1:{origin}")

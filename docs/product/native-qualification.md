@@ -31,7 +31,7 @@ from the **same run and attempt**, before their one-day retention expires.
     "run_id": 123,
     "attempt": 1,
     "source_sha": "<exact 40-character commit SHA>",
-    "tag": "v0.3.1",
+    "tag": "v0.3.2",
     "workflow_sha256": "<SHA256 of the reviewed release workflow>",
     "artifact_id": 456,
     "artifact_zip": "/private/path/oci-scan-receipt.zip",

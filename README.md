@@ -19,9 +19,9 @@ The engine, API and local cockpit are open source under [Apache-2.0](LICENSE),
 with no license key or commercial table limit. Operators pay their own
 infrastructure costs. No production qualification is claimed.
 
-Runtime qualification for **0.3.1 remains unestablished**. Historical 0.2.x
+Runtime qualification for **0.3.2 remains unestablished**. Historical 0.2.x
 results, including 0.2.26, apply only to their original artifacts and scopes;
-they do not qualify 0.3.1.
+they do not qualify 0.3.2.
 
 Contributions use the same license. Separate services or advanced extensions
 may be paid offerings in the future; rights granted on published versions
@@ -39,6 +39,11 @@ Use the [positioning and pilot preparation guide](docs/product/positioning-and-o
 to define tables, access, infrastructure budget, acceptance criteria and
 deliverables. This guide does not submit a sales request or create a service
 commitment.
+
+To discuss an evaluation, open a
+[pilot interest request](https://github.com/quadringent/quadringent-ce/issues/new?template=pilot_interest.yml)
+with an anonymous description of your objective. Scope and scheduling are
+agreed separately; include no credentials or private infrastructure identifiers.
 
 ## Try the cockpit locally
 

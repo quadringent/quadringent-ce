@@ -143,3 +143,10 @@ test('costs cover the three provenances: measured (connection), estimated, and a
   assert.equal(absentTable.status, 'absent');
   assert.equal(absentTable.amount, null);
 });
+test('table evidence remains explicitly synthetic and never claims complete reconciliation', async () => {
+  const fetch = createCockpitDemoFetch();
+  const body = await (await fetch('/v2/pipelines/pl_sales_orders/evidence')).json();
+  assert.equal(body.evidence_kind, 'simulation');
+  assert.equal(body.reconciliation.state, 'absent');
+  assert.equal(body.reconciliation.duplicate_count, null);
+});

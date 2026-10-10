@@ -9,7 +9,7 @@ One daily HTTPS JSON POST to the configured endpoint:
 
 ```json
 {"v": 1, "install": "<SHA256 of the random installation identifier>",
- "version": "0.3.1", "tier": "community", "tables": 13, "ts": 1726670000}
+ "version": "0.3.2", "tier": "community", "tables": 13, "ts": 1726670000}
 ```
 
 install hashes a stable random 32-hex-character local identifier, created at

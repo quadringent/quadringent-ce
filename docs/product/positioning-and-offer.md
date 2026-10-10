@@ -10,7 +10,7 @@ infrastructure and retains control of access and data.
 Historical DEV/INT qualifications cover AWS VM, EKS, GCP VM and GKE depending
 on version and scenario. The [README](../../README.md) separates measurements,
 limitations and simulations. They provide no SLA, PROD qualification or
-admission of future artifacts. Version 0.3.1 requires its own artifact and
+admission of future artifacts. Version 0.3.2 requires its own artifact and
 runtime qualification. Historical 0.2.x evidence remains bound to its original
 artifacts. Check Releases for actual availability.
 

@@ -110,4 +110,13 @@ def test_loader_identity_comes_from_the_pipeline_table_and_destination(tmp_path)
         })
     assert resolve_loader_identity(engine, "p1") == LoaderIdentity("dst1", "QDC_TAIL", "tbl1")
     assert resolve_loader_identity(engine, "absent") is None
+    with engine.begin() as connection:
+        connection.execute(schema.tables.insert(), {
+            "id": "tbl2", "source_id": "src1", "schema_name": "OTHERLIB", "table_name": "QDC_TAIL",
+        })
+        connection.execute(schema.pipelines.insert(), {
+            "id": "p2", "table_id": "tbl2", "destination_id": "dst1", "declared_state": "live",
+        })
+    assert resolve_loader_identity(engine, "p1") is None
+    assert resolve_loader_identity(engine, "p2") is None
     engine.dispose()

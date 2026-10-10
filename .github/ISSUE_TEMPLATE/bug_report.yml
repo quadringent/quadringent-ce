@@ -1,0 +1,25 @@
+name: Bug report
+description: Report a reproducible Community Edition problem.
+title: "Bug: "
+body:
+  - type: markdown
+    attributes:
+      value: "Use a synthetic example. Do not include credentials, raw business rows or private infrastructure identifiers."
+  - type: input
+    id: version
+    attributes:
+      label: Quadringent version and installation target
+      placeholder: "0.3.2 on AWS VM"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps, expected result and observed result
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence and observation time
+      description: "Include relevant state and timestamps; omit secrets and row values."

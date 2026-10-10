@@ -126,6 +126,8 @@ export interface CockpitTableData {
   readonly metrics: MetricsSeries;
   readonly logs: readonly LogEntry[];
   readonly costToday: CostSnapshot | null;
+  readonly evidence?: import('./controlPlaneV2Client.ts').PipelineEvidence | null;
+  readonly evidenceError?: string;
   /** Nom affichable (bibliothèque/table) ; l'écran retombe sur l'identifiant
    *  de table si le catalogue est momentanément indisponible. */
   readonly name?: string;
@@ -161,16 +163,18 @@ export function useCockpitTable(
     setState({ status: 'loading' });
     (async () => {
       const client = await getCockpitClient();
-      const [pipeline, metrics, logs, costToday, pipelines] = await Promise.all([
+      const [pipeline, metrics, logs, costToday, pipelines, evidenceResult] = await Promise.all([
         client.getPipeline(pipelineId),
         client.getMetrics(pipelineId, window),
         client.getLogs(pipelineId, logFilters),
         client.getCosts('table', pipelineId, window).catch(() => null),
         client.listPipelines().catch(() => []),
+        client.getEvidence(pipelineId).then((evidence) => ({ evidence, evidenceError: undefined }))
+          .catch((error: unknown) => ({ evidence: null, evidenceError: error instanceof Error ? error.message : 'Evidence unavailable.' })),
       ]);
       const resolvers = await createCockpitResolvers(client, pipelines);
       const name = resolvers.nameForPipeline(pipelineId);
-      return { pipeline, metrics, logs, costToday, name: name === pipelineId ? undefined : name };
+      return { pipeline, metrics, logs, costToday, ...evidenceResult, name: name === pipelineId ? undefined : name };
     })()
       .then((data) => {
         if (alive.current) setState({ status: 'ready', data });

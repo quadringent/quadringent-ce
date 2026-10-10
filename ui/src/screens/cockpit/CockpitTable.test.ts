@@ -126,3 +126,36 @@ test('the function key bar is present and F12 jumps to the logs tab hash', () =>
   assert.match(markup, /function-key-bar/);
   assert.match(markup, /aria-keyshortcuts="F12"/);
 });
+
+test('evidence shows dated per-table delivery and keeps reconciliation unmeasured', () => {
+  const absent = { state: 'absent', observedAt: null, eventCount: null, lagSeconds: null, duplicateCount: null, detail: 'Independent reconciliation not measured.' };
+  const data = tableData({ evidence: {
+    pipelineId: 'pl_sales_order_lines', provenance: 'kubernetes_loader_log', evidenceKind: 'live',
+    collectedAt: '2026-10-10T12:00:00Z', reading: absent, reconciliation: absent,
+    delivery: { ...absent, state: 'observed', observedAt: '2026-10-10T11:59:30Z',
+      eventCount: 3, lagSeconds: 6.2, detail: 'Last delivered batch; retained logs only.' },
+  } });
+  const markup = render({ tab: 'proofs', state: { status: 'ready', data } });
+  assert.match(markup, /6.2 s/);
+  assert.match(markup, /2026-10-10T11:59:30Z/);
+  assert.match(markup, /Independent reconciliation not measured/);
+  assert.doesNotMatch(markup, /0 duplicates|No duplicates|Certified/);
+});
+
+test('simulation and stale evidence remain explicit on the evidence screen', () => {
+  const stage = { state: 'stale', observedAt: '2026-10-09T12:00:00Z', eventCount: 12, lagSeconds: null, duplicateCount: null, detail: 'Historical measurement.' };
+  const data = tableData({ evidence: {
+    pipelineId: 'pl_sales_order_lines', provenance: 'demo_fixture', evidenceKind: 'simulation',
+    collectedAt: '2026-10-09T12:00:00Z', reading: stage, delivery: stage, reconciliation: stage,
+  } });
+  const markup = render({ tab: 'proofs', state: { status: 'ready', data } });
+  assert.match(markup, /Demonstration — synthetic data/);
+  assert.match(markup, /stale/);
+});
+
+test('an evidence request failure leaves the other table tabs usable', () => {
+  const data = tableData({ evidenceError: 'Evidence service unavailable.' });
+  const markup = render({ tab: 'proofs', state: { status: 'ready', data } });
+  assert.match(markup, /Evidence service unavailable/);
+  assert.match(render({ tab: 'metrics', state: { status: 'ready', data } }), /Throughput/);
+});

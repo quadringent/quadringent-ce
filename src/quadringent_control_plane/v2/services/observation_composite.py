@@ -13,6 +13,7 @@ métriques (``metrics()``) vient uniquement de l'adaptateur de projection
 from __future__ import annotations
 
 from .observation import MetricsSeries, MetricsWindow, PipelineObservation
+from .evidence import PipelineEvidence
 from .observation_projection import ProjectionRepositoryObservationAdapter
 from .observation_storage import StorageBackendObservationAdapter
 
@@ -55,3 +56,6 @@ class CompositeObservationProvider:
 
     def metrics(self, pipeline_id: str, window: MetricsWindow) -> MetricsSeries:
         return self._projection.metrics(pipeline_id, window)
+
+    def evidence(self, pipeline_id: str) -> PipelineEvidence:
+        return self._projection.evidence(pipeline_id)

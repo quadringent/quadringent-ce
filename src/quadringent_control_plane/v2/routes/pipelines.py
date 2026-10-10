@@ -26,6 +26,7 @@ from ..errors import (
 from ..http import AuditContext, envelope, idempotent_write
 from ..services.confirmations import ConfirmationNotFoundError, ConfirmationsService
 from ..services.logs import KNOWN_LEVELS, LogsService, NullLogSource
+from ..services.evidence import absent_evidence
 from ..services.observation import NullObservationProvider, PipelineObservationProviderProtocol
 from ..services.pipelines import (
     ACTIONS,
@@ -95,6 +96,21 @@ async def get_pipeline(
 
 
 _METRICS_WINDOWS = ("1h", "24h")
+
+
+@router.get("/{pipeline_id}/evidence")
+async def get_pipeline_evidence(
+    pipeline_id: str, request: Request, identity=Depends(require_scope("read"))
+) -> dict[str, object]:
+    try:
+        _service(request).get(pipeline_id)
+    except PipelineNotFoundError as error:
+        raise not_found("Pipeline not found") from error
+    reader = getattr(_observation_provider(request), "evidence", None)
+    result = reader(pipeline_id) if callable(reader) else absent_evidence(
+        pipeline_id, reason="No delivery evidence provider configured for this table."
+    )
+    return result.to_dict()
 
 
 @router.get("/{pipeline_id}/metrics")

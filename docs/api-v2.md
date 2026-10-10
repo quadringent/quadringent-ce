@@ -5,6 +5,14 @@ GET /v2/openapi.json is the authoritative request/response schema.
 This guide describes identity, write semantics, orchestration and evidence
 boundaries. See [API v1](api.md) for projection and legacy operator routes.
 
+GET /v2/pipelines/{id}/evidence requires read access and returns separate
+capture, delivery and reconciliation measurements with dates and provenance.
+Missing measurements are null; declared pipeline state is never delivery
+evidence. Loader logs describe only the last retained delivered batch.
+Validated console projections can also publish reconciliation for their
+measured scope. Simulation, stale evidence and unavailable providers remain
+explicit. Row values and raw pod log messages are excluded.
+
 ## Private access and startup
 
 The chart runs v1 (8844) and v2 (8845) in the same control plane pod.

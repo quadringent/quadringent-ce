@@ -48,7 +48,7 @@
     </div>
     <dl class="release-facts" aria-label="Release status">
       <div><dt>License</dt><dd>Apache-2.0, with no activation key or commercial table limit</dd></div>
-      <div><dt>Version</dt><dd><span class="mono">0.3.1</span> DEV/INT preview</dd></div>
+      <div><dt>Version</dt><dd><span class="mono">0.3.2</span> DEV/INT preview</dd></div>
       <div><dt>Qualifications</dt><dd>Versions <span class="mono">0.2.x</span>, DEV/INT, four cloud targets</dd></div>
       <div><dt>Production</dt><dd>Not qualified, no SLA</dd></div>
     </dl>
@@ -198,7 +198,7 @@ quadringent install --cloud gcp --target cluster \
     <div class="section__head">
       <p class="eyebrow">Qualification</p>
       <h2 id="qualification-title">What was measured, where, and when.</h2>
-      <p>Each result remains bound to its version, targets and observation window: DEV/INT tests on isolated installations using synthetic tables. None qualifies version <span class="mono">0.3.1</span>. The qualification harness sets a threshold of <span class="mono">10 s</span> per write; each version identifies where the clock starts.</p>
+      <p>Each result remains bound to its version, targets and observation window: DEV/INT tests on isolated installations using synthetic tables. None qualifies version <span class="mono">0.3.2</span>. The qualification harness sets a threshold of <span class="mono">10 s</span> per write; each version identifies where the clock starts.</p>
     </div>
     <div class="metrics">
       <section class="metric-tile" aria-label="IBM i acknowledgment to mirror, version 0.2.22">
@@ -213,8 +213,8 @@ quadringent install --cloud gcp --target cluster \
         <p class="metric-tile__provenance metric-tile__provenance--mesure">measured · <span class="mono">0.2.18</span> · October 5–6, 2026</p>
         <p class="metric-tile__scope">120 observations from IBM i acknowledgment to mirror, over ten minutes on four targets. Applies only to this window and these profiles.</p>
       </section>
-      <section class="metric-tile" aria-label="Qualification of version 0.3.1">
-        <p class="metric-tile__label">Qualification 0.3.1</p>
+      <section class="metric-tile" aria-label="Qualification of version 0.3.2">
+        <p class="metric-tile__label">Qualification 0.3.2</p>
         <p class="metric-tile__value metric-tile__value--absent">—</p>
         <p class="metric-tile__provenance metric-tile__provenance--absent">absent</p>
         <p class="metric-tile__scope">The final artifacts of this version have not yet been installed and qualified on the cloud targets.</p>
@@ -235,7 +235,7 @@ quadringent install --cloud gcp --target cluster \
         </thead>
         <tbody>
           <tr>
-            <th scope="row">0.3.1</th><td><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not qualified</span></span></td><td>DEV/INT preview</td><td>—</td><td>Final artifacts require cloud installation and qualification.</td>
+            <th scope="row">0.3.2</th><td><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not qualified</span></span></td><td>DEV/INT preview</td><td>—</td><td>Final artifacts require cloud installation and qualification.</td>
           </tr>
           <tr>
             <th scope="row">0.2.26</th><td><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">To establish</span></span></td><td>Autonomous path, source client prepared</td><td>Autonomous harness</td><td>Clock starts when each write is sent to the prepared client. Runtime result not yet established.</td>
@@ -276,7 +276,7 @@ quadringent install --cloud gcp --target cluster \
       <p>These known items are tracked and inform operational decisions.</p>
     </div>
     <ul class="limits">
-      <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Release gate</span></span><span><strong>Release 0.3.1.</strong> CI, three signed images and admission must refer to the same commit.</span></li>
+      <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Release gate</span></span><span><strong>Release 0.3.2.</strong> CI, three signed images and admission must refer to the same commit.</span></li>
       <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">To repeat</span></span><span><strong>Final artifacts.</strong> Install on AWS VM, EKS, GCP VM and GKE, then perform complete copies to Snowflake.</span></li>
       <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">To demonstrate</span></span><span><strong>Reader failure.</strong> Real reader outage with IBM i writes during the outage, then continuity without duplicates, upgrade and rollback.</span></li>
       <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Above threshold</span></span><span><strong>Autonomous path.</strong> Latency incomplete in 0.2.23; the 10 s threshold was exceeded in 0.2.24 and 0.2.25. The 0.2.26 result remains to be established.</span></li>
@@ -322,6 +322,7 @@ quadringent install --cloud gcp --target cluster \
       <div class="actions">
         <a class="action-button action-button--primary" data-repo-path="docs/product/positioning-and-offer.md" href="../docs/product/positioning-and-offer.md">Read the preparation guide</a>
         <a class="action-button" data-repo-path="docs/licensing.md" href="../docs/licensing.md">Understand the license</a>
+        <a class="action-button" href="https://github.com/quadringent/quadringent-ce/issues/new?template=pilot_interest.yml">Discuss a DEV/INT evaluation</a>
       </div>
     </div>
   </section>

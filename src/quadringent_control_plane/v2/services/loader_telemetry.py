@@ -23,12 +23,13 @@ from typing import Literal
 
 from quadringent.snowflake_streaming_loader import LOADER_CYCLE_FORMAT, LOADER_CYCLE_STAGES, loader_table_tag
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.engine import Engine
 
 from ...k8s_pods import KubernetesPodsClient, PodsApiError
 from .. import schema
 from .logs import RawLogEntry
+from .evidence import EvidenceStage, PipelineEvidence, absent_evidence
 from .observation import (
     MetricPoint,
     MetricsSeries,
@@ -74,6 +75,16 @@ def resolve_loader_identity(engine: Engine, pipeline_id: str) -> LoaderIdentity 
             .select_from(schema.pipelines.join(schema.tables, schema.pipelines.c.table_id == schema.tables.c.id))
             .where(schema.pipelines.c.id == pipeline_id)
         ).first()
+        if row is not None:
+            count = connection.execute(
+                select(func.count(func.distinct(schema.tables.c.id)))
+                .select_from(schema.pipelines.join(schema.tables, schema.pipelines.c.table_id == schema.tables.c.id))
+                .where(schema.pipelines.c.destination_id == row[0],
+                       func.upper(func.trim(schema.tables.c.table_name)) == row[1].strip().upper())
+            ).scalar_one()
+            # Legacy delivery logs contain a basename, not the source library.
+            if count != 1:
+                return None
     if row is None:
         return None
     return LoaderIdentity(destination_id=row[0], table_name=row[1], table_id=row[2])
@@ -263,6 +274,31 @@ class KubernetesLoaderTelemetry:
             history_lag_seconds=latest_lag.history_seconds if latest_lag else None,
             mirror_lag_seconds=latest_lag.mirror_seconds if latest_lag else None,
             absent_reasons=absent,
+        )
+
+    def evidence(self, pipeline_id: str) -> PipelineEvidence:
+        try:
+            facts = self._facts(pipeline_id)
+        except PodsApiError as error:
+            return absent_evidence(pipeline_id, reason=f"Kubernetes log is unavailable ({error.code})")
+        now = self._now()
+        deliveries = [fact for fact in facts if fact.kind == "delivery" and fact.at <= now]
+        if not deliveries:
+            return absent_evidence(pipeline_id, reason=_NO_DELIVERY)
+        latest = deliveries[-1]
+        return PipelineEvidence(
+            pipeline_id, provenance="kubernetes_loader_log", evidence_kind="live",
+            collected_at=now.isoformat().replace("+00:00", "Z"),
+            reading=EvidenceStage(detail="Journal reading is not measured by the loader log."),
+            delivery=EvidenceStage(
+                state="observed" if now - latest.at <= timedelta(minutes=5) else "stale",
+                observed_at=latest.at.isoformat().replace("+00:00", "Z"),
+                event_count=latest.count, lag_seconds=latest.mirror_seconds,
+                detail="Last delivered batch for this table; limited to retained loader logs, not a destination total.",
+            ),
+            reconciliation=EvidenceStage(
+                detail="Complete reconciliation and duplicate counts require an independent destination read."
+            ),
         )
 
     def metrics(self, pipeline_id: str, window: MetricsWindow) -> MetricsSeries:

@@ -1,0 +1,28 @@
+name: Pilot interest
+description: Discuss a scoped DEV/INT evaluation on your infrastructure.
+title: "Pilot interest: "
+body:
+  - type: markdown
+    attributes:
+      value: "This is a public interest request. Scope, scheduling and support are agreed separately; submitting does not create a service commitment. Do not include credentials, hostnames, account IDs or production data."
+  - type: dropdown
+    id: target
+    attributes:
+      label: Preferred evaluation target
+      options: [AWS VM, EKS, GCP VM, GKE, Undecided]
+    validations:
+      required: true
+  - type: textarea
+    id: objective
+    attributes:
+      label: Intended use and success criteria
+      description: "Describe volumes, types of changes and recovery expectations using anonymous examples."
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Evaluation scope
+      options:
+        - label: "The proposed first evaluation is in DEV/INT."
+          required: true

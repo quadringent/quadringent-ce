@@ -156,6 +156,8 @@ def project_console_document(
     lag_verdict, lag_verdict_reason = _lag_verdict_field(lag)
     destination_field, destination_reason = _destination_field(document.get("destination"))
     raw_destination_proof = document.get("destination_proof")
+    reconciliation_observed_at = None
+    reconciliation_scope = None
     if "destination_proof" not in document:
         stages = (
             source_stage,
@@ -188,6 +190,13 @@ def project_console_document(
             # window, never unchecked counts from a stale or contradictory proof.
             public_counters["events_in_target"] = destination_proof.reconciliation.ledger_event_count
             public_counters["duplicates_in_target"] = destination_proof.reconciliation.duplicate_event_count
+            reconciliation = destination_proof.reconciliation
+            if reconciliation.observed_at is not None and reconciliation.window is not None:
+                reconciliation_observed_at = reconciliation.observed_at.isoformat()
+                start = reconciliation.window.from_exclusive
+                end = reconciliation.window.to_inclusive
+                left = f"{start.receiver}:{start.sequence}" if start is not None else "start"
+                reconciliation_scope = f"Journal window ({left}, {end.receiver}:{end.sequence}]"
         if incident is None and destination_incident is not None:
             incident = {"code": destination_incident, "type": "destination"}
         status = _pipeline_status_e2e(
@@ -233,6 +242,8 @@ def project_console_document(
         lag_verdict_reason=lag_verdict_reason,
         destination=destination_field,
         destination_reason=destination_reason,
+        reconciliation_observed_at=reconciliation_observed_at,
+        reconciliation_scope=reconciliation_scope,
     )
 
 

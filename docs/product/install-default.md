@@ -9,7 +9,7 @@ cluster. The [expert guide](install-client.md) covers sites managing their own
 Helm values. See [backup and restore](backup-restore.md) before upgrading or
 rebuilding a site.
 
-Version **0.3.1 is a prepared preview**. Install only after its release assets
+Version **0.3.2 is a prepared preview**. Install only after its release assets
 are available and admitted. Read the release's qualification scope; a ready
 pod or accessible API does not prove IBM i → Snowflake delivery, CDC continuity,
 a maximum latency of 10 seconds, or production readiness.
@@ -17,7 +17,7 @@ a maximum latency of 10 seconds, or production readiness.
 Historical 0.2.5 control plane exercises covered GKE, EKS, AWS VM and GCP VM:
 installation, 0.2.3 → 0.2.5 → 0.2.3, isolated backup/key export, complete removal
 of the original site, fresh reconstruction and restore. Login, synthetic data
-parity and decryption were checked. These bounded results do not qualify 0.3.1
+parity and decryption were checked. These bounded results do not qualify 0.3.2
 or every configuration; AWS VM PostgreSQL/PVC UIDs were not measured directly,
 and image-child selection was sometimes inferred from the sealed manifest.
 
@@ -31,12 +31,12 @@ or a draft is not an available release.
 
 ```sh
 python3 -m venv /private/path/quadringent-venv
-/private/path/quadringent-venv/bin/python -m pip install quadringent-0.3.1-py3-none-any.whl
-tar -xzf quadringent-0.3.1.tar.gz -C /private/path
+/private/path/quadringent-venv/bin/python -m pip install quadringent-0.3.2-py3-none-any.whl
+tar -xzf quadringent-0.3.2.tar.gz -C /private/path
 /private/path/quadringent-venv/bin/quadringent install \
   --cloud gcp --target cluster --region europe-west1 --project my-project \
   --name my-site --release-manifest /private/path/release-manifest.json \
-  --assets-dir /private/path/quadringent-0.3.1 --dry-run
+  --assets-dir /private/path/quadringent-0.3.2 --dry-run
 ```
 
 Review the plan, cloud identity and kubectl context before removing

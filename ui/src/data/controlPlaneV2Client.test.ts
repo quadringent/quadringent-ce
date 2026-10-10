@@ -7,6 +7,18 @@ import {
   type CockpitEventSourceLike,
 } from './controlPlaneV2Client.ts';
 
+test('evidence rejects a response for another table and invalid counts', async () => {
+  const stage = { state: 'absent', observed_at: null, event_count: null, lag_seconds: null, duplicate_count: null, detail: 'Not measured.' };
+  for (const defect of ['identity', 'negative_count']) {
+    const client = new ControlPlaneV2Client({ fetchFn: fakeFetch(() => jsonResponse(200, {
+      pipeline_id: defect === 'identity' ? 'other' : 'pl_1', provenance: 'absent', evidence_kind: 'absent',
+      collected_at: null, reading: stage, reconciliation: stage,
+      delivery: { ...stage, event_count: defect === 'negative_count' ? -1 : null },
+    })) });
+    await assert.rejects(() => client.getEvidence('pl_1'), /Invalid table evidence/);
+  }
+});
+
 class FakeEventSource implements CockpitEventSourceLike {
   closed = false;
   onerror: ((event: Event) => void) | null = null;

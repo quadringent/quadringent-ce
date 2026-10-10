@@ -284,6 +284,25 @@ export interface MetricsSeries {
   readonly reason?: string | null;
 }
 
+export interface EvidenceStage {
+  readonly state: 'observed' | 'stale' | 'absent';
+  readonly observedAt: string | null;
+  readonly eventCount: number | null;
+  readonly lagSeconds: number | null;
+  readonly duplicateCount: number | null;
+  readonly detail: string;
+}
+
+export interface PipelineEvidence {
+  readonly pipelineId: string;
+  readonly provenance: string;
+  readonly evidenceKind: 'live' | 'historical' | 'simulation' | 'absent';
+  readonly collectedAt: string | null;
+  readonly reading: EvidenceStage;
+  readonly delivery: EvidenceStage;
+  readonly reconciliation: EvidenceStage;
+}
+
 export type CockpitEventType =
   | 'pipeline.state_changed'
   | 'action.pending_confirmation'
@@ -580,6 +599,10 @@ export class ControlPlaneV2Client {
   async getMetrics(pipelineId: string, window: '1h' | '24h' = '1h', signal?: AbortSignal): Promise<MetricsSeries> {
     const payload = await this.getJson(`/pipelines/${encodeURIComponent(pipelineId)}/metrics?window=${window}`, signal);
     return parseMetricsSeries(payload, window);
+  }
+
+  async getEvidence(pipelineId: string, signal?: AbortSignal): Promise<PipelineEvidence> {
+    return parseEvidence(await this.getJson(`/pipelines/${encodeURIComponent(pipelineId)}/evidence`, signal), pipelineId);
   }
 
   /** GET /v2/pipelines/{id}/logs?since=&level=&correlate_incident= — CONTRAT SEUL. */
@@ -1038,6 +1061,39 @@ function parseMetricsSeries(value: unknown, window: '1h' | '24h'): MetricsSeries
       };
     }),
   };
+}
+
+function parseEvidence(value: unknown, pipelineId: string): PipelineEvidence {
+  function invalid(): never { throw new Error('Invalid table evidence response.'); }
+  function record(input: unknown): Record<string, unknown> {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return invalid();
+    return input as Record<string, unknown>;
+  }
+  function timestamp(input: unknown): string | null {
+    if (input === null) return null;
+    if (typeof input !== 'string' || !/(Z|[+-]\d{2}:\d{2})$/.test(input) || !Number.isFinite(Date.parse(input))) return invalid();
+    return input;
+  }
+  function count(input: unknown, integer = true): number | null {
+    if (input === null) return null;
+    if (typeof input !== 'number' || !Number.isFinite(input) || input < 0 ||
+        (integer && !Number.isSafeInteger(input))) return invalid();
+    return input;
+  }
+  function stage(input: unknown): EvidenceStage {
+    const data = record(input);
+    if (!['observed', 'stale', 'absent'].includes(String(data.state)) || typeof data.detail !== 'string') return invalid();
+    const observedAt = timestamp(data.observed_at);
+    if (data.state !== 'absent' && observedAt === null) return invalid();
+    return { state: data.state as EvidenceStage['state'], observedAt, eventCount: count(data.event_count),
+      lagSeconds: count(data.lag_seconds, false), duplicateCount: count(data.duplicate_count), detail: data.detail };
+  }
+  const data = record(value);
+  if (data.pipeline_id !== pipelineId || typeof data.provenance !== 'string' ||
+      !['live', 'historical', 'simulation', 'absent'].includes(String(data.evidence_kind))) return invalid();
+  return { pipelineId, provenance: data.provenance, evidenceKind: data.evidence_kind as PipelineEvidence['evidenceKind'],
+    collectedAt: timestamp(data.collected_at), reading: stage(data.reading), delivery: stage(data.delivery),
+    reconciliation: stage(data.reconciliation) };
 }
 
 function messageEventId(event: MessageEvent<string>): string | null {

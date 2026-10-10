@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quadringent"
-version = "0.3.1"
+version = "0.3.2"
 description = "IBM i change capture into Snowflake with evidence of progress"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -13,7 +13,9 @@ license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "licenses/*"]
 dependencies = ["boto3>=1.40,<2", "PyYAML>=6,<7"]
 
 [project.optional-dependencies]
+site = ["Markdown==3.11"]
 dev = [
+    "Markdown==3.11",
     "pytest==9.1.1",
     "pyflakes==3.4.0",
     "PyYAML==6.0.3",

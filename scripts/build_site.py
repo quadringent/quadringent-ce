@@ -1,10 +1,120 @@
 "Build the product site with documentation links to the selected repository."
 import argparse
+from html import escape, unescape
 import json
+import posixpath
 from pathlib import Path
 import re
 import shutil
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
+
+DOC_PAGES = {
+    "README.md": ("getting-started", "Getting started with IBM i CDC to Snowflake"),
+    "docs/product/install-default.md": ("installation", "Install Quadringent on AWS or GCP"),
+    "docs/product/install-client.md": ("helm-installation", "Helm installation and prerequisites"),
+    "docs/architecture.md": ("architecture", "IBM i to Snowflake replication architecture"),
+    "docs/product/quadringent-destination-proof-contract.md": ("delivery-evidence", "Reading, delivery and reconciliation evidence"),
+    "docs/operations.md": ("operations", "Operate and recover Quadringent"),
+    "docs/product/native-qualification.md": ("qualification", "Qualify replication, outages and recovery"),
+    "docs/api-v2.md": ("api", "Control plane API and evidence"),
+    "SECURITY.md": ("security", "Security and access boundaries"),
+    "docs/licensing.md": ("community", "Community Edition and Apache-2.0"),
+    "docs/product/positioning-and-offer.md": ("pilot", "Prepare an IBM i to Snowflake pilot"),
+}
+
+
+def public_site_base(value: str) -> str:
+    parsed = urlparse(value)
+    if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password
+            or parsed.port is not None or parsed.query or parsed.fragment
+            or re.fullmatch(r"https://[A-Za-z0-9.-]+(?:/[A-Za-z0-9_.-]+)*/?", value) is None
+            or any(part in (".", "..") for part in parsed.path.split("/"))):
+        raise ValueError("Public site HTTPS URL required, without credentials or parameters")
+    return value.rstrip("/") + "/"
+
+
+def seo_head(url: str, title: str, description: str, base: str, repository: str, *, home: bool) -> str:
+    schema = {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication" if home else "TechArticle",
+        "name": "Quadringent" if home else title,
+        "url": url, "description": description,
+    }
+    if home:
+        schema.update(applicationCategory="DeveloperApplication", operatingSystem="Linux",
+                      license=repository + "/blob/main/LICENSE", isAccessibleForFree=True)
+    else:
+        schema["publisher"] = {"@type": "Organization", "name": "Quadringent", "url": base}
+    structured = json.dumps(schema, ensure_ascii=False).replace("<", "\\u003c")
+    return (
+        f'<link rel="canonical" href="{escape(url, quote=True)}">\n'
+        '<meta name="robots" content="index,follow">\n'
+        f'<meta property="og:title" content="{escape(title, quote=True)}">\n'
+        f'<meta property="og:description" content="{escape(description, quote=True)}">\n'
+        f'<meta property="og:url" content="{escape(url, quote=True)}">\n'
+        '<meta property="og:type" content="website">\n'
+        f'<meta property="og:image" content="{escape(base + "assets/cockpit-connection.png", quote=True)}">\n'
+        '<meta name="twitter:card" content="summary_large_image">\n'
+        f'<script type="application/ld+json">{structured}</script>\n'
+    )
+
+
+def publish_guides(root: Path, output: Path, base: str, repository: str) -> list[str]:
+    import markdown
+    available = {name: details for name, details in DOC_PAGES.items() if (root / name).is_file()}
+    urls = [base]
+    navigation = '<a href="../../">Quadringent</a> · <a href="../">Documentation</a> · ' + f'<a href="{repository}">GitHub</a>'
+    index_links = []
+    for source, (slug, title) in available.items():
+        description = f"{title}. English Community Edition documentation with measured scope and explicit limitations."
+        body = markdown.markdown((root / source).read_text(), extensions=["fenced_code", "tables", "toc", "sane_lists"])
+
+        def link(match):
+            attr, raw = match[1], unescape(match[2])
+            parsed = urlsplit(raw)
+            if parsed.scheme or parsed.netloc or raw.startswith(("#", "/")):
+                return match[0]
+            resolved = posixpath.normpath(posixpath.join(posixpath.dirname(source), parsed.path))
+            if attr == "href" and resolved in available:
+                target = "../" + available[resolved][0] + "/"
+            elif attr == "src" and resolved.startswith("site/assets/"):
+                target = "../../" + resolved.removeprefix("site/")
+            elif attr == "src":
+                target = repository.replace("https://github.com/", "https://raw.githubusercontent.com/") + "/main/" + resolved
+            else:
+                target = repository + "/blob/main/" + resolved
+            if parsed.fragment:
+                target += "#" + parsed.fragment
+            return f'{attr}="{escape(target, quote=True)}"'
+
+        body = re.sub(r'(href|src)="([^"]+)"', link, body)
+        url = base + f"docs/{slug}/"
+        head = seo_head(url, title, description, base, repository, home=False)
+        page = f'''<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{escape(title)} · Quadringent</title><meta name="description" content="{escape(description, quote=True)}">
+{head}<link rel="stylesheet" href="../../style.css"></head>
+<body><main class="guide"><nav aria-label="Documentation">{navigation}</nav>
+<p class="guide__scope">Community Edition · DEV/INT preview</p>
+<article>{body}</article><footer><a href="{repository}/blob/main/{source}">View source on GitHub</a></footer>
+</main></body></html>'''
+        folder = output / "docs" / slug
+        folder.mkdir(parents=True)
+        (folder / "index.html").write_text(page)
+        urls.append(url)
+        index_links.append(f'<li><a href="{slug}/">{escape(title)}</a></li>')
+    if available:
+        docs = output / "docs"
+        title = "Quadringent documentation"
+        (docs / "index.html").write_text(
+            '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+            f'<title>{title}</title><meta name="description" content="English installation, evidence, operations and security guides.">'
+            + seo_head(base + "docs/", title, "English installation, evidence, operations and security guides.", base, repository, home=False)
+            + '<link rel="stylesheet" href="../style.css"></head><body><main class="guide"><nav><a href="../">Quadringent</a></nav>'
+            f'<h1>{title}</h1><ul>{"".join(index_links)}</ul></main></body></html>'
+        )
+        urls.append(base + "docs/")
+    return urls
 
 # Polices du cockpit : copiées depuis les paquets npm verrouillés de l'UI,
 # jamais versionnées dans site/ (flux binaires non relisibles par les contrôles).
@@ -51,8 +161,9 @@ def font_sources(root: Path) -> dict[str, Path]:
     return sources
 
 
-def build(repository_url: str, output: Path, *, source_root: Path | None = None) -> None:
+def build(repository_url: str, output: Path, *, source_root: Path | None = None, site_url: str | None = None) -> None:
     base = repository_base(repository_url)
+    site_base = public_site_base(site_url) if site_url else None
     if output.exists():
         raise ValueError("The output directory must be new")
     root = source_root or Path(__file__).resolve().parents[1]
@@ -72,11 +183,27 @@ def build(repository_url: str, output: Path, *, source_root: Path | None = None)
                   lambda m: f'href="{base}/blob/main/{m[1]}"', text)
     text = re.sub(r'data-repo-root="true" href="[^"]+"', f'href="{base}"', text)
     page.write_text(text)
+    if site_base:
+        title_match = re.search(r"<title>(.*?)</title>", text, re.S)
+        description_match = re.search(r'<meta name="description" content="([^"]+)"', text)
+        title = unescape(title_match[1]) if title_match else "Quadringent — IBM i CDC to Snowflake"
+        description = unescape(description_match[1]) if description_match else "IBM i journals to Snowflake. Community Edition DEV/INT preview."
+        text = text.replace("</head>", seo_head(site_base, title, description, site_base, base, home=True) + "</head>")
+        for source, (slug, _) in DOC_PAGES.items():
+            if (root / source).is_file():
+                text = text.replace(f'href="{base}/blob/main/{source}"', f'href="docs/{slug}/"')
+        page.write_text(text)
+        urls = publish_guides(root, output, site_base, base)
+        (output / "sitemap.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' +
+            "".join(f"<url><loc>{escape(url)}</loc></url>" for url in urls) + "</urlset>\n")
+        (output / "robots.txt").write_text(f"User-agent: *\nAllow: /\n\nSitemap: {site_base}sitemap.xml\n")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository-url", required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--site-url", help="Canonical HTTPS URL of the published site")
     args = parser.parse_args()
-    build(args.repository_url, args.output)
+    build(args.repository_url, args.output, site_url=args.site_url)

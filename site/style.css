@@ -809,3 +809,15 @@ h3 { color: var(--text-strong); font-size: var(--t-lead); font-weight: 560; lett
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
 }
+.guide { max-width: 1000px; margin: 0 auto; padding: 48px 24px; }
+.guide nav, .guide footer { padding-block: 16px; border-bottom: 1px solid var(--rule); }
+.guide article { margin-block: 32px; }
+.guide h1 { font-size: clamp(28px, 4vw, 44px); line-height: 1.15; margin-block: 32px; }
+.guide h2 { margin-top: 36px; font-size: 24px; }
+.guide h3 { margin-top: 24px; font-size: 19px; }
+.guide p, .guide li { max-width: 78ch; line-height: 1.7; }
+.guide pre { overflow: auto; padding: 20px; border: 1px solid var(--rule); background: var(--paper-sunk); }
+.guide table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.guide th, .guide td { border-bottom: 1px solid var(--rule); padding: 12px; text-align: left; }
+.guide img { max-width: 100%; height: auto; }
+.guide__scope { color: var(--ink-3); font-size: 14px; }

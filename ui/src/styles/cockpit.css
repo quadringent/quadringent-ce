@@ -511,3 +511,19 @@
    affiché : sur un écran vide/en échec, la carte est étroite (62ch,
    board__empty) — le bandeau ne doit pas s'étirer au-delà. --- */
 .board__empty + .function-key-bar { max-width: 62ch; }
+.cockpit-table__evidence {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+}
+.cockpit-table__evidence-stage {
+  border-top: 2px solid var(--rule);
+  padding: var(--space-4) 0;
+  overflow-wrap: anywhere;
+}
+.cockpit-table__evidence-stage h2 { font-size: var(--t-body); }
+.cockpit-table__evidence-stage dl > div { margin-block: var(--space-3); }
+.cockpit-table__evidence-stage dt { color: var(--ink-3); font-size: var(--t-small); }
+.cockpit-table__evidence-stage dd { margin: 0; font-family: var(--font-mono); }
+.cockpit-table__evidence-stage p { font-size: var(--t-small); }

@@ -25,6 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from ... import repository as v1_repository
+from .evidence import EvidenceStage, PipelineEvidence, absent_evidence
 from .observation import (
     MetricPoint,
     MetricsSeries,
@@ -106,6 +107,44 @@ class ProjectionRepositoryObservationAdapter:
             last_arrival_at=None,
             collected_at=proj.observed_at,
             absent_reasons=reasons,
+        )
+
+    def evidence(self, pipeline_id: str) -> PipelineEvidence:
+        resolved = self._resolve_pipeline(pipeline_id)
+        if resolved.pipeline is None:
+            return absent_evidence(pipeline_id, reason=resolved.reason or UNREADABLE_REASON)
+        projection = resolved.pipeline
+        fresh = projection.quality.get("freshness") == "fresh"
+        measured = "observed" if fresh else "stale"
+        kind = projection.quality.get("evidence_kind", "absent")
+        published = _as_int(projection.counters.get("events_published"))
+        delivered = _as_int(projection.counters.get("events_in_target"))
+        duplicates = _as_int(projection.counters.get("duplicates_in_target"))
+        stages = {stage.id: stage for stage in projection.stages}
+        destination = stages.get("destination")
+        reconciled = (delivered is not None and duplicates is not None and destination is not None
+                      and destination.status == "healthy" and projection.reconciliation_observed_at is not None)
+        return PipelineEvidence(
+            pipeline_id, provenance="validated_console_projection", evidence_kind=kind,
+            collected_at=projection.observed_at,
+            reading=EvidenceStage(
+                state=measured if published is not None else "absent",
+                observed_at=projection.observed_at if published is not None else None,
+                event_count=published, detail="Events published by capture in the validated projection; this is not a source row total.",
+            ),
+            delivery=EvidenceStage(
+                state=measured if delivered is not None and destination is not None and destination.observed_at else "absent",
+                observed_at=destination.observed_at if delivered is not None and destination else None,
+                event_count=delivered,
+                detail="Destination ledger events from validated destination evidence." if delivered is not None else "Destination delivery has not been measured.",
+            ),
+            reconciliation=EvidenceStage(
+                state=measured if reconciled else "absent",
+                observed_at=projection.reconciliation_observed_at if reconciled else None,
+                event_count=delivered if reconciled else None,
+                duplicate_count=duplicates if reconciled else None,
+                detail=f"Reconciled destination evidence. {projection.reconciliation_scope}." if reconciled else "Complete destination reconciliation has not been established.",
+            ),
         )
 
     def metrics(self, pipeline_id: str, window: MetricsWindow) -> MetricsSeries:

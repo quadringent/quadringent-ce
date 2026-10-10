@@ -337,6 +337,8 @@ class PipelineProjection:
     resume: Mapping[str, object] | None = None
     costs: Mapping[str, object] | None = None
     infrastructure_costs: Mapping[str, object] | None = None
+    reconciliation_observed_at: str | None = None
+    reconciliation_scope: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {

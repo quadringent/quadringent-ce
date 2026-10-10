@@ -177,7 +177,7 @@ export function CockpitTableView({
             <LogsTab data={state.data} level={level} onLevelChange={onLevelChange} correlateIncident={correlateIncident} onCorrelateIncidentChange={onCorrelateIncidentChange} />
           ) : null}
           {activeTab === 'costs' ? <CostsTab data={state.data} /> : null}
-          {activeTab === 'proofs' ? <ProofsTab /> : null}
+          {activeTab === 'proofs' ? <ProofsTab data={state.data} /> : null}
         </>
       )}
 
@@ -298,10 +298,39 @@ function CostsTab({ data }: { readonly data: import('../../data/useCockpit.ts').
   );
 }
 
-function ProofsTab() {
+function ProofsTab({ data }: { readonly data: import('../../data/useCockpit.ts').CockpitTableData }) {
+  const evidence = data.evidence;
+  const stages = evidence ? [
+    ['Journal capture', evidence.reading],
+    ['Snowflake delivery', evidence.delivery],
+    ['Destination reconciliation', evidence.reconciliation],
+  ] as const : [];
   return (
     <section className="cockpit-table__tab" aria-label="Evidence">
-      <p>Absent — the v2 control plane has not published delivery evidence for this table yet.</p>
+      {!evidence ? <p>{data.evidenceError ?? 'Absent — no delivery evidence available for this table.'}</p> : (
+        <>
+          <p className="cockpit-table__note">
+            {evidence.evidenceKind === 'simulation' ? 'Demonstration — synthetic data' : `Evidence: ${evidence.evidenceKind}`}
+            {' · '}{evidence.provenance}
+            {evidence.collectedAt ? <> · Read at <time dateTime={evidence.collectedAt}>{evidence.collectedAt}</time></> : null}
+          </p>
+          <div className="cockpit-table__evidence">
+            {stages.map(([label, stage]) => (
+              <article className="cockpit-table__evidence-stage" key={label}>
+                <h2>{label}</h2>
+                <p className="cockpit-table__note">{stage.state === 'absent' ? 'Not measured' : stage.state}</p>
+                <dl>
+                  <div><dt>Observed at</dt><dd>{stage.observedAt ? <time dateTime={stage.observedAt}>{stage.observedAt}</time> : '—'}</dd></div>
+                  <div><dt>Events in measured scope</dt><dd>{stage.eventCount === null ? '—' : stage.eventCount.toLocaleString('en-US')}</dd></div>
+                  <div><dt>Last batch delay</dt><dd>{stage.lagSeconds === null ? '—' : `${stage.lagSeconds} s`}</dd></div>
+                  {label === 'Destination reconciliation' ? <div><dt>Duplicates in measured scope</dt><dd>{stage.duplicateCount === null ? '—' : stage.duplicateCount.toLocaleString('en-US')}</dd></div> : null}
+                </dl>
+                <p>{stage.detail}</p>
+              </article>
+            ))}
+          </div>
+        </>
+      )}
     </section>
   );
 }

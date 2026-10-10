@@ -84,6 +84,23 @@ export function createCockpitDemoFetch(): (input: string, init?: RequestInit) =>
       return json(200, pipelineDict(pipeline));
     }
 
+    const evidenceMatch = /^\/pipelines\/([^/]+)\/evidence$/.exec(path);
+    if (method === 'GET' && evidenceMatch) {
+      const pipeline = pipelines.find((item) => item.id === evidenceMatch[1]);
+      if (!pipeline) return notFound(path);
+      const absent = { state: 'absent', observed_at: null, event_count: null,
+        lag_seconds: null, duplicate_count: null, detail: 'Not measured in this demonstration.' };
+      return json(200, {
+        pipeline_id: pipeline.id, provenance: 'demo_fixture', evidence_kind: 'simulation',
+        collected_at: '2026-09-23T09:00:00Z',
+        reading: { ...absent, state: 'observed', observed_at: '2026-09-23T09:00:00Z',
+          event_count: 120, detail: 'Synthetic capture events; no IBM i system was queried.' },
+        delivery: { ...absent, state: 'observed', observed_at: '2026-09-23T09:00:00Z',
+          event_count: 118, lag_seconds: 6.2, detail: 'Synthetic delivered batch; no Snowflake system was queried.' },
+        reconciliation: absent,
+      });
+    }
+
     const actionMatch = /^\/pipelines\/([^/]+)\/actions\/([^/]+)$/.exec(path);
     if (method === 'POST' && actionMatch) {
       const [, pipelineId, action] = actionMatch;

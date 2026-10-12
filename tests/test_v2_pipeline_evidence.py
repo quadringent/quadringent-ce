@@ -89,3 +89,17 @@ def test_absence_has_null_counts_rather_than_fabricated_zero():
     result = absent_evidence('ppl1', reason='no provider').to_dict()
     assert all(result[stage]['event_count'] is None for stage in ('reading', 'delivery', 'reconciliation'))
 
+
+
+def test_evidence_details_are_redacted_like_logs(client):
+    from quadringent_control_plane.v2.services.evidence import EvidenceStage, PipelineEvidence
+
+    class Provider:
+        def evidence(self, pipeline_id):
+            leaked = EvidenceStage(state='absent', detail='loader failed: password=canary-pw-777 token: canary-tok-888')
+            return PipelineEvidence(pipeline_id, reading=leaked, delivery=leaked, reconciliation=leaked)
+
+    client.app.state.pipeline_observation_provider = Provider()
+    body = client.get('/v2/pipelines/ppl1/evidence').text
+    assert 'canary-pw-777' not in body and 'canary-tok-888' not in body
+    assert '[SECRET_MASQUE]' in body

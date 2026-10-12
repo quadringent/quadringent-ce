@@ -152,3 +152,14 @@ def test_injection_attempts_are_rejected_before_any_script_exists(service, field
     with pytest.raises(DestinationValidationError):
         service.create(**options)
     assert service.list() == ()
+
+
+@pytest.mark.parametrize("options", VARIANTS)
+def test_reader_role_only_reaches_the_mirror_schema(service, options):
+    record, _ = service.create(snowflake_account="synthetic-account", **options)
+    database, output_schema = validated_destination_scope(
+        options.get("destination_database", "QUADRINGENT"), options.get("destination_schema"))
+    mirror = f"{database}.{output_schema or DECLARED_MIRROR_SCHEMA}"
+    reader = record.service_role.replace("QDT_ROLE_", "QDT_READ_")
+    targets = {target for _, kind, target in grants_by_role(service.setup_script(record.id))[reader] if kind != "DATABASE"}
+    assert targets == {mirror}

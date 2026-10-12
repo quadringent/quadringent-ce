@@ -110,7 +110,7 @@ Under verification: with the default schemas, the generated script grants
 mirror table. If **Verify access** fails on the mirror schema, grant
 `CREATE TABLE` on it to the service role. The classic Snowpipe path with an
 external stage, storage integration and S3 notifications belongs to the v1 AWS
-DEV path in the [Helm guide](install-client.md), not to the default installer.
+DEV path in the [Helm guide](install-client.md), not to the default installer. The reader role gets SELECT on all current and future tables of the mirror schema; when you declare one output schema, history shares it, so use a schema dedicated to Quadringent.
 
 ## Default resources and cost
 

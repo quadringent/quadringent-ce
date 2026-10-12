@@ -884,24 +884,30 @@ def activation_message(inputs: InstallInputs, *, activation_token: str | None = 
         # choisie plutôt que d'apprendre au routeur à reconnaître
         # ``location.pathname === '/activate'`` : un seul mécanisme de
         # routage, pas deux (tâche « auth-login »).
+        activation_line = f"Admin activation link: http://127.0.0.1:{port}/#/wizard/activate?token={activation_token}"
+        next_step = "Activate the administrator using this link, sign in, then connect your IBM i through the wizard."
+    elif not inputs.admin_email:
         activation_line = (
-            f"Lien d'activation admin : http://127.0.0.1:{port}/#/wizard/activate?token={activation_token}"
+            "Admin activation link: not issued because --admin-email was omitted. For a new installation, "
+            "rerun the same install command with --admin-email <your-admin-email> before opening the wizard. "
+            "For an existing installation, sign in with the administrator already activated."
         )
+        next_step = "Create and activate the first administrator, or sign in with an existing account, before opening the wizard."
     else:
         # Jamais de lien fictif : soit le control plane v2 n'est pas encore
         # actif, soit la première émission a déjà eu lieu. Le rejeu n'est pas
         # une récupération de secret ; ne pas recommander une boucle install.
         activation_line = (
-            "Admin activation link: not issued (v2 unavailable, --admin-email absent, already issued "
+            "Admin activation link: not issued (v2 unavailable, bootstrap failed, already issued "
             "or admin active). Replaying never displays the token again. If the initial link is lost "
             "and the admin is not activated, an authenticated admin operator can find its identifier via "
-            "`quadringent users list`, puis demander `quadringent users reissue-activation <user_id>`. "
+            "`quadringent users list`, then run `quadringent users reissue-activation <user_id>`. "
             "This explicit action invalidates old links; otherwise log in with the existing admin."
         )
+        next_step = "Resolve administrator access, then sign in and connect your IBM i through the wizard."
     return (
         f"URL (after tunnel): http://127.0.0.1:{port}\n"
-        f"Tunnel : {access}\n"
+        f"Tunnel: {access}\n"
         f"{activation_line}\n"
-        "Next step: connect your IBM i through the activation "
-        "wizard (the installer does not declare the source yet)."
+        f"Next step: {next_step} The installer does not declare the source yet."
     )

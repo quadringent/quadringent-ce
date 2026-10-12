@@ -22,6 +22,7 @@ import { href, type CockpitTableTab } from '../../router.ts';
 import type { ControlActionKind } from '../../domain/controlsPanel.ts';
 import { ControlPlaneV2Error, pendingConfirmationId, type LogLevel } from '../../data/controlPlaneV2Client.ts';
 import { focusPrimaryControls, navigateBack } from './cockpitFunctionKeys.ts';
+import { EVIDENCE_COPY } from '../../domain/operator.ts';
 
 const TABS: readonly { readonly id: CockpitTableTab; readonly label: string }[] = [
   { id: 'metrics', label: "Metrics" },
@@ -77,7 +78,10 @@ export function CockpitTableView({
   readonly onRefresh: () => void;
 }) {
   const activeTab = tab ?? 'metrics';
+  const [focusedTab, setFocusedTab] = useState(activeTab);
   const displayName = state.status === 'ready' ? state.data.name ?? pipelineId : pipelineId;
+
+  useEffect(() => { setFocusedTab(activeTab); }, [activeTab]);
 
   useEffect(() => {
     document.title = `Quadringent · Cockpit · ${displayName}`;
@@ -116,7 +120,8 @@ export function CockpitTableView({
                 id={`cockpit-table-tab-${item.id}`}
                 className={activeTab === item.id ? 'is-current' : undefined}
                 aria-selected={activeTab === item.id}
-                tabIndex={activeTab === item.id ? 0 : -1}
+                tabIndex={focusedTab === item.id ? 0 : -1}
+                onFocus={() => setFocusedTab(item.id)}
                 aria-current={activeTab === item.id ? 'page' : undefined}
                 href={href({ name: 'cockpit-table', id: pipelineId, tab: item.id })}
               >
@@ -193,7 +198,9 @@ export function CockpitTableView({
 function onTabsKeyDown(event: KeyboardEvent<HTMLUListElement>, activeTab: CockpitTableTab): void {
   if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
   event.preventDefault();
-  const currentIndex = TABS.findIndex((item) => item.id === activeTab);
+  const focused = event.target instanceof Element ? event.target.closest('[role="tab"]') : null;
+  const focusedIndex = TABS.findIndex((item) => focused?.id === `cockpit-table-tab-${item.id}`);
+  const currentIndex = focusedIndex >= 0 ? focusedIndex : TABS.findIndex((item) => item.id === activeTab);
   const delta = event.key === 'ArrowRight' ? 1 : -1;
   const nextIndex = (currentIndex + delta + TABS.length) % TABS.length;
   const next = TABS[nextIndex]!;
@@ -314,6 +321,7 @@ function ProofsTab({ data }: { readonly data: import('../../data/useCockpit.ts')
             {' · '}{evidence.provenance}
             {evidence.collectedAt ? <> · Read at <time dateTime={evidence.collectedAt}>{evidence.collectedAt}</time></> : null}
           </p>
+          <p className="cockpit-table__note">{EVIDENCE_COPY.producerVersion}: {evidence.producerVersion ?? EVIDENCE_COPY.versionMissing}</p>
           <div className="cockpit-table__evidence">
             {stages.map(([label, stage]) => (
               <article className="cockpit-table__evidence-stage" key={label}>

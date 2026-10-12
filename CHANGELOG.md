@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.5 — Reliable cockpit controls and administrator guidance
+
+- Resolve connection destinations from pipeline identities; ambiguous links expose no destination control.
+- Keep table tabs keyboard-accessible with consistent focus, Tab/Shift+Tab and manual activation.
+- Explain first-administrator setup when the installer receives no admin email.
+- Report a missing evidence producer version explicitly and link evaluation guides to the public pilot request.
+
+Local synthetic desktop checks cover these changes. Earlier native CDC results
+remain bound to their versions; current-release recovery and latency require
+their own qualification.
+
 ## 0.3.4 — Deliver tables before optional lag measurements
 
 - Reuse committed copy checkpoints instead of repeating snapshot discovery reads.

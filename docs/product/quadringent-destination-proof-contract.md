@@ -190,3 +190,8 @@ to technical event identity.
 
 See [native qualification](native-qualification.md), [Snowflake destination](snowflake-destination.md)
 and the projector tests for accepted examples and refusal cases.
+
+To evaluate this contract on two DEV/INT tables, review the
+[installation prerequisites](install-default.md) and [pilot preparation](positioning-and-offer.md).
+The pilot guide links to an public interest request using anonymized examples; agree the observation
+window and acceptance criteria before installation.

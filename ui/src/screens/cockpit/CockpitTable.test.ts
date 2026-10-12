@@ -159,3 +159,16 @@ test('an evidence request failure leaves the other table tabs usable', () => {
   assert.match(markup, /Evidence service unavailable/);
   assert.match(render({ tab: 'metrics', state: { status: 'ready', data } }), /Throughput/);
 });
+
+test('evidence identifies a producer version only when reported by the service', () => {
+  const stage = { state: 'absent' as const, observedAt: null, eventCount: null, lagSeconds: null, duplicateCount: null, detail: 'Not measured.' };
+  for (const producerVersion of [null, 'synthetic-build']) {
+    const data = tableData({ evidence: {
+      pipelineId: 'pl_sales_order_lines', provenance: 'synthetic_fixture', evidenceKind: 'simulation',
+      collectedAt: null, reading: stage, delivery: stage, reconciliation: stage, producerVersion,
+    } });
+    const markup = render({ tab: 'proofs', state: { status: 'ready', data } });
+    assert.match(markup, /Producer version/);
+    assert.match(markup, producerVersion ? /synthetic-build/ : /Not reported by the service/);
+  }
+});

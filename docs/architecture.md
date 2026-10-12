@@ -50,3 +50,7 @@ billing permissions: it projects a dated local observation bound to the
 declared site, bucket, region and namespace. A cost failure does not alter
 capture state; failure of one cost source does not hide the other.
 See [FinOps](finops.md).
+
+For a first DEV/INT evaluation, review the [installation prerequisites](product/install-default.md)
+and [pilot scope](product/positioning-and-offer.md). The pilot guide links to
+an public interest request using anonymized examples; a running reader alone does not prove delivery.

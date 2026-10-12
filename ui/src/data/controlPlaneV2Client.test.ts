@@ -19,6 +19,18 @@ test('evidence rejects a response for another table and invalid counts', async (
   }
 });
 
+test('evidence preserves a reported producer version and never derives it from the format', async () => {
+  const stage = { state: 'absent', observed_at: null, event_count: null, lag_seconds: null, duplicate_count: null, detail: 'Not measured.' };
+  for (const producerVersion of [undefined, 'synthetic-build']) {
+    const client = new ControlPlaneV2Client({ fetchFn: fakeFetch(() => jsonResponse(200, {
+      pipeline_id: 'pl_1', provenance: 'synthetic_fixture', evidence_kind: 'simulation',
+      collected_at: null, reading: stage, delivery: stage, reconciliation: stage,
+      format_version: 'some-format-v99', producer_version: producerVersion,
+    })) });
+    assert.equal((await client.getEvidence('pl_1')).producerVersion, producerVersion ?? null);
+  }
+});
+
 class FakeEventSource implements CockpitEventSourceLike {
   closed = false;
   onerror: ((event: Event) => void) | null = null;

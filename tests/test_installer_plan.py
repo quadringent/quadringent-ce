@@ -466,6 +466,19 @@ class FirstAdminActivationTests(unittest.TestCase):
         self.assertEqual(runner.calls, [])
         self.assertIn("--admin-email", activation_message(inputs))
 
+    def test_without_admin_email_explains_how_to_bootstrap_a_new_installation(self) -> None:
+        inputs = InstallInputs(cloud="aws", target="cluster", region="eu-west-3", name="demo-int")
+        message = activation_message(inputs)
+        self.assertIn("rerun the same install command with --admin-email", message)
+        self.assertIn("before opening the wizard", message)
+        self.assertNotIn("an authenticated admin operator", message)
+
+    def test_activation_message_distinguishes_account_activation_from_source_setup(self) -> None:
+        message = activation_message(self.INPUTS, activation_token="demo")
+        self.assertIn("Activate the administrator", message)
+        self.assertIn("sign in", message)
+        self.assertIn("connect your IBM i", message)
+
     def test_successful_response_returns_the_token(self) -> None:
         body = json.dumps({"before": None, "after": {"activation_token": "demo"}})
         runner = _ScriptedExecRunner(stdout=body, returncode=0)

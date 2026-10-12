@@ -10,8 +10,8 @@ infrastructure and retains control of access and data.
 Historical DEV/INT qualifications cover AWS VM, EKS, GCP VM and GKE depending
 on version and scenario. The [README](../../README.md) separates measurements,
 limitations and simulations. They provide no SLA, PROD qualification or
-admission of future artifacts. Version 0.3.2 requires its own artifact and
-runtime qualification. Historical 0.2.x evidence remains bound to its original
+admission of future artifacts. Check the current version and its dated
+qualification in the README; earlier evidence remains bound to its original
 artifacts. Check Releases for actual availability.
 
 ## First proposed service
@@ -25,6 +25,15 @@ only after a real need is confirmed.
 This offer is not available for purchase. No price, contractual lead time,
 reference customer or SLA is announced. This guide prepares a decision without
 a sales form, automatic outreach or a fictional sales contact.
+
+## Describe an anonymized scenario
+
+Open a [pilot interest request](https://github.com/quadringent/quadringent-ce/issues/new?template=pilot_interest.yml)
+to describe your intended use and success criteria. GitHub sign-in is required.
+State whether IBM i, Snowflake and a DEV/INT environment are available, and
+which technical role would operate the evaluation. Include no credentials,
+private hostnames, customer names or business data. Interest is the first step;
+scope, scheduling and support still need a separate agreement.
 
 ## Prepare the scope
 

@@ -809,3 +809,8 @@ export function confirmationActionLabel(actionRef: string): string {
     default: return "Sensitive action";
   }
 }
+
+export const EVIDENCE_COPY = {
+  producerVersion: 'Producer version',
+  versionMissing: 'Not reported by the service.',
+} as const;

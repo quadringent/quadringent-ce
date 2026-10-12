@@ -296,6 +296,7 @@ export interface EvidenceStage {
 export interface PipelineEvidence {
   readonly pipelineId: string;
   readonly provenance: string;
+  readonly producerVersion?: string | null;
   readonly evidenceKind: 'live' | 'historical' | 'simulation' | 'absent';
   readonly collectedAt: string | null;
   readonly reading: EvidenceStage;
@@ -1091,7 +1092,10 @@ function parseEvidence(value: unknown, pipelineId: string): PipelineEvidence {
   const data = record(value);
   if (data.pipeline_id !== pipelineId || typeof data.provenance !== 'string' ||
       !['live', 'historical', 'simulation', 'absent'].includes(String(data.evidence_kind))) return invalid();
+  const producerVersion = data.producer_version ?? null;
+  if (producerVersion !== null && (typeof producerVersion !== 'string' || !producerVersion.trim())) return invalid();
   return { pipelineId, provenance: data.provenance, evidenceKind: data.evidence_kind as PipelineEvidence['evidenceKind'],
+    producerVersion,
     collectedAt: timestamp(data.collected_at), reading: stage(data.reading), delivery: stage(data.delivery),
     reconciliation: stage(data.reconciliation) };
 }

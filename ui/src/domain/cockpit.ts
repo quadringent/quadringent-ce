@@ -1,16 +1,4 @@
-/**
- * Domaine du cockpit v2 — dérivations pures depuis les types du client
- * (`data/controlPlaneV2Client.ts`) vers ce que les écrans affichent. Aucun
- * accès réseau ici (voir `data/useCockpit.ts` pour l'orchestration).
- *
- * Le control plane v2 (docs/plans/2026-09-23-control-plane-v2-contract.md)
- * ne modélise pas encore de « connexion » comme entité propre : seulement
- * des `sources`, `destinations`, `tables`/`pipelines` séparés. La liste des
- * pipelines publie désormais `source_id` et `table_id`, utilisés pour
- * rattacher les tables. Le cockpit associe encore une source à sa
- * destination par position (ordre de création) ; une source sans destination
- * correspondante reste « non couplée ».
- */
+/** Pure cockpit projections; connection identity comes from pipeline links. */
 
 import type { MetricPoint, PipelineDeclaredState, PipelineListRecordV2, SourceRecord, DestinationRecord } from '../data/controlPlaneV2Client.ts';
 import type { StatusWordState } from '../components/foundation/StatusWord.tsx';
@@ -33,6 +21,7 @@ export function declaredStateToStatusWord(state: PipelineDeclaredState): StatusW
 export interface CockpitTable {
   readonly pipelineId: string;
   readonly sourceId: string;
+  readonly destinationId: string | null;
   readonly name: string;
   readonly state: StatusWordState;
   readonly declaredState: PipelineDeclaredState;
@@ -61,12 +50,18 @@ export function buildConnections(
   destinations: readonly DestinationRecord[],
   tablesBySource: ReadonlyMap<string, readonly CockpitTable[]>,
 ): readonly CockpitConnection[] {
-  return sources.map((source, index) => ({
-    id: source.id,
-    label: source.displayName ?? source.host,
-    destinationId: destinations[index]?.id ?? null,
-    tables: tablesBySource.get(source.id) ?? [],
-  }));
+  const knownDestinations = new Set(destinations.map((destination) => destination.id));
+  return sources.map((source) => {
+    const tables = tablesBySource.get(source.id) ?? [];
+    const links = new Set(tables.map((table) => table.destinationId));
+    const destinationId = links.size === 1 ? [...links][0] : null;
+    return {
+      id: source.id,
+      label: source.displayName ?? source.host,
+      destinationId: destinationId && knownDestinations.has(destinationId) ? destinationId : null,
+      tables,
+    };
+  });
 }
 
 /** Un seul bandeau d'attention par écran (design §3) : vrai si au moins une
@@ -138,6 +133,7 @@ export function groupTablesBySource(
     const table: CockpitTable = {
       pipelineId: pipeline.id,
       sourceId,
+      destinationId: pipeline.destinationId || null,
       name: nameForPipeline(pipeline.id),
       state: declaredStateToStatusWord(pipeline.declaredState),
       declaredState: pipeline.declaredState,

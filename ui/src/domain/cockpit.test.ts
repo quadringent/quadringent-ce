@@ -26,6 +26,7 @@ function table(overrides: Partial<CockpitTable>): CockpitTable {
   return {
     pipelineId: 'pl_1',
     sourceId: 'src_1',
+    destinationId: 'dst_1',
     name: "CUSTOMERS",
     state: 'live',
     declaredState: 'live',
@@ -49,7 +50,7 @@ function listPipeline(overrides: Partial<PipelineListRecordV2> & { readonly id: 
   };
 }
 
-test('buildConnections pairs sources with destinations by position and attaches grouped tables', () => {
+test('buildConnections resolves the destination declared by the source pipelines', () => {
   const sources: readonly SourceRecord[] = [
     { id: 'src_1', displayName: "Sales", host: 'as400-1.local' },
     { id: 'src_2', displayName: null, host: 'as400-2.local' },
@@ -67,6 +68,28 @@ test('buildConnections pairs sources with destinations by position and attaches 
   assert.equal(connections[1]!.label, 'as400-2.local');
   assert.equal(connections[1]!.destinationId, null);
   assert.deepEqual(connections[1]!.tables, []);
+});
+
+test('destination controls follow pipeline identity even when destination order differs', () => {
+  const sources: readonly SourceRecord[] = [{ id: 'src_1', displayName: 'Sales', host: 'source.example.test' }];
+  const destinations = ['dst_other', 'dst_1'].map((id): DestinationRecord => ({
+    id, accountIdentifier: 'example', destinationDatabase: 'SYNTHETIC', destinationSchema: null,
+    verificationState: 'declared_not_verified', sqlScript: '', privateKeyPem: null,
+  }));
+  const connections = buildConnections(sources, destinations, new Map([['src_1', [table({})]]]));
+  assert.equal(connections[0]!.destinationId, 'dst_1');
+});
+
+test('missing, unknown or multiple pipeline destinations never enable guessed destination controls', () => {
+  const sources: readonly SourceRecord[] = [{ id: 'src_1', displayName: 'Sales', host: 'source.example.test' }];
+  const destinations: readonly DestinationRecord[] = [{
+    id: 'dst_1', accountIdentifier: 'example', destinationDatabase: 'SYNTHETIC', destinationSchema: null,
+    verificationState: 'declared_not_verified', sqlScript: '', privateKeyPem: null,
+  }];
+  for (const tables of [[], [table({ destinationId: null })], [table({ destinationId: 'unknown' })],
+    [table({}), table({ destinationId: 'dst_other' })], [table({}), table({ destinationId: null })]]) {
+    assert.equal(buildConnections(sources, destinations, new Map([['src_1', tables]]))[0]!.destinationId, null);
+  }
 });
 
 test('connectionNeedsAttention and fleetNeedsAttention are true only when a table is actually in attention', () => {
@@ -118,6 +141,7 @@ test('groupTablesBySource carries the observed figures through onto each Cockpit
     listPipeline({
       id: 'pl_1',
       declaredState: 'paused',
+      destinationId: 'dst_1',
       observation: {
         lagSeconds: null,
         throughputRowsPerSecond: null,
@@ -132,6 +156,7 @@ test('groupTablesBySource carries the observed figures through onto each Cockpit
   const [row] = grouped.get('src_1')!;
   assert.equal(row!.lagSeconds, null);
   assert.equal(row!.rowsSource, 500);
+  assert.equal(row!.destinationId, 'dst_1');
   assert.equal(row!.rowsDestination, null);
   assert.equal(row!.absentReasons.lag_seconds, 'Table en pause.');
 });

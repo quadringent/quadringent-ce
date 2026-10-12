@@ -10,6 +10,7 @@ function tableFixture(overrides: Partial<CockpitTable>): CockpitTable {
   return {
     pipelineId: 'pl_1',
     sourceId: 'src_1',
+    destinationId: 'dst_1',
     name: "CUSTOMERS",
     state: 'live',
     declaredState: 'live',

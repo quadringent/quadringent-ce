@@ -37,6 +37,10 @@ If `pg_restore` is unavailable in the uploader, it requires that receipt.
 After upload, it rereads the stored bytes and compares length and SHA256 before
 reporting success. Its S3/GCS identity needs both write and read access to
 `postgres.backup.destinationPrefix`.
+Set `postgres.backup.serviceAccountName` explicitly when using released charts
+through 0.3.5. It can name the site's capture account or a dedicated identity.
+Current source also inherits `serviceAccount.name` when this override is empty;
+that correction is not included in the published 0.3.5 chart.
 
 With network policy enabled, the backup ingress rule selects the same release's
 exact name, instance and component labels on the PostgreSQL port. Disabling

@@ -242,9 +242,7 @@ spec:
             app.kubernetes.io/instance: {{ .Release.Name }}
             app.kubernetes.io/component: postgres-backup
         spec:
-          {{- with .Values.postgres.backup.serviceAccountName }}
-          serviceAccountName: {{ . }}
-          {{- end }}
+          serviceAccountName: {{ .Values.postgres.backup.serviceAccountName | default .Values.serviceAccount.name | quote }}
           automountServiceAccountToken: {{ ne .Values.postgres.backup.serviceAccountName "" }}
           restartPolicy: Never
           {{- with .Values.image.pullSecret }}

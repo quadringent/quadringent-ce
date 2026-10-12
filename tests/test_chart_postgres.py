@@ -137,6 +137,41 @@ class PostgresComponentTests(unittest.TestCase):
         self.assertIn('command: ["sh", "-ec"]', cronjob)
         self.assertLess(cronjob.index("pg_restore --file=/dev/null"), cronjob.index("printf"))
 
+    def test_backup_uses_capture_identity_unless_a_dedicated_account_is_set(self) -> None:
+        for backend in ("aws", "gcs"):
+            for create in (False, True):
+                for dedicated in ("", "dedicated-backup"):
+                    with self.subTest(backend=backend, create=create, dedicated=dedicated):
+                        overrides = [
+                            "postgres.enabled=true", "postgres.backup.enabled=true",
+                            "serviceAccount.name=configured-capture",
+                            "serviceAccount.create=" + str(create).lower(),
+                            "postgres.backup.serviceAccountName=" + dedicated,
+                        ]
+                        if backend == "aws":
+                            overrides.append("serviceAccount.roleArn=arn:aws:iam::000000000000:role/capture")
+                        else:
+                            overrides += [
+                                "storage.backend=gcs", "storage.checkpointBucket=example-corp-int-example-corp-checkpoints",
+                                "site.awsAccountId=", "site.checkpointTable=", "aws.region=",
+                                "controlPlane.serviceAccount.roleArn=", "serviceAccount.roleArn=",
+                                "controlPlane.serviceAccount.gcpServiceAccount=quadringent-cp@example-corp-int.iam.gserviceaccount.com",
+                                "serviceAccount.gcpServiceAccount=capture@example-corp-int.iam.gserviceaccount.com",
+                            ]
+                        result = render(*overrides)
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        documents = [item for item in yaml.safe_load_all(result.stdout) if item]
+                        job = next(item for item in documents if item["kind"] == "CronJob" and item["metadata"]["name"].endswith("postgres-backup"))
+                        pod = job["spec"]["jobTemplate"]["spec"]["template"]["spec"]
+                        self.assertEqual(pod.get("serviceAccountName"), dedicated or "configured-capture")
+                        self.assertEqual(pod["automountServiceAccountToken"], bool(dedicated))
+                        accounts = [item for item in documents if item["kind"] == "ServiceAccount" and item["metadata"]["name"] == "configured-capture"]
+                        self.assertEqual(len(accounts), int(create))
+                        if create:
+                            annotation = "eks.amazonaws.com/role-arn" if backend == "aws" else "iam.gke.io/gcp-service-account"
+                            expected = "arn:aws:iam::000000000000:role/capture" if backend == "aws" else "capture@example-corp-int.iam.gserviceaccount.com"
+                            self.assertEqual(accounts[0]["metadata"]["annotations"][annotation], expected)
+
     def test_backup_network_policy_matches_exact_release_labels(self) -> None:
         """L'accès PostgreSQL du backup reste lié au nom et à l'instance du site."""
         import yaml

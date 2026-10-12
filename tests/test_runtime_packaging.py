@@ -14,6 +14,36 @@ import pytest
 import yaml
 
 
+@pytest.mark.parametrize("image", ["capture", "cockpit"])
+def test_native_identity_checkpoint_modules_import_from_the_image_filesystem(image):
+    if image == "capture":
+        sources = Path("docker/runtime-modules.txt").read_text().split()
+    else:
+        import shlex
+        sources = []
+        allowlist = set(Path("docker/control-plane.Dockerfile.dockerignore").read_text().splitlines())
+        for line in Path("docker/control-plane.Dockerfile").read_text().splitlines():
+            if not line.startswith("COPY "):
+                continue
+            fields = shlex.split(line)
+            if fields and fields[0] == "COPY" and fields[-1] == "/app/src/quadringent/":
+                sources.extend(value for value in fields[1:-1] if "!" + value in allowlist)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        package = root / "quadringent"
+        package.mkdir()
+        for source in sources:
+            shutil.copy2(source, package / Path(source).name)
+        result = subprocess.run(
+            [sys.executable, "-I", "-c",
+             "import sys; sys.path.insert(0, '.'); "
+             "import quadringent.checkpoint, quadringent.java_catalog, quadringent.gcs_backend"],
+            cwd=root, capture_output=True, text=True, timeout=15,
+        )
+        assert result.returncode == 0, result.stderr
+
+
+
 def runtime_module_names() -> tuple[str, ...]:
     return tuple(
         Path(module).stem

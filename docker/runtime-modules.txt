@@ -1,5 +1,6 @@
 src/quadringent/__init__.py
 src/quadringent/checkpoint.py
+src/quadringent/receiver_identity.py
 src/quadringent/console_snapshot.py
 src/quadringent/continuous.py
 src/quadringent/contract.py

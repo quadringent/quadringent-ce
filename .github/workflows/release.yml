@@ -502,6 +502,50 @@ jobs:
           if missing or forbidden:
               raise SystemExit(f"Invalid sdist: missing files={missing}, forbidden files={forbidden}")
           PY
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: Build synthetic demo from the release commit
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          npm ci --prefix ui
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          node ui/scripts/build-demo.mjs --out "${RUNNER_TEMP}/quadringent-demo-${RELEASE_VERSION}"
+      - name: Verify synthetic demo provenance and checksum
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          python scripts/verify_demo_release.py \
+            --archive "${RUNNER_TEMP}/quadringent-demo-${RELEASE_VERSION}.tar.gz" \
+            --output "${RUNNER_TEMP}/demo-release-extracted" \
+            --version "$RELEASE_VERSION" --source-commit "$GITHUB_SHA"
+      - name: Scan extracted synthetic demo before upload
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+          GITLEAKS_VERSION: "8.30.1"
+        run: |
+          case "$RUNNER_ARCH" in
+            X64) archive_arch=x64; archive_sha256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb ;;
+            ARM64) archive_arch=arm64; archive_sha256=e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080 ;;
+            *) echo "Unsupported Linux architecture" >&2; exit 1 ;;
+          esac
+          test "$RUNNER_OS" = "Linux"
+          archive="${RUNNER_TEMP}/gitleaks_${GITLEAKS_VERSION}_linux_${archive_arch}.tar.gz"
+          curl --fail --silent --show-error --location \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_${archive_arch}.tar.gz" \
+            --output "$archive"
+          printf '%s  %s\n' "$archive_sha256" "$archive" | sha256sum --check --strict
+          mkdir -p "${RUNNER_TEMP}/demo-gitleaks"
+          tar --extract --gzip --file "$archive" --directory "${RUNNER_TEMP}/demo-gitleaks" gitleaks
+          "${RUNNER_TEMP}/demo-gitleaks/gitleaks" dir "${RUNNER_TEMP}/demo-release-extracted/quadringent-demo-${RELEASE_VERSION}" \
+            --config .gitleaks.toml --redact --no-banner
+          cp "${RUNNER_TEMP}/quadringent-demo-${RELEASE_VERSION}.tar.gz" \
+             "${RUNNER_TEMP}/quadringent-demo-${RELEASE_VERSION}.tar.gz.sha256" dist/
       - uses: actions/upload-artifact@v4
         with:
           name: release-packages
@@ -509,6 +553,7 @@ jobs:
             quadringent-*.tgz
             dist/*.whl
             dist/*.tar.gz
+            dist/*.sha256
 
   release:
     # Create the GitHub release only after scanned images and chart succeed;
@@ -549,4 +594,5 @@ jobs:
             supply-chain/*
             packages/**/*.whl
             packages/**/*.tar.gz
+            packages/**/*.sha256
             packages/*.tgz

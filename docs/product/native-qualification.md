@@ -326,6 +326,14 @@ Pause/resume/crash still cover a same-receiver window, including after a prior r
 Sequence reset, missing bounds, omitted chain or foreign scope fails; a new copy
 must never hide loss.
 
+The continuous reader also refuses sequence resets: available sequence bounds
+and attach order cannot prove that no intermediate receiver was deleted.
+It retains the checkpoint and requires operator review; a new copy establishes
+a new boundary and does not recover or certify the missing history. Preserve
+the original checkpoint and receiver backups before any recovery decision.
+This guard is a source correction after v0.3.5; the original v0.3.5 release
+artifacts do not contain it.
+
 ## SQL history mode
 
 expected_history_mode: sql declares the required runtime mode; it does not change

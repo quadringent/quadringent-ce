@@ -375,18 +375,16 @@ def plan_next_window(
         # purged: those entries are unreachable and the hole is unrecoverable.
         # Stay fail-closed until an operator re-anchors the checkpoint.
         raise ReceiverPlanningError("receiver sequence gap requires operator review")
+    if following.first_sequence <= current.last_sequence:
+        # Sequence bounds cannot distinguish a reset from a missing intermediate receiver.
+        raise ReceiverPlanningError("receiver sequence reset has no proven continuity; operator review required")
     if following.last_sequence is None:
         return None
-    # A backward step is a journal sequence reset (CHGJRN SEQOPT(*RESET),
-    # typical of weekend maintenance). The receiver chain is intact, so the
-    # window crosses by attach order and flags the discontinuity for audit.
-    sequence_reset = following.first_sequence <= current.last_sequence
     return _window(
         following,
         JournalPosition(following.receiver, following.first_sequence),
         max_entries=max_entries,
         rotated_from=checkpoint,
-        sequence_reset=sequence_reset,
     )
 
 

@@ -107,24 +107,44 @@ class ContinuousCaptureTests(unittest.TestCase):
         with self.assertRaises(ReceiverPlanningError):
             plan_next_window(JournalPosition("R2", 110), receivers, max_entries=10)
 
-    def test_planner_crosses_a_receiver_sequence_reset(self) -> None:
-        """A journal sequence reset (weekend maintenance) restarts numbering
-        inside the next receiver: the chain is intact, so the window crosses
-        by attach order instead of treating it as a purged-receiver hole."""
-        receivers = [
-            ReceiverSnapshot("QGPL", "DEMOJRN4115", 349833721, 355014589),
-            ReceiverSnapshot("QGPL", "DEMOJRN4116", 1, 3391667),
-        ]
+    def test_planner_rejects_a_receiver_reset_without_continuity_proof(self) -> None:
+        for first in (1, 100, 110):
+            with self.subTest(first=first):
+                receivers = [
+                    ReceiverSnapshot("QGPL", "R1", 100, 110),
+                    ReceiverSnapshot("QGPL", "R2", first, 130),
+                ]
+                with self.assertRaisesRegex(ReceiverPlanningError, "reset.*continuity"):
+                    plan_next_window(JournalPosition("R1", 110), receivers, max_entries=10)
 
-        plan = plan_next_window(
-            JournalPosition("DEMOJRN4115", 355014589), receivers, max_entries=10
-        )
+    def test_missing_receiver_before_a_reset_does_not_advance_checkpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            checkpoint = JsonCheckpointStore(root / "checkpoint.json")
+            previous = JournalPosition("R1", 110)
+            checkpoint.commit(previous)
+            checkpoint_bytes = checkpoint.path.read_bytes()
+            store = FileObjectStore(root / "raw")
+            runner = FakeRunner(CapturedWindow(scanned_to=JournalPosition("R3", 10)))
+            # R2 was removed before R3 reset numbering; sequence bounds alone cannot prove continuity.
+            catalog = FakeCatalog([
+                ReceiverSnapshot("QGPL", "R1", 100, 110),
+                ReceiverSnapshot("QGPL", "R3", 1, 20),
+            ])
+            service = ContinuousCaptureService(
+                catalog, runner, RawFirstCaptureCoordinator(store, checkpoint), checkpoint,
+                max_entries=10, sleep=lambda _: None,
+            )
 
-        assert plan is not None
-        self.assertEqual(plan.start, JournalPosition("DEMOJRN4116", 1))
-        self.assertEqual(plan.end, JournalPosition("DEMOJRN4116", 10))
-        self.assertEqual(plan.rotated_from, JournalPosition("DEMOJRN4115", 355014589))
-        self.assertTrue(plan.sequence_reset)
+            with self.assertRaisesRegex(ReceiverPlanningError, "reset.*continuity"):
+                service.run_once()
+
+            self.assertEqual(runner.windows, [])
+            self.assertEqual(checkpoint.path.read_bytes(), checkpoint_bytes)
+            self.assertEqual(checkpoint.load(), previous)
+            self.assertEqual(service.metrics.empty_scans, 0)
+            self.assertEqual(service.metrics.batches_published, 0)
+            self.assertEqual(list((root / "raw").rglob("*.json*")), [])
 
     def test_tail_last_sequence_bootstraps_a_finite_lookback_not_a_one_seq_wait(self) -> None:
         # ``__TAIL__`` doit toujours calculer un recul borne : c'est

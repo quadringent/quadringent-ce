@@ -96,7 +96,7 @@ identities, PostgreSQL volumes, original keys and typed history on all four site
 The 0.3.4 readback matched all **136 history images and 110 mirror rows per site**.
 
 In one 0.3.4 trial with all four Snowflake loader warehouses initially suspended,
-the maximum independently observed SQL-start → destination visibility was
+the maximum SQL-start → destination visibility, observed by a separate query, was
 **11.207 s / 8.520 s / 13.641 s / 11.802 s**, respectively. These are observation
 upper bounds across six source writes and twelve history/mirror signals per site.
 The 10 s gate failed on three targets. Including source-client startup, maxima
@@ -142,7 +142,7 @@ remain derived from sealed artifacts where no direct runtime read was made.
 ## Scope
 
 - Java/JTOpen reading over TLS, raw S3 or GCS storage and a durable checkpoint.
-- Targets qualified by batch: AWS VM, EKS, GCP VM and GKE, in DEV/INT.
+- Targets observed by release batch: AWS VM, EKS, GCP VM and GKE, in DEV/INT.
 - Capture and reconciliation into Snowflake, dated evidence and explicit scope.
 - Desktop cockpit (1440 px reference), `/v1` API and connection configuration.
 - Capability-driven actions, confirmation and an audit log.

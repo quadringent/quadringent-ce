@@ -20,7 +20,7 @@ def test_published_site_has_canonical_metadata_and_discovery_files(tmp_path):
     assert 'property="og:title"' in home
     assert 'application/ld+json' in home
     assert 'https://example.github.io/project/docs/security/' in (out / "sitemap.xml").read_text()
-    assert "Sitemap: https://example.github.io/project/sitemap.xml" in (out / "robots.txt").read_text()
+    assert not (out / "robots.txt").exists()  # ignored by crawlers below the host root
     guide = (out / "docs/getting-started/index.html").read_text()
     assert 'href="../security/"' in guide
     assert 'href="../../style.css"' in guide
@@ -139,3 +139,28 @@ def test_local_preview_font_fallback_is_removed_from_output(tmp_path: Path):
     build("https://github.com/example/project", output, source_root=source)
     built = (output / "style.css").read_text()
     assert "node_modules" not in built and 'url("assets/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");' in built
+
+
+def test_root_site_publishes_robots_with_its_sitemap(tmp_path):
+    root = tmp_path / "source"
+    (root / "site").mkdir(parents=True)
+    (root / "site/index.html").write_text("<html><head><title>Q</title></head><body><h1>Q</h1></body></html>")
+    (root / "site/style.css").write_text("")
+    out = tmp_path / "built"
+    build("https://github.com/example/project", out, source_root=root, site_url="https://docs.example.org/")
+    assert "Sitemap: https://docs.example.org/sitemap.xml" in (out / "robots.txt").read_text()
+
+
+def test_unknown_inline_tags_are_escaped_and_known_markup_is_kept(tmp_path):
+    root = tmp_path / "source"
+    (root / "site").mkdir(parents=True)
+    (root / "site/index.html").write_text("<html><head><title>Q</title></head><body></body></html>")
+    (root / "site/style.css").write_text("")
+    (root / "README.md").write_text("# Start\n\nPull ghcr.io/<owner>/app, run --check-ibmi <host>.\n\n"
+                                    "<details><summary>More</summary>Kept</details>\n\n`code <x>`\n")
+    out = tmp_path / "built"
+    build("https://github.com/example/project", out, source_root=root, site_url="https://example.github.io/project/")
+    page = (out / "docs/getting-started/index.html").read_text()
+    assert "ghcr.io/&lt;owner&gt;/app" in page and "--check-ibmi &lt;host&gt;" in page
+    assert "<details><summary>More</summary>" in page
+    assert "<code>code &lt;x&gt;</code>" in page

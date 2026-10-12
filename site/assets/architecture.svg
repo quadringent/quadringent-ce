@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 440" role="img" aria-labelledby="t d">
+  <title id="t">Quadringent architecture</title>
+  <desc id="d">The reader reads the IBM i journal over TLS and writes raw batches to S3 or GCS and the checkpoint to DynamoDB or GCS. Loaders apply batches to Snowflake history and mirror tables. A verifier reads Snowflake and raw storage. The control plane reads permitted evidence, manages Kubernetes Jobs and serves the cockpit through API v1 and API v2.</desc>
+  <style>
+    .box { fill: #ffffff; stroke: #cfd2ce; stroke-width: 1.5; }
+    .key { fill: #eef4ff; stroke: #2563eb; stroke-width: 1.5; }
+    .label { font: 600 14px "IBM Plex Sans", system-ui, sans-serif; fill: #151615; }
+    .note { font: 12px "IBM Plex Sans", system-ui, sans-serif; fill: #5f6460; }
+    .flow { font: 11px "IBM Plex Mono", ui-monospace, monospace; fill: #5f6460; }
+    .line { stroke: #696e6a; stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
+    .head { fill: #696e6a; }
+    .bg { fill: #f6f6f4; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #151615; }
+      .box { fill: #222421; stroke: #3a3d39; }
+      .key { fill: #16233d; stroke: #6e9bff; }
+      .label { fill: #f2f0e8; }
+      .note, .flow { fill: #a9ada5; }
+      .line { stroke: #a9ada5; }
+      .head { fill: #a9ada5; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="head" d="M0,0 L10,5 L0,10 z"/>
+    </marker>
+  </defs>
+  <rect class="bg" x="0" y="0" width="960" height="440"/>
+
+  <rect class="box" x="24" y="40" width="160" height="70" rx="6"/>
+  <text class="label" x="40" y="70">IBM i journal</text>
+  <text class="note" x="40" y="92">Db2 for i, *BOTH images</text>
+
+  <rect class="key" x="260" y="40" width="200" height="70" rx="6"/>
+  <text class="label" x="276" y="70">Reader and capture</text>
+  <text class="note" x="276" y="92">Java/JTOpen + Python runtime</text>
+
+  <rect class="box" x="260" y="130" width="200" height="50" rx="6"/>
+  <text class="label" x="276" y="151">Checkpoint</text>
+  <text class="note" x="276" y="169">DynamoDB or GCS</text>
+
+  <rect class="box" x="560" y="40" width="180" height="70" rx="6"/>
+  <text class="label" x="576" y="70">Raw storage</text>
+  <text class="note" x="576" y="92">S3 or GCS: batches, receipts</text>
+
+  <rect class="box" x="560" y="230" width="160" height="70" rx="6"/>
+  <text class="label" x="576" y="260">Loader</text>
+  <text class="note" x="576" y="282">bounded batches</text>
+
+  <rect class="key" x="760" y="230" width="176" height="70" rx="6"/>
+  <text class="label" x="776" y="260">Snowflake</text>
+  <text class="note" x="776" y="282">history + mirror tables</text>
+
+  <rect class="box" x="760" y="350" width="176" height="56" rx="6"/>
+  <text class="label" x="776" y="376">Verifier</text>
+  <text class="note" x="776" y="394">readback evidence</text>
+
+  <rect class="key" x="260" y="240" width="200" height="70" rx="6"/>
+  <text class="label" x="276" y="270">Control plane</text>
+  <text class="note" x="276" y="292">API v1, API v2, audit</text>
+
+  <rect class="box" x="24" y="240" width="160" height="70" rx="6"/>
+  <text class="label" x="40" y="270">Cockpit</text>
+  <text class="note" x="40" y="292">browser, React</text>
+
+  <rect class="box" x="260" y="350" width="200" height="56" rx="6"/>
+  <text class="label" x="276" y="376">Kubernetes</text>
+  <text class="note" x="276" y="394">reader and loader Jobs</text>
+
+  <path class="line" d="M184 75 H256"/>
+  <text class="flow" x="200" y="66">TLS</text>
+  <path class="line" d="M460 75 H556"/>
+  <text class="flow" x="484" y="66">HTTPS</text>
+  <path class="line" d="M360 110 V126"/>
+  <path class="line" d="M650 110 V226"/>
+  <path class="line" d="M720 265 H756"/>
+  <path class="line" d="M848 350 V304"/>
+  <path class="line" d="M936 378 H948 V75 H744"/>
+  <path class="line" d="M575 110 V205 H420 V236"/>
+  <text class="flow" x="428" y="226">permitted evidence</text>
+  <path class="line" d="M256 275 H188"/>
+  <text class="flow" x="194" y="266">HTTPS, SSE</text>
+  <path class="line" d="M360 310 V346"/>
+  <text class="flow" x="368" y="332">create / get / patch</text>
+</svg>

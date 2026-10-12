@@ -723,6 +723,38 @@ h3 { color: var(--text-strong); font-size: var(--t-lead); font-weight: 560; lett
 
 .limits strong { color: var(--text-strong); font-weight: var(--w-medium); }
 
+/* Current published release, then earlier versions; 0.2.x history folded. */
+.current-release {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-panel);
+  background: var(--surface-panel);
+}
+
+.current-release h3 { margin: 0; font-size: var(--t-lead); color: var(--text-strong); }
+
+.result-list { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+
+.result-list li {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-3);
+  padding-block: var(--space-3);
+  border-top: 1px solid var(--line-subtle);
+  color: var(--text-main);
+  font-size: var(--t-small);
+}
+
+.result-list strong { color: var(--text-strong); font-weight: var(--w-medium); }
+
+.history { border-top: 1px solid var(--line-subtle); padding-top: var(--space-4); }
+.history summary { cursor: pointer; color: var(--text-strong); font-weight: var(--w-medium); }
+.history summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.history p { max-width: 72ch; color: var(--text-muted); font-size: var(--t-small); }
+
 /* Offre */
 
 .offer { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--space-4); }
@@ -792,6 +824,8 @@ h3 { color: var(--text-strong); font-size: var(--t-lead); font-weight: 560; lett
 }
 
 @media (max-width: 760px) {
+  .result-list li { grid-template-columns: minmax(0, 1fr); }
+  .current-release { padding: var(--space-4); }
   :root { --site-gutter: 16px; --t-display: 38px; --t-section: 26px; --section-gap: 64px; }
   .hero { padding-block: 48px 32px; }
   .release-facts { grid-template-columns: 1fr; }

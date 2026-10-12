@@ -158,3 +158,208 @@ def test_demo_guide_is_published_with_its_commands_intact(site):
     for command in DEMO_COMMANDS:
         assert command in page
     assert "http://127.0.0.1:8870/#/cockpit" in page
+
+
+# C05 — version, evidence, rendering and discovery
+
+import json  # noqa: E402
+from html.parser import HTMLParser  # noqa: E402
+
+
+def current_summary() -> dict:
+    """The published qualification summary with the highest version."""
+    files = sorted(ROOT.glob("site/qualification-*.json"),
+                   key=lambda p: tuple(int(x) for x in p.stem.split("-", 1)[1].split(".")))
+    assert files, "no published qualification summary"
+    return json.loads(files[-1].read_text())
+
+
+def homepage_section(html: str, section_id: str) -> str:
+    match = re.search(rf'<section[^>]*id="{section_id}".*?</section>\s*(?=<section|</main>)', html, re.S)
+    assert match, section_id
+    return match[0]
+
+
+def text_of(html: str) -> str:
+    return flat(re.sub(r"<[^>]+>", " ", html))
+
+
+def test_hero_states_the_published_version_and_the_gate_result():
+    summary = current_summary()
+    facts = re.search(r'<dl class="release-facts".*?</dl>', read("site/index.html"), re.S)[0]
+    assert f'<span class="mono">{summary["version"]}</span>' in facts
+    latency = summary["cold_warehouse_latency"]
+    failed = [t for t, v in latency["targets"].items() if not v["SQL_and_ACK_threshold_passed"]]
+    if failed:
+        assert "incomplete" not in facts
+        assert f'{latency["threshold_seconds"]} s gate failed on {len(failed)} of {len(latency["targets"])} targets' in text_of(facts)
+
+
+def test_current_release_results_come_first_and_match_the_summary():
+    summary = current_summary()
+    section = homepage_section(read("site/index.html"), "qualification")
+    current = re.search(r'<div class="current-release".*?</div>\s*<!-- /current-release -->', section, re.S)
+    assert current, "current release block"
+    assert section.index(current[0]) < section.index("0.3.3")
+    text = text_of(current[0])
+    assert summary["version"] in text and summary["date_utc"] in current[0]
+    for target, values in summary["cold_warehouse_latency"]["targets"].items():
+        row = re.search(rf'<tr data-target="{target}">.*?</tr>', current[0], re.S)
+        assert row, target
+        assert f'{values["maximum_SQL_start_seconds"]:.3f}' in row[0]
+        assert f'{values["maximum_ACK_seconds"]:.3f}' in row[0]
+        word = "Passed" if values["SQL_and_ACK_threshold_passed"] else "Above threshold"
+        assert word in text_of(row[0])
+
+
+def test_results_distinguish_failure_missing_and_observed():
+    summary = current_summary()
+    current = re.search(r'<div class="current-release".*?<!-- /current-release -->',
+                        read("site/index.html"), re.S)[0]
+    assert "status-word--attention" in current      # threshold failure
+    assert "status-word--proven" in current         # observed pass
+    assert "status-word--neutral" in current        # not established on this version
+    if summary["reader_outage"]["applies_to_0_3_4"] is False:
+        assert f'Not established on {summary["version"]}' in text_of(current)
+
+
+def test_historical_results_are_labelled_and_not_compared_as_equivalent():
+    section = homepage_section(read("site/index.html"), "qualification")
+    history = re.search(r'<details class="history".*?</details>', section, re.S)
+    assert history, "historical results are grouped"
+    assert "historical, artifacts not published" in text_of(history[0]).lower()
+    assert "not comparable" in text_of(history[0])
+    before_history = section[:section.index(history[0])]
+    assert not re.search(r">0\.2\.\d+", before_history), "0.2.x results appear before the history block"
+
+
+def test_limits_name_every_gap_of_the_current_version():
+    summary = current_summary()
+    limits = text_of(homepage_section(read("site/index.html"), "limits"))
+    if summary["initial_copy"]["version"] != summary["version"]:
+        assert f'Fresh installation and initial copy on {summary["version"]}' in limits
+
+
+def test_readme_matches_the_published_status_and_avoids_overclaims():
+    summary = current_summary()
+    readme = flat(read("README.md"))
+    assert f'The current preview is **{summary["version"]}**' in readme
+    assert "Targets qualified by batch" not in readme
+    assert "independently observed" not in readme
+    for values in summary["cold_warehouse_latency"]["targets"].values():
+        assert f'{values["maximum_SQL_start_seconds"]:.3f}' in readme
+
+
+def test_home_names_the_platform_once_with_its_former_names():
+    home = text_of(read("site/index.html"))
+    assert "IBM i (formerly AS/400 and iSeries)" in home
+    assert "Db2 for i" in home
+    assert "change data capture" in home.lower()
+
+
+KNOWN_TAGS = {
+    "a", "abbr", "article", "b", "blockquote", "body", "br", "caption", "code", "dd", "del", "details", "div",
+    "dl", "dt", "em", "figcaption", "figure", "footer", "h1", "h2", "h3", "h4", "h5", "h6", "head", "header",
+    "hr", "html", "i", "img", "kbd", "li", "link", "main", "meta", "nav", "ol", "p", "picture", "pre", "s",
+    "script", "section", "small", "source", "span", "strong", "sub", "summary", "sup", "svg", "path", "circle",
+    "g", "table", "tbody", "td", "th", "thead", "time", "title", "tr", "ul",
+}
+
+
+class PageScan(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.tags, self.links, self.canonical, self.h1, self.ld = set(), [], [], 0, []
+        self._ld = False
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        self.tags.add(tag)
+        if tag == "h1":
+            self.h1 += 1
+        if tag == "link" and attrs.get("rel") == "canonical":
+            self.canonical.append(attrs["href"])
+        if tag in ("a", "link", "img", "source", "script") and (attrs.get("href") or attrs.get("src")):
+            self.links.append(attrs.get("href") or attrs.get("src"))
+        self._ld = tag == "script" and attrs.get("type") == "application/ld+json"
+
+    def handle_data(self, data):
+        if self._ld:
+            self.ld.append(data)
+            self._ld = False
+
+
+def built_pages(site: Path) -> list[Path]:
+    return sorted(site.rglob("*.html"))
+
+
+def test_generated_pages_have_no_unknown_tags_and_keep_placeholders(site):
+    for page in built_pages(site):
+        scan = PageScan()
+        scan.feed(page.read_text())
+        assert scan.tags <= KNOWN_TAGS, (page, scan.tags - KNOWN_TAGS)
+    installation = text_of((site / "docs/installation/index.html").read_text())
+    assert "ghcr.io/<owner>/quadringent-ce" in installation.replace("&lt;", "<").replace("&gt;", ">")
+    api = text_of((site / "docs/api/index.html").read_text()).replace("&lt;", "<").replace("&gt;", ">")
+    assert "t=<unix>,v1=<hex>" in api
+
+
+def test_architecture_diagram_is_rendered_not_left_as_source(site):
+    page = (site / "docs/architecture/index.html").read_text()
+    assert "language-mermaid" not in page
+    tag = re.search(r'<img[^>]+architecture\.svg[^>]*>', page)
+    assert tag
+    src, alt = re.search(r'src="([^"]+)"', tag[0])[1], re.search(r'alt="([^"]+)"', tag[0])[1]
+    assert len(alt) > 40
+    assert (site / "docs/architecture" / src).resolve().is_file()
+    assert "GCS" in text_of(page) and "API v2" in text_of(page)
+
+
+def test_every_page_has_one_canonical_one_h1_and_valid_structured_data(site):
+    descriptions = []
+    for page in built_pages(site):
+        html = page.read_text()
+        scan = PageScan()
+        scan.feed(html)
+        assert len(scan.canonical) == 1, page
+        assert scan.h1 == 1, (page, scan.h1)
+        for block in scan.ld:
+            json.loads(block)
+        descriptions.append(re.search(r'<meta name="description" content="([^"]+)"', html)[1])
+    assert len(descriptions) == len(set(descriptions)), "meta descriptions must be distinct"
+
+
+def test_internal_links_resolve_and_sitemap_lists_every_page(site):
+    base = "https://quadringent.github.io/quadringent-ce/"
+    for page in built_pages(site):
+        scan = PageScan()
+        scan.feed(page.read_text())
+        for link in scan.links:
+            if link.startswith(("http:", "https:", "mailto:", "#", "data:")):
+                continue
+            target = (page.parent / link.split("#")[0]).resolve()
+            if link.endswith("/") or target.is_dir():
+                target = target / "index.html"
+            assert target.is_file(), (page, link)
+    listed = set(re.findall(r"<loc>([^<]+)</loc>", (site / "sitemap.xml").read_text()))
+    pages = {base + str(p.relative_to(site).parent).replace(".", "").strip("/") for p in built_pages(site)}
+    assert {u.rstrip("/") for u in listed} == {u.rstrip("/") for u in pages}
+
+
+def test_subpath_site_does_not_publish_an_ineffective_robots_file(site):
+    assert not (site / "robots.txt").exists()
+
+
+def test_cloud_command_names_the_assets_of_the_published_release():
+    summary = current_summary()
+    install = homepage_section(read("site/index.html"), "install")
+    assert f"--assets-dir ./quadringent-{summary['version']}" in install
+
+
+def test_links_to_repository_files_point_to_existing_files(site):
+    prefix = "https://github.com/quadringent/quadringent-ce/blob/main/"
+    for page in built_pages(site):
+        for link in re.findall(r'href="([^"]+)"', page.read_text()):
+            if link.startswith(prefix):
+                path = link.removeprefix(prefix).split("#")[0]
+                assert (ROOT / path).exists(), (page, link)

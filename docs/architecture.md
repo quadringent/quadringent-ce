@@ -1,25 +1,24 @@
 # Architecture
 
-The Java reader reads the IBM i journal over TLS. The Python runtime controls
-windows, publishes raw data to S3, then advances the DynamoDB checkpoint under
-the capture contract. Snowflake loaders and probes provide evidence separate
+The Java reader reads the IBM i (formerly AS/400 and iSeries) journal of Db2 for i
+tables over TLS. The Python runtime controls windows, publishes raw batches to
+S3 or GCS, then advances the checkpoint in DynamoDB (AWS) or GCS (GCP) under the
+capture contract. Snowflake loaders and the verifier provide evidence separate
 from a successful source read.
 
-~~~mermaid
-flowchart LR
-  I[IBM i / journal] -->|TLS| C[Java reader + Python runtime]
-  C -->|HTTPS| S[S3 / raw data and evidence]
-  C -->|HTTPS| D[DynamoDB / checkpoint]
-  S -->|Snowpipe or bounded loader| W[Snowflake]
-  V[Verifier] --> W
-  V --> S
-  S --> P[Python control plane]
-  CW[CloudWatch + public AWS rate] --> F[Cost collector]
-  OC[OpenCost / allocation and assets] --> F
-  F -->|private local file| P
-  P -->|API v1 + SSE| U[React cockpit]
-  P -->|create / get / patch Jobs| K[Kubernetes]
-~~~
+![Quadringent architecture: the reader reads the IBM i journal over TLS and writes raw batches and checkpoints; loaders apply batches to Snowflake history and mirror tables; the verifier reads back Snowflake and raw storage; the control plane serves the cockpit and manages Kubernetes Jobs.](../site/assets/architecture.svg)
+
+| From | To | Transport | Purpose |
+|---|---|---|---|
+| Reader | IBM i journal | TLS (JDBC, sign-on, command host servers) | Read journal entries and catalog |
+| Reader and capture | S3 or GCS | HTTPS | Raw batches and receipts |
+| Reader and capture | DynamoDB or GCS | HTTPS | Durable checkpoint |
+| Loader | Snowflake | HTTPS | Apply batches to history and mirror tables |
+| Verifier | Snowflake, raw storage | HTTPS | Bounded readback evidence |
+| Control plane | Raw storage | HTTPS | Read permitted evidence keys |
+| Control plane | Kubernetes API | HTTPS | Create, get and patch reader and loader Jobs |
+| Cockpit | Control plane | HTTPS, SSE | API v1 and API v2 |
+| Optional cost collector | Control plane | Private local file | CloudWatch, public AWS rate and OpenCost observations |
 
 Business phase and `run.state` are separate. A historical table can remain
 after the reader stops. Missing evidence never becomes zero.
@@ -52,5 +51,4 @@ capture state; failure of one cost source does not hide the other.
 See [FinOps](finops.md).
 
 For a first DEV/INT evaluation, review the [installation prerequisites](product/install-default.md)
-and [pilot scope](product/positioning-and-offer.md). The pilot guide links to
-an public interest request using anonymized examples; a running reader alone does not prove delivery.
+and [pilot preparation](product/positioning-and-offer.md). A running reader alone does not prove delivery.

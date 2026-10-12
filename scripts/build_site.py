@@ -23,6 +23,35 @@ DOC_PAGES = {
     "docs/product/positioning-and-offer.md": ("pilot", "Prepare an IBM i to Snowflake pilot"),
 }
 
+# Search snippets: what each page lets a reader do, not a shared template.
+DOC_DESCRIPTIONS = {
+    "README.md": "Start with Quadringent Community: what it replicates from IBM i to Snowflake, its preview status and how to try it.",
+    "docs/product/synthetic-demo.md": "Run the Quadringent cockpit locally with synthetic data, without IBM i, Snowflake, cloud access or credentials.",
+    "docs/product/install-default.md": "Install Quadringent on AWS or GCP, on a dedicated VM or an existing cluster, with a reviewed Terraform plan.",
+    "docs/product/install-client.md": "Install Quadringent with Helm: secrets, values, table readiness, journaling and commissioning steps.",
+    "docs/product/operator-guide.md": "Operate a DEV/INT installation: preflight, first copy, reading evidence, outages, recovery, backup and stop.",
+    "docs/architecture.md": "How Quadringent reads IBM i journals over TLS, keeps raw data and checkpoints, and loads Snowflake history and mirror tables.",
+    "docs/product/quadringent-destination-proof-contract.md": "How Quadringent separates journal reading, Snowflake delivery and reconciliation evidence, and what each proves.",
+    "docs/operations.md": "Operate and recover Quadringent readers: parked readers, journal freshness, checkpoints and audit.",
+    "docs/product/native-qualification.md": "How Quadringent qualifies replication, reader outages and recovery on admitted release artifacts.",
+    "docs/api-v2.md": "Quadringent control plane API v2: sources, destinations, pipelines, evidence, confirmations and audit.",
+    "SECURITY.md": "Quadringent security boundaries: authentication, network flows, TLS, identities, data retention and vulnerability reporting.",
+    "docs/licensing.md": "Quadringent Community Edition under Apache-2.0: what is free, what may be offered later and what stays granted.",
+    "docs/product/positioning-and-offer.md": "Prepare and request a DEV/INT pilot of IBM i to Snowflake replication, privately or on GitHub.",
+}
+
+# Python-Markdown passes unknown inline tags through; placeholders such as
+# <owner> or <host> would then vanish in the browser. Escape only those.
+KNOWN_HTML_TAGS = frozenset("""a abbr b blockquote br caption code dd del details div dl dt em figcaption figure
+h1 h2 h3 h4 h5 h6 hr i img kbd li ol p pre s small span strong sub summary sup table tbody td th thead
+time tr ul""".split())
+
+
+def escape_unknown_tags(html: str) -> str:
+    def replace(match: re.Match) -> str:
+        return match[0] if match[2].lower() in KNOWN_HTML_TAGS else escape(match[0], quote=False)
+    return re.sub(r"<(/?)([A-Za-z][A-Za-z0-9_-]*)([^<>]*)>", replace, html)
+
 
 def public_site_base(value: str) -> str:
     parsed = urlparse(value)
@@ -67,8 +96,9 @@ def publish_guides(root: Path, output: Path, base: str, repository: str) -> list
     navigation = '<a href="../../">Quadringent</a> · <a href="../">Documentation</a> · ' + f'<a href="{repository}">GitHub</a>'
     index_links = []
     for source, (slug, title) in available.items():
-        description = f"{title}. English Community Edition documentation with measured scope and explicit limitations."
-        body = markdown.markdown((root / source).read_text(), extensions=["fenced_code", "tables", "toc", "sane_lists"])
+        description = DOC_DESCRIPTIONS.get(source) or f"{title}. English Community Edition documentation."
+        body = escape_unknown_tags(markdown.markdown((root / source).read_text(),
+                                                     extensions=["fenced_code", "tables", "toc", "sane_lists"]))
 
         def link(match):
             attr, raw = match[1], unescape(match[2])
@@ -198,7 +228,10 @@ def build(repository_url: str, output: Path, *, source_root: Path | None = None,
         (output / "sitemap.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n'
             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' +
             "".join(f"<url><loc>{escape(url)}</loc></url>" for url in urls) + "</urlset>\n")
-        (output / "robots.txt").write_text(f"User-agent: *\nAllow: /\n\nSitemap: {site_base}sitemap.xml\n")
+        # Crawlers read robots.txt only at the host root; a copy under a
+        # project path is ignored, so it is written only for a root site.
+        if urlparse(site_base).path in ("", "/"):
+            (output / "robots.txt").write_text(f"User-agent: *\nAllow: /\n\nSitemap: {site_base}sitemap.xml\n")
 
 
 if __name__ == "__main__":

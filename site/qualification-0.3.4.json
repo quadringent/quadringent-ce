@@ -1,0 +1,189 @@
+{
+  "schema": "quadringent.qualification-summary.v1",
+  "version": "0.3.4",
+  "source_commit": "1b8488b184bd7fe11afec67f685946137a4cea22",
+  "release_url": "https://github.com/quadringent/quadringent-ce/releases/tag/v0.3.4",
+  "date_utc": "2026-10-12",
+  "provenance": "Operator-observed synthetic DEV/INT campaign. Private source receipts, immutable RAW bytes and destination query evidence retained; this public summary is not an independent certification.",
+  "production_qualified": false,
+  "universal_latency_guarantee": false,
+  "artifacts": {
+    "same_commit_packages_chart_three_signed_images": true,
+    "anonymous_downloads_two_architectures": true,
+    "ci_url": "https://github.com/quadringent/quadringent-ce/actions/runs/38245571618",
+    "release_workflow_url": "https://github.com/quadringent/quadringent-ce/actions/runs/38246727028",
+    "image_indexes": {
+      "capture": "sha256:265edd111d3897890df9ff8cbe0134c04aaad7e78662e80fa9b1ab01e1f8924d",
+      "control-plane": "sha256:c512c932528bcc60424dc9247e9ce9f8d3f262b4651c9612a3ba3afea877fb7d",
+      "verifier": "sha256:f4a7223733ca571870c191df7cf995833c83b6da3148512b992f3a0d780d5f7c"
+    }
+  },
+  "initial_copy": {
+    "version": "0.3.2",
+    "targets": [
+      "aws-vm",
+      "eks",
+      "gcp-vm",
+      "gke"
+    ],
+    "tables": 2,
+    "typed_rows_per_site": 110,
+    "complete_readback_observed_pass": true
+  },
+  "typed_cdc_readback": {
+    "version": "0.3.4",
+    "targets": [
+      "aws-vm",
+      "eks",
+      "gcp-vm",
+      "gke"
+    ],
+    "source_operations": [
+      "INSERT",
+      "UPDATE",
+      "DELETE"
+    ],
+    "mirror_rows_per_site": 110,
+    "history_images_per_site": 136,
+    "all_seven_business_columns_matched_independent_fixture_oracle": true,
+    "duplicate_event_ids": 0,
+    "complete_readback_observed_pass": true,
+    "retained_earlier_history": true,
+    "evidence_sha256": "940865dcfbb4c290aa36250866864349025e2799eed3d36ad905a94a276ba195"
+  },
+  "reader_outage": {
+    "version": "0.3.2",
+    "targets": [
+      "aws-vm",
+      "eks",
+      "gcp-vm",
+      "gke"
+    ],
+    "actual_reader_child_SIGKILL": true,
+    "source_write_ACK_entirely_inside_observed_outage": true,
+    "automatic_reader_recovery_observed": true,
+    "complete_typed_readback_without_duplicates": true,
+    "applies_to_0_3_4": false
+  },
+  "version_lifecycle": [
+    {
+      "cycle": "0.3.2 to 0.3.3",
+      "targets": [
+        "aws-vm",
+        "eks",
+        "gcp-vm",
+        "gke"
+      ],
+      "observed_pass": true,
+      "retained": [
+        "pipeline identities",
+        "PostgreSQL PVC identities",
+        "original encryption keys and token pepper",
+        "complete typed history"
+      ],
+      "actual_running_images_matched_admitted_release": true
+    },
+    {
+      "cycle": "0.3.3 to 0.3.2",
+      "targets": [
+        "aws-vm",
+        "eks",
+        "gcp-vm",
+        "gke"
+      ],
+      "observed_pass": true,
+      "retained": [
+        "pipeline identities",
+        "PostgreSQL PVC identities",
+        "original encryption keys and token pepper",
+        "complete typed history"
+      ],
+      "actual_running_images_matched_admitted_release": true
+    },
+    {
+      "cycle": "0.3.2 to 0.3.4",
+      "targets": [
+        "aws-vm",
+        "eks",
+        "gcp-vm",
+        "gke"
+      ],
+      "observed_pass": true,
+      "retained": [
+        "pipeline identities",
+        "PostgreSQL PVC identities",
+        "original encryption keys and token pepper",
+        "complete typed history"
+      ],
+      "actual_running_images_matched_admitted_release": true
+    }
+  ],
+  "cold_warehouse_latency": {
+    "version": "0.3.4",
+    "trials": 1,
+    "source_writes": 6,
+    "history_and_mirror_visibility_signals_per_site": 12,
+    "measurement": "Independent first-visible observation upper bounds, not exact ingestion timestamps",
+    "warehouses_suspended_before_first_write": true,
+    "cold_resume_corroborated_by_loader_query_history": true,
+    "readers_and_loaders_already_running": true,
+    "SQL_clock": "Actual JDBC SQL statement start to independently observed destination visibility",
+    "ACK_clock": "Actual source statement acknowledgement to independently observed destination visibility",
+    "source_client_launch_clock": "Source producer launch to destination visibility; includes source-client startup",
+    "source_client_startup_seconds": 5.060613,
+    "threshold_seconds": 10,
+    "all_targets_SQL_and_ACK_threshold_passed": false,
+    "all_targets_source_client_launch_threshold_passed": false,
+    "targets": {
+      "aws-vm": {
+        "maximum_SQL_start_seconds": 11.207038,
+        "maximum_ACK_seconds": 11.070355,
+        "maximum_source_client_launch_seconds": 16.465625,
+        "SQL_and_ACK_threshold_passed": false
+      },
+      "eks": {
+        "maximum_SQL_start_seconds": 8.519557,
+        "maximum_ACK_seconds": 8.453632,
+        "maximum_source_client_launch_seconds": 13.93645,
+        "SQL_and_ACK_threshold_passed": true
+      },
+      "gcp-vm": {
+        "maximum_SQL_start_seconds": 13.641288,
+        "maximum_ACK_seconds": 13.560133,
+        "maximum_source_client_launch_seconds": 18.79501,
+        "SQL_and_ACK_threshold_passed": false
+      },
+      "gke": {
+        "maximum_SQL_start_seconds": 11.802492,
+        "maximum_ACK_seconds": 11.735554,
+        "maximum_source_client_launch_seconds": 16.863105,
+        "SQL_and_ACK_threshold_passed": false
+      }
+    },
+    "evidence_sha256": "9200e2dad13fea168e510c0ad22478560aeb7816d4d67aca2b140ea584090e9b"
+  },
+  "outstanding": [
+    "Repeat actual reader outage and new source writes on 0.3.4",
+    "Complete site loss, reconstruction and renewed CDC on 0.3.4",
+    "Meet the 10 second gate in the declared autonomous measurement scope",
+    "Production qualification and any SLA are not established"
+  ],
+  "application_reinstallation": {
+    "version": "0.3.4",
+    "targets": [
+      "aws-vm",
+      "eks",
+      "gcp-vm",
+      "gke"
+    ],
+    "published_CLI_uninstall_then_install_observed_pass": true,
+    "retained": [
+      "PostgreSQL PVC identities",
+      "original encryption keys and token pepper",
+      "pipeline identities"
+    ],
+    "pipelines_paused_throughout": true,
+    "full_site_loss_test": false,
+    "source_reconnection_and_renewed_CDC_verified": false
+  }
+}

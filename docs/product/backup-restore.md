@@ -122,7 +122,7 @@ Do not bypass a refusal with `--force`, StatefulSet deletion or PVC recreation.
 After checking chart and image references:
 
 ```sh
-helm upgrade --install '<release>' /private/path/quadringent-0.3.2.tgz \
+helm upgrade --install '<release>' /private/path/quadringent-0.3.4.tgz \
   --kube-context '<authorized-context>' --namespace '<namespace>' \
   --values /private/path/site-candidate-pinned.yaml --wait --timeout 5m
 ```

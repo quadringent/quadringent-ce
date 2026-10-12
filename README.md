@@ -19,9 +19,9 @@ The engine, API and local cockpit are open source under [Apache-2.0](LICENSE),
 with no license key or commercial table limit. Operators pay their own
 infrastructure costs. No production qualification is claimed.
 
-Runtime qualification for **0.3.2 remains unestablished**. Historical 0.2.x
-results, including 0.2.26, apply only to their original artifacts and scopes;
-they do not qualify 0.3.2.
+The current preview is **0.3.4**. Its observed DEV/INT scope and outstanding
+checks are recorded in the [dated qualification summary](site/qualification-0.3.4.json).
+Historical measurements apply only to their original artifacts and scopes.
 
 Contributions use the same license. Separate services or advanced extensions
 may be paid offerings in the future; rights granted on published versions
@@ -65,6 +65,26 @@ configured connections across restarts.
 
 For actual systems, follow the [installation guide](docs/product/install-client.md).
 It distinguishes prerequisites, configuration and replication evidence.
+
+## Observed preview results — October 12, 2026
+
+The published 0.3.2 artifacts installed on AWS VM, EKS, GCP VM and GKE.
+Two synthetic journaled tables, 110 initial typed rows per site, native
+INSERT/UPDATE/DELETE and actual reader termination with acknowledged writes
+inside the outage were checked by complete destination reads, without duplicates.
+Upgrade to 0.3.3, rollback to 0.3.2 and upgrade to 0.3.4 retained pipeline
+identities, PostgreSQL volumes, original keys and typed history on all four sites.
+The 0.3.4 readback matched all **136 history images and 110 mirror rows per site**.
+
+In one 0.3.4 trial with all four Snowflake loader warehouses initially suspended,
+the maximum independently observed SQL-start → destination visibility was
+**11.207 s / 8.520 s / 13.641 s / 11.802 s**, respectively. These are observation
+upper bounds across six source writes and twelve history/mirror signals per site.
+The 10 s gate failed on three targets. Including source-client startup, maxima
+were **16.466 s / 13.936 s / 18.795 s / 16.863 s**; all four exceeded 10 s.
+Readers and loaders were already running. This is not an application-startup test,
+a universal latency guarantee or production qualification. Reader-failure and
+complete site reconstruction still require repetition on 0.3.4.
 
 ## Historical measurements from October 5–6, 2026
 

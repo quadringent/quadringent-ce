@@ -193,6 +193,7 @@ class TablesService:
                     table,
                     has_journal_in_library=table.library in journals,
                     existing_journal=journals.get(table.library),
+                    several_journals=table.library in journals and journals[table.library] is None,
                 )
                 existing = (
                     connection.execute(

@@ -155,3 +155,9 @@ def test_tls_probe_always_verifies_certificates_and_host_names():
 
     probe_tls("ibmi.synthetic.invalid", 9471, "database", handshake=wrapper)
     assert captured == {"mode": ssl.CERT_REQUIRED, "hostname": True}
+
+
+def test_an_unreadable_ca_file_is_a_local_problem_not_a_network_error(tmp_path):
+    result = probe_tls("ibmi.synthetic.invalid", 9476, "signon", ca_file=str(tmp_path / "missing-ca.pem"))
+    assert result.status == "failed" and result.evidence["error"] == "CA file unreadable"
+    assert "IBM i administrator" not in result.next_action

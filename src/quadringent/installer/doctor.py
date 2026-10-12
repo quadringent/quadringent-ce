@@ -95,51 +95,71 @@ def _control_plane_failure(summary: str, action: str, *, error: str, status: str
     )
 
 
-def _control_plane_results(fetch: Fetch, pipeline_id: str | None, timeout: float) -> list[DiagnosticResult]:
+def _control_plane_results(fetch: Fetch, pipeline_id: str | None, timeout: float) -> tuple[list[DiagnosticResult], bool]:
+    results, synthetic = _read_control_plane(fetch, pipeline_id, timeout)
+    if not any(item.code == "control_plane.api" for item in results):
+        results.append(DiagnosticResult(
+            code="control_plane.api", layer="control_plane", status="unknown", required=True, observed_at=utc_now(),
+            provenance="doctor:control-plane", subject=Subject("control_plane", "v2"),
+            summary="The control plane report did not include its own API check, so it is not trusted as complete.",
+            next_action="Upgrade the doctor and the control plane to matching versions.",
+            limits="Results from that report are shown but cannot make this report ready.",
+        ))
+    return results, synthetic
+
+
+def _read_control_plane(fetch: Fetch, pipeline_id: str | None, timeout: float) -> tuple[list[DiagnosticResult], bool]:
     try:
         status, body = fetch("/v2/diagnostics", {"pipeline_id": pipeline_id} if pipeline_id else None,
                              max(0.5, min(timeout, 10.0)))
     except (OSError, socket.timeout) as error:
         reason = "timed out" if isinstance(error, (socket.timeout, TimeoutError)) else "connection refused"
-        return [_control_plane_failure(f"The control plane did not answer: {reason}.",
+        return ([_control_plane_failure(f"The control plane did not answer: {reason}.",
                                        "Open the private tunnel or port-forward, check QUADRINGENT_URL, then run again.",
-                                       error=reason)]
+                                       error=reason)], False)
     except Exception as error:  # httpx errors: never print their raw text
         name = type(error).__name__.lower()
         reason = "timed out" if "timeout" in name else "connection failed"
-        return [_control_plane_failure(f"The control plane did not answer: {reason}.",
+        return ([_control_plane_failure(f"The control plane did not answer: {reason}.",
                                        "Open the private tunnel or port-forward, check QUADRINGENT_URL, then run again.",
-                                       error=reason)]
+                                       error=reason)], False)
     if status == 401:
-        return [_control_plane_failure("The control plane refused the token (401).",
+        return ([_control_plane_failure("The control plane refused the token (401).",
                                        "Issue a token with quadringent agent-token --scope read and set QUADRINGENT_TOKEN.",
-                                       error="status 401")]
+                                       error="status 401")], False)
     if status == 403:
-        return [_control_plane_failure("The token has no permission to read diagnostics (403).",
-                                       "Use a token with the read scope or higher.", error="status 403")]
+        return ([_control_plane_failure("The token has no permission to read diagnostics (403).",
+                                       "Use a token with the read scope or higher.", error="status 403")], False)
     if status == 404:
-        return [_control_plane_failure("The control plane does not know this pipeline or has no diagnostics route (404).",
+        return ([_control_plane_failure("The control plane does not know this pipeline or has no diagnostics route (404).",
                                        "Check --pipeline-id, or upgrade the control plane to a version with /v2/diagnostics.",
-                                       error="status 404")]
+                                       error="status 404")], False)
     if status == 429:
-        return [_control_plane_failure("The control plane is limiting requests (429).",
+        return ([_control_plane_failure("The control plane is limiting requests (429).",
                                        "Wait before running the doctor again; do not loop.", error="status 429",
-                                       status="unknown")]
+                                       status="unknown")], False)
+    error_code = body.get("error", {}).get("code") if isinstance(body, dict) and isinstance(body.get("error"), dict) else None
+    if status == 503 and error_code == "capability_unavailable":
+        return ([_control_plane_failure("Diagnostics are not packaged in this control plane image (503).",
+                                        "Use the local doctor checks, or upgrade the control plane image.",
+                                        error="status 503", status="unknown")], False)
     if status >= 500:
-        return [_control_plane_failure(f"The control plane is unavailable ({status}).",
+        return ([_control_plane_failure(f"The control plane is unavailable ({status}).",
                                        "Check the control plane pod and its database, then run again.",
-                                       error=f"status {status}")]
+                                       error=f"status {status}")], False)
     try:
-        return list(parse_report(body).results)
+        remote = parse_report(body)
+        return list(remote.results), remote.synthetic
     except DiagnosticContractError:
-        return [_control_plane_failure("The control plane answered with a report outside quadringent.diagnostic.v1.",
+        return ([_control_plane_failure("The control plane answered with a report outside quadringent.diagnostic.v1.",
                                        "Upgrade the doctor and the control plane to matching versions.",
-                                       error="contract mismatch")]
+                                       error="contract mismatch")], False)
 
 
 def build_local_report(args, runner: CommandRunner, *, environ: Mapping[str, str], fetch: Fetch | None,
                        connector=None, handshake=None) -> DiagnosticReport:
     results: list[DiagnosticResult] = []
+    synthetic = False
     results += tool_results(runner.which, REQUIRED_TOOLS)
     if args.cloud == "aws":
         results += tool_results(runner.which, ("aws",) + (("session-manager-plugin",) if args.target == "vm" else ()))
@@ -160,7 +180,8 @@ def build_local_report(args, runner: CommandRunner, *, environ: Mapping[str, str
                                      timeout_seconds=args.timeout, **kwargs))
         results.append(authentication_not_observed("host", args.check_ibmi))
     if args.control_plane and fetch is not None:
-        results += _control_plane_results(fetch, args.pipeline_id, args.timeout)
+        remote_results, synthetic = _control_plane_results(fetch, args.pipeline_id, args.timeout)
+        results += remote_results
     elif not args.control_plane:
         results.append(DiagnosticResult(
             code="control_plane.api", layer="control_plane", status="skipped", required=True, observed_at=utc_now(),
@@ -170,7 +191,7 @@ def build_local_report(args, runner: CommandRunner, *, environ: Mapping[str, str
             limits="Local checks only.",
         ))
     version, distribution = _version()
-    return DiagnosticReport(results=tuple(results), generated_at=utc_now(), scope="local", synthetic=False,
+    return DiagnosticReport(results=tuple(results), generated_at=utc_now(), scope="local", synthetic=synthetic,
                             software={"product": "quadringent", "version": version, "distribution": distribution})
 
 

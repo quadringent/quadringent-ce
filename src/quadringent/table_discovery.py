@@ -223,6 +223,7 @@ def classify_table(
     *,
     has_journal_in_library: bool = True,
     existing_journal: tuple[str, str] | None = None,
+    several_journals: bool = False,
 ) -> TableReadiness:
     """Classe une table seule, sans tenir compte des autres tables sélectionnées.
 
@@ -242,6 +243,13 @@ def classify_table(
                 state=NOT_JOURNALED,
                 explanation=explanation + " Its name cannot be used in a generated CL command; "
                 "start journaling manually.",
+                cl_commands=(),
+            )
+        if several_journals and existing_journal is None:
+            return TableReadiness(
+                table=table, state=NOT_JOURNALED,
+                explanation=explanation + " Other tables of this library use several journals; choose the journal "
+                "with the IBM i administrator and start journaling with STRJRNPF IMAGES(*BOTH).",
                 cl_commands=(),
             )
         commands = _journal_setup_commands(

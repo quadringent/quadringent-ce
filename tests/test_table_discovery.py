@@ -364,3 +364,10 @@ def test_service_passes_the_library_journal_to_the_suggestion() -> None:
         _table(library="STOCK", system_name="MOVES", journaled=True, journal_library="STOCK", journal_name="J2"),
     )
     assert library_journals(tables) == {"SALES": ("SALES", "ORDJRN"), "STOCK": None}
+
+
+def test_a_library_with_several_journals_gets_an_explanation_and_no_command() -> None:
+    table = _table(journaled=False, journal_library=None, journal_name=None, images=None)
+    result = classify_table(table, has_journal_in_library=True, existing_journal=None, several_journals=True)
+    assert result.cl_commands == ()
+    assert "several journals" in result.explanation

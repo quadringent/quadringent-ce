@@ -170,3 +170,33 @@ def test_control_plane_mode_without_the_api_extra_says_so(tmp_path, monkeypatch)
     code = run_doctor(args, RecordingRunner(available_tools=ALL_TOOLS), out,
                       environ={"QUADRINGENT_URL": "http://127.0.0.1:9"}, config_path=tmp_path / "absent.json")
     assert code == 2 and "quadringent[api]" in out.getvalue()
+
+
+def _remote(results, synthetic=False):
+    return {"schema": "quadringent.diagnostic.v1", "generated_at": "2026-10-12T19:00:00Z", "scope": "control_plane",
+            "synthetic": synthetic, "software": {"product": "quadringent"}, "overall": {}, "results": results}
+
+
+def _passed(code, layer):
+    return {"code": code, "layer": layer, "status": "passed", "required": True, "observed_at": "2026-10-12T19:00:00Z",
+            "provenance": "demo", "subject": None, "since": None, "summary": "s", "next_action": "a", "limits": "l",
+            "evidence": {}}
+
+
+def test_a_synthetic_control_plane_report_keeps_the_doctor_report_synthetic(tmp_path):
+    body = _remote([_passed("control_plane.api", "control_plane")], synthetic=True)
+    _, output, _ = doctor(["--json", "--control-plane"], fetch=lambda *a: (200, body), tmp_path=tmp_path)
+    assert json.loads(output)["synthetic"] is True
+
+
+def test_a_control_plane_report_without_its_own_api_check_is_not_trusted(tmp_path):
+    code, output, _ = doctor(["--json", "--control-plane"], fetch=lambda *a: (200, _remote([])), tmp_path=tmp_path)
+    control = [r for r in json.loads(output)["results"] if r["code"] == "control_plane.api"]
+    assert code != 0 and control and control[0]["status"] in ("unknown", "failed")
+
+
+def test_a_control_plane_without_diagnostics_packaged_is_explained(tmp_path):
+    body = {"error": {"code": "capability_unavailable", "message": "not packaged"}}
+    _, output, _ = doctor(["--json", "--control-plane"], fetch=lambda *a: (503, body), tmp_path=tmp_path)
+    control = [r for r in json.loads(output)["results"] if r["code"] == "control_plane.api"][0]
+    assert "not packaged" in control["summary"] and "database" not in control["next_action"]

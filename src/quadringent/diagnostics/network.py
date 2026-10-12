@@ -140,7 +140,18 @@ def probe_tls(
             evidence={"port": port},
         )
     try:
-        certificate = handshake(_verified_context(ca_file), host, port, _bounded(timeout_seconds))
+        context = _verified_context(ca_file)
+    except (OSError, ssl.SSLError):
+        return DiagnosticResult(
+            code=f"tls.{label}", layer="tls", status="failed", required=True,
+            observed_at=utc_now(), provenance="local:ca-file", subject=subject,
+            summary="The CA file given with --ibmi-ca-file cannot be read as PEM certificates.",
+            next_action="Check the path and the PEM content of the CA file on this machine, then run again.",
+            limits="No TLS handshake was attempted.",
+            evidence={"port": port, "error": "CA file unreadable", "custom_ca": True},
+        )
+    try:
+        certificate = handshake(context, host, port, _bounded(timeout_seconds))
     except (OSError, ssl.SSLError) as error:
         reason = _tls_error(error)
         return DiagnosticResult(

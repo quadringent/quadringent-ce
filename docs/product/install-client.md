@@ -112,15 +112,17 @@ An authorized IBM i administrator executes any suggested CL commands. The API
 never executes them. For a synthetic example:
 
 ```text
-CRTJRNRCV JRNRCV(SALES/QSQJRN0001) THRESHOLD(<site value in KB>) TEXT('Quadringent journal receiver')
-CRTJRN JRN(SALES/QSQJRN) JRNRCV(SALES/QSQJRN0001) MNGRCV(*SYSTEM) TEXT('Quadringent journal')
+CRTJRNRCV JRNRCV(SALES/QSQJRN0001) TEXT('Quadringent journal receiver')
+CRTJRN JRN(SALES/QSQJRN) JRNRCV(SALES/QSQJRN0001) MNGRCV(*SYSTEM) DLTRCV(*NO) TEXT('Quadringent journal')
 STRJRNPF FILE(SALES/ORDHDR) JRN(SALES/QSQJRN) IMAGES(*BOTH) OMTJRNE(*OPNCLO)
 CHGJRNOBJ OBJ((SALES/ORDHDR *FILE)) ATR(*IMAGES) IMAGES(*BOTH)
 ```
 
 `MNGRCV(*SYSTEM)` needs a receiver threshold other than `*NONE`
-([CRTJRN](https://www.ibm.com/docs/en/i/7.5?topic=ssw_ibm_i_75/cl/crtjrn.htm)); size
-it and the receiver retention with [compatibility and prerequisites](compatibility.md).
+([CRTJRN](https://www.ibm.com/docs/en/i/7.5?topic=ssw_ibm_i_75/cl/crtjrn.htm)). The example
+omits `THRESHOLD`, so the IBM default of 1500000 KB applies, and keeps detached
+receivers (`DLTRCV(*NO)`); size both with [compatibility and prerequisites](compatibility.md).
+When the library already has a journal, the suggestion reuses it.
 
 For RRN, use `PATCH /v2/tables/{id}` with `acknowledge_rrn: true`.
 `RGZPFM` or `CLRPFM` requires resynchronization. Tables from different

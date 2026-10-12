@@ -173,14 +173,14 @@ class TablesService:
 
         self._require_source(source_id)
         discovered = discovery_client.discover(libraries=libraries, limit=limit, search=search)
-        journaled_libraries = {
-            table.library for table in discovered if table.journaled
-        }
+        journals = library_journals(discovered)
         moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         with self._engine.begin() as connection:
             for table in discovered:
                 readiness_result = classify_table(
-                    table, has_journal_in_library=table.library in journaled_libraries
+                    table,
+                    has_journal_in_library=table.library in journals,
+                    existing_journal=journals.get(table.library),
                 )
                 existing = (
                     connection.execute(
@@ -442,3 +442,13 @@ def _iso(value: object) -> str | None:
     if isinstance(value, str):
         return value
     return value.isoformat()
+
+
+def library_journals(tables) -> dict[str, tuple[str, str] | None]:
+    """The journal already used by journaled tables of each library, or None
+    when that library uses several journals (no single suggestion is safe)."""
+    found: dict[str, set[tuple[str, str]]] = {}
+    for table in tables:
+        if table.journaled and table.journal_library and table.journal_name:
+            found.setdefault(table.library, set()).add((table.journal_library, table.journal_name))
+    return {library: next(iter(names)) if len(names) == 1 else None for library, names in found.items()}

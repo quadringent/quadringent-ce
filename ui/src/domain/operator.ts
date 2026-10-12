@@ -814,3 +814,20 @@ export const EVIDENCE_COPY = {
   producerVersion: 'Producer version',
   versionMissing: 'Not reported by the service.',
 } as const;
+
+/* ------------------------------------------------------------------ */
+/* Synthetic demo build — separate entry, never the product bundle.    */
+/* ------------------------------------------------------------------ */
+
+export const SYNTHETIC_DEMO_COPY = {
+  title: 'Synthetic demo',
+  connection: 'No IBM i, Snowflake or cloud connection. Network requests are blocked.',
+  values: 'Every value is generated locally, including values labelled measured or observed.',
+  build: 'Built from source',
+  commit: 'commit',
+  builtAt: 'built',
+  scope: 'This demo is not a release qualification.',
+  unavailable: 'This screen needs a running service and is not part of the synthetic demo.',
+  backHome: 'Open the demo cockpit',
+  networkRefused: 'Synthetic demo: no network request is allowed.',
+} as const;

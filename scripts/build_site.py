@@ -10,6 +10,7 @@ from urllib.parse import urlparse, urlsplit
 
 DOC_PAGES = {
     "README.md": ("getting-started", "Getting started with IBM i CDC to Snowflake"),
+    "docs/product/synthetic-demo.md": ("demo", "Try the cockpit with synthetic data"),
     "docs/product/install-default.md": ("installation", "Install Quadringent on AWS or GCP"),
     "docs/product/install-client.md": ("helm-installation", "Helm installation and prerequisites"),
     "docs/architecture.md": ("architecture", "IBM i to Snowflake replication architecture"),

@@ -150,3 +150,24 @@ test('table evidence remains explicitly synthetic and never claims complete reco
   assert.equal(body.reconciliation.state, 'absent');
   assert.equal(body.reconciliation.duplicate_count, null);
 });
+
+test('table evidence varies by table: stale after an incident, absent during copy, missing when never collected', async () => {
+  const fetch = createCockpitDemoFetch();
+  const evidence = async (id: string) => (await fetch(`/v2/pipelines/${id}/evidence`)).json();
+  const incident = await evidence('pl_sales_order_lines');
+  assert.equal(incident.reading.state, 'observed');
+  assert.equal(incident.delivery.state, 'stale');
+  assert.ok(Date.parse(incident.delivery.observed_at) < Date.parse(incident.reading.observed_at));
+  const copying = await evidence('pl_inventory_items');
+  assert.equal(copying.delivery.state, 'absent');
+  assert.equal(copying.delivery.observed_at, null);
+  const paused = await evidence('pl_inventory_movements');
+  assert.equal(paused.reading.state, 'stale');
+  const never = await evidence('pl_sales_archive');
+  assert.equal(never.evidence_kind, 'absent');
+  assert.equal(never.collected_at, null);
+  for (const body of [incident, copying, paused, never]) {
+    assert.equal(body.reconciliation.state, 'absent');
+    assert.notEqual(body.evidence_kind, 'live');
+  }
+});

@@ -17,7 +17,9 @@ import { wrapFetchWithAuthRedirect } from './authRedirect.ts';
  */
 export async function createWizardClient(): Promise<ControlPlaneV2Client> {
   const basePath = import.meta.env.VITE_QUADRINGENT_V2_BASE_PATH as string | undefined;
-  if (import.meta.env.DEV && !basePath) {
+  // `--mode demo` is a separate synthetic build (ui/scripts/build-demo.mjs);
+  // both constants are fixed at build time, never chosen after an API error.
+  if (import.meta.env.MODE === 'demo' || (import.meta.env.DEV && !basePath)) {
     const { createWizardDemoFetch } = await import('./wizardDemoBridge.ts');
     return new ControlPlaneV2Client({ fetchFn: createWizardDemoFetch() });
   }

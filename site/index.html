@@ -163,20 +163,19 @@
   <section class="section" id="install" aria-labelledby="install-title">
     <div class="section__head">
       <p class="eyebrow">Install Community</p>
-      <h2 id="install-title">Try locally, then install on your cloud.</h2>
+      <h2 id="install-title">Try the demo, then install on your cloud.</h2>
       <p>A real site requires an IBM i journal and TLS access, a scoped Snowflake role, raw storage and limited cloud permissions. Read the <a data-repo-path="SECURITY.md" href="../SECURITY.md">security policy</a> before exposing the cockpit.</p>
     </div>
     <div class="install">
       <article class="install__card">
-        <p class="eyebrow">1 · Local trial</p>
-        <h3>Cockpit on 127.0.0.1</h3>
-        <pre class="code" tabindex="0" aria-label="Local trial commands"><code>python3 -m venv .venv
-.venv/bin/python -m pip install .
+        <p class="eyebrow">1 · Synthetic demo</p>
+        <h3>Cockpit with generated data</h3>
+        <pre class="code" tabindex="0" aria-label="Synthetic demo commands"><code>git clone https://github.com/quadringent/quadringent-ce.git
+cd quadringent-ce
 npm ci --prefix ui
-npm run build --prefix ui
-sh scripts/start_local.sh</code></pre>
-        <p>From a clone, with Python 3.12+ and Node 24 or 26, then open <code>http://127.0.0.1:8844</code>. The supplied configuration is fictional: it connects to neither IBM i, AWS nor Snowflake. A connection created here is declared, with no running replication.</p>
-        <div class="actions"><a class="action-button" data-repo-path="README.md" href="../README.md">Read the README</a></div>
+node ui/scripts/build-demo.mjs --serve</code></pre>
+        <p>Needs Node 24 or 26, then open <code>http://127.0.0.1:8870/#/cockpit</code>. <strong>Synthetic demo</strong>: no IBM i, Snowflake or cloud connection; the page blocks network requests. A banner shows the source version and commit. Not a release qualification.</p>
+        <div class="actions"><a class="action-button" data-repo-path="docs/product/synthetic-demo.md" href="../docs/product/synthetic-demo.md">Demo guide</a></div>
       </article>
       <article class="install__card">
         <p class="eyebrow">2 · Cloud installation</p>

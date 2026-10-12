@@ -120,3 +120,41 @@ def test_code_of_conduct_names_a_concrete_private_channel():
     conduct = flat(read("CODE_OF_CONDUCT.md"))
     assert "agreed channel" not in conduct
     assert CONTACT in conduct
+
+
+# C03 — synthetic demo without IBM i or Snowflake
+
+DEMO_GUIDE = "docs/product/synthetic-demo.md"
+DEMO_COMMANDS = ("npm ci --prefix ui", "node ui/scripts/build-demo.mjs --serve")
+
+
+def test_demo_guide_gives_runnable_commands_and_states_its_limits():
+    guide = read(DEMO_GUIDE)
+    for command in DEMO_COMMANDS:
+        assert command in guide
+    text = flat(guide)
+    assert "Synthetic demo" in text
+    assert "connect-src 'none'" in text
+    assert "not a release qualification" in text
+    assert "PROVENANCE.json" in text
+    assert "http://127.0.0.1:8870/#/cockpit" in text
+
+
+def test_demo_commands_point_to_scripts_that_exist():
+    assert (ROOT / "ui/scripts/build-demo.mjs").is_file()
+    assert (ROOT / "ui/scripts/serve-demo.mjs").is_file()
+    assert (ROOT / "ui/src/demo/index.html").is_file()
+
+
+@pytest.mark.parametrize("path", ["site/index.html", "README.md"])
+def test_home_and_readme_offer_the_synthetic_demo_first(path):
+    text = read(path)
+    assert "node ui/scripts/build-demo.mjs --serve" in text
+    assert "Synthetic demo" in text
+
+
+def test_demo_guide_is_published_with_its_commands_intact(site):
+    page = (site / "docs/demo/index.html").read_text()
+    for command in DEMO_COMMANDS:
+        assert command in page
+    assert "http://127.0.0.1:8870/#/cockpit" in page

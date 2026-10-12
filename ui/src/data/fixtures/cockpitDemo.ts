@@ -88,17 +88,7 @@ export function createCockpitDemoFetch(): (input: string, init?: RequestInit) =>
     if (method === 'GET' && evidenceMatch) {
       const pipeline = pipelines.find((item) => item.id === evidenceMatch[1]);
       if (!pipeline) return notFound(path);
-      const absent = { state: 'absent', observed_at: null, event_count: null,
-        lag_seconds: null, duplicate_count: null, detail: 'Not measured in this demonstration.' };
-      return json(200, {
-        pipeline_id: pipeline.id, provenance: 'demo_fixture', evidence_kind: 'simulation',
-        collected_at: '2026-09-23T09:00:00Z',
-        reading: { ...absent, state: 'observed', observed_at: '2026-09-23T09:00:00Z',
-          event_count: 120, detail: 'Synthetic capture events; no IBM i system was queried.' },
-        delivery: { ...absent, state: 'observed', observed_at: '2026-09-23T09:00:00Z',
-          event_count: 118, lag_seconds: 6.2, detail: 'Synthetic delivered batch; no Snowflake system was queried.' },
-        reconciliation: absent,
-      });
+      return json(200, demoEvidence(pipeline));
     }
 
     const actionMatch = /^\/pipelines\/([^/]+)\/actions\/([^/]+)$/.exec(path);
@@ -367,6 +357,35 @@ function demoCost(scope: string | null, id: string | null): Record<string, unkno
     return { window: '24h', status: 'absent', amount: null, currency: null, basis: null, collected_at: null };
   }
   return { window: '24h', status: 'estimated', amount: 0.34, currency: 'USD', basis: 'estimation_debit_moyen', collected_at: '2026-09-23T09:00:00Z' };
+}
+
+/** Per-table evidence: each stage keeps its own state. Reconciliation is
+ *  never claimed, and a table without collected evidence says so. */
+function demoEvidence(pipeline: DemoPipeline): Record<string, unknown> {
+  const absent = { state: 'absent', observed_at: null, event_count: null,
+    lag_seconds: null, duplicate_count: null, detail: 'Not measured in this demonstration.' };
+  const reading = { ...absent, state: 'observed', observed_at: '2026-09-23T09:00:00Z',
+    event_count: 120, detail: 'Synthetic capture events; no IBM i system was queried.' };
+  const delivery = { ...absent, state: 'observed', observed_at: '2026-09-23T09:00:00Z',
+    event_count: 118, lag_seconds: 6.2, detail: 'Synthetic delivered batch; no Snowflake system was queried.' };
+  const base = { pipeline_id: pipeline.id, provenance: 'demo_fixture', evidence_kind: 'simulation',
+    collected_at: '2026-09-23T09:00:00Z', reading, delivery, reconciliation: absent };
+  if (pipeline.id === 'pl_sales_archive') {
+    return { ...base, evidence_kind: 'absent', collected_at: null, reading: absent, delivery: absent };
+  }
+  switch (pipeline.declaredState) {
+    case 'attention':
+      return { ...base, delivery: { ...delivery, state: 'stale', observed_at: '2026-09-23T08:40:00Z',
+        event_count: 96, detail: 'Last synthetic delivery predates the incident; newer events are not confirmed.' } };
+    case 'copying':
+      return { ...base, delivery: { ...absent, detail: 'Initial copy in progress; no delivery window confirmed yet.' } };
+    case 'paused':
+      return { ...base,
+        reading: { ...reading, state: 'stale', observed_at: '2026-09-23T07:30:00Z', detail: 'Reading paused; last synthetic capture before the pause.' },
+        delivery: { ...delivery, state: 'stale', observed_at: '2026-09-23T07:30:00Z', detail: 'No delivery since the pause.' } };
+    default:
+      return base;
+  }
 }
 
 function envelope(before: unknown, after: unknown, path: string, dryRun: unknown): Record<string, unknown> {

@@ -52,6 +52,20 @@ prepare.
 
 ## Try the cockpit locally
 
+### Synthetic demo, without IBM i or Snowflake
+
+~~~sh
+npm ci --prefix ui
+node ui/scripts/build-demo.mjs --serve
+~~~
+
+Open <http://127.0.0.1:8870/#/cockpit>. The **Synthetic demo** shows the real
+cockpit with generated data: connections, an initial copy, an incident and
+per-table evidence. It makes no IBM i, Snowflake or cloud connection, and the
+page blocks network requests. See the [demo guide](docs/product/synthetic-demo.md).
+
+### Local control plane, empty
+
 From a repository clone, with Python 3.12+ and Node 24 or 26:
 
 ~~~sh

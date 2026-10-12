@@ -195,3 +195,41 @@ def test_export_pseudonymizes_identities_and_previews_its_files(engine):
     for value in (CANARY_HOST, CANARY_USER, "canary-account", "appl", "asrc", "adst", "SALESLIB"):
         assert value not in text
     assert {f["name"] for f in document["preview"]["files"]} == set(document["files"])
+
+
+def test_an_image_without_the_diagnostics_modules_still_starts_and_explains(engine, monkeypatch):
+    import sys
+    seed(engine, "default", prefix="a")
+    client = client_for(engine)
+    for name in [name for name in sys.modules if name.startswith(("quadringent.diagnostics",
+                                                                   "quadringent_control_plane.v2.services.diagnostics"))]:
+        monkeypatch.delitem(sys.modules, name)
+    monkeypatch.setitem(sys.modules, "quadringent.diagnostics", None)
+    response = client.get("/v2/diagnostics")
+    assert response.status_code == 503 and response.json()["error"]["code"] == "capability_unavailable"
+    assert client.get("/v2/healthz").status_code == 200
+
+
+def _control_plane_imports() -> set[str]:
+    """quadringent.* modules imported by the control plane package sources."""
+    import ast
+    from pathlib import Path
+    found = set()
+    for path in Path("src/quadringent_control_plane").rglob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("quadringent.") and node.level == 0:
+                found.add(node.module)
+    return found
+
+
+@pytest.mark.xfail(strict=True, reason="docker/control-plane.Dockerfile (Codex) must COPY src/quadringent/diagnostics; "
+                                       "until then the routes answer 503 in the image")
+def test_control_plane_image_ships_every_quadringent_module_it_imports():
+    from pathlib import Path
+    dockerfile = Path("docker/control-plane.Dockerfile").read_text()
+    missing = []
+    for module in sorted(_control_plane_imports()):
+        path = "src/" + module.replace(".", "/")
+        if f"{path}.py" not in dockerfile and f"{path} " not in dockerfile and f"{path}/" not in dockerfile:
+            missing.append(module)
+    assert missing == []

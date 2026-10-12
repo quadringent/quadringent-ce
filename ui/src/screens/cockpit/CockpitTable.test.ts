@@ -231,3 +231,23 @@ test('an estimated cost names its basis and collection time without calling it o
   assert.match(markup, /Collected at <time dateTime="2026-09-23T09:00:00Z">/);
   assert.doesNotMatch(markup, /Observed on|Database:/);
 });
+
+test('the evidence tab links to the diagnostics of this table only, with or without evidence', () => {
+  const link = /href="#\/cockpit\/diagnostics\?pipeline=pl_sales_order_lines">Open diagnostics for this table</;
+  assert.match(render({ tab: 'proofs' }), link);
+  const absent = { state: 'absent', observedAt: null, eventCount: null, lagSeconds: null, duplicateCount: null, detail: 'Not measured.' };
+  const withEvidence = tableData({ evidence: {
+    pipelineId: 'pl_sales_order_lines', provenance: 'kubernetes_loader_log', evidenceKind: 'live',
+    collectedAt: '2026-10-10T12:00:00Z', reading: absent, delivery: absent, reconciliation: absent,
+  } });
+  assert.match(render({ tab: 'proofs', state: { status: 'ready', data: withEvidence } }), link);
+  assert.doesNotMatch(render({ tab: 'metrics' }), /cockpit\/diagnostics/);
+});
+
+test('a generated cost on the costs tab is labelled synthetic and never called measured', () => {
+  const synthetic = tableData({ costToday: { scope: 'table', id: 'pl_sales_order_lines', window: '24h', status: 'synthetic', amount: 4.82, currency: 'USD', basis: 'warehouse_credits', collectedAt: '2026-09-23T09:00:00Z' } });
+  const markup = render({ tab: 'costs', state: { status: 'ready', data: synthetic } });
+  assert.match(markup, /4\.82 USD/);
+  assert.match(markup, /Synthetic cost/);
+  assert.doesNotMatch(markup, /measured<|· measured|Basis|Collected/);
+});

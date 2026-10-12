@@ -56,3 +56,22 @@ test('an empty availableActions list renders no action button, never a phantom d
   }));
   assert.doesNotMatch(markup, /<button/);
 });
+
+test('the panel is keyed by level and target so a new selection never inherits the previous confirmation', () => {
+  const props = (targetLabel: string, level = 'table') => ({
+    level, targetLabel, availableActions: ['pause'], dryRun: noopPromise,
+    execute: () => Promise.resolve({ pendingConfirmationId: null }), verify: noopPromise,
+  });
+  const keyOf = (value: Record<string, unknown>) => (ControlsPanel(value) as { key: string | null }).key;
+  assert.equal(keyOf(props('pl_a')), 'table|pl_a');
+  assert.notEqual(keyOf(props('pl_a')), keyOf(props('pl_b')));
+  assert.notEqual(keyOf(props('pl_a')), keyOf(props('pl_a', 'connection')));
+});
+
+test('no outcome message is shown before any action is requested', () => {
+  const markup = renderToStaticMarkup(createElement(ControlsPanel, {
+    level: 'table', targetLabel: 'pl_a', availableActions: ['pause'], dryRun: noopPromise,
+    execute: () => Promise.resolve({ pendingConfirmationId: null }), verify: noopPromise,
+  }));
+  assert.doesNotMatch(markup, /Effect verified|Effect not confirmed|Result unknown|Request accepted/);
+});

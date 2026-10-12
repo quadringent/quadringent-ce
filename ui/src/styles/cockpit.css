@@ -260,6 +260,9 @@
 
 .controls-panel__outcome--succeeded { color: var(--signal-ok); }
 .controls-panel__outcome--failed { color: var(--signal-incident); }
+/* Accepted or sent but not confirmed: a proof limit, never a success. */
+.controls-panel__outcome--unconfirmed { color: var(--signal-attention); }
+.controls-panel__outcome p { margin: 0 0 var(--space-2); }
 
 /* --- Connexion : barre de contrôles à portée choisie (un seul panneau
    visible, le sélecteur et le panneau partagent la même carte) --- */
@@ -547,3 +550,108 @@
 .evidence-state--limit { color: var(--signal-attention); }
 .evidence-state--missing { color: var(--text-muted); }
 .evidence-state--missing::before { background: transparent; border: 1px solid currentColor; }
+
+/* --- Diagnostics: read-only evidence by layer. Green only for a live,
+   non-synthetic pass; red for an established failure; amber for a proof
+   limit (synthetic or historical); neutral for "not established". The word
+   always carries the meaning, the colour only reinforces it. --- */
+
+.cockpit-diagnostics__filter,
+.cockpit-diagnostics__note,
+.cockpit-diagnostics__none { margin: 0 0 var(--space-3); font-size: var(--t-small); color: var(--ink-3); }
+.cockpit-diagnostics__filter a { color: var(--accent); }
+
+.cockpit-diagnostics__overall,
+.cockpit-diagnostics__section {
+  margin: 0 0 var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  background: var(--surface-panel);
+}
+.cockpit-diagnostics__section > h2 { margin: 0 0 var(--space-3); font-size: var(--t-lead); color: var(--ink-1); }
+.cockpit-diagnostics__layer h3,
+.cockpit-diagnostics__preview h3 { margin: var(--space-4) 0 var(--space-2); font-size: var(--t-body); color: var(--ink-2); }
+
+.cockpit-diagnostics__overall-text { margin: 0 0 var(--space-2); font-size: var(--t-lead); font-weight: var(--w-medium); color: var(--ink-1); }
+.cockpit-diagnostics__overall-text--blocked { color: var(--signal-incident); }
+.cockpit-diagnostics__overall-text--incomplete { color: var(--signal-attention); }
+.cockpit-diagnostics__synthetic {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--signal-attention-soft);
+  border-radius: var(--r-sm);
+  color: var(--ink-1);
+  font-size: var(--t-small);
+}
+.cockpit-diagnostics__counts { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-6); margin: 0 0 var(--space-3); padding: 0; list-style: none; font-size: var(--t-small); color: var(--ink-2); }
+.cockpit-diagnostics__facts { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-6); margin: 0; }
+.cockpit-diagnostics__facts dt { color: var(--ink-3); font-size: var(--t-small); }
+.cockpit-diagnostics__facts dd { margin: 0; font-size: var(--t-small); }
+
+.cockpit-diagnostics__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+
+.diagnostic-result {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--rule);
+  border-left-width: 3px;
+  border-radius: var(--r-sm);
+  background: var(--paper);
+  overflow-wrap: anywhere;
+}
+.diagnostic-result--incident { border-left-color: var(--signal-incident); }
+.diagnostic-result--limit { border-left-color: var(--signal-attention); }
+.diagnostic-result--ok { border-left-color: var(--signal-ok); }
+.diagnostic-result--neutral { border-left-color: var(--ink-4); }
+
+.diagnostic-result__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-4); }
+.diagnostic-result__code { font-size: var(--t-small); color: var(--ink-3); }
+.diagnostic-result__required { margin-left: auto; font-size: var(--t-micro); letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); }
+.diagnostic-result__summary { margin: var(--space-2) 0; color: var(--ink-1); }
+
+.diagnostic-status { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t-small); font-weight: 600; }
+.diagnostic-status::before { content: ""; width: 8px; height: 8px; border-radius: 1px; background: currentColor; }
+.diagnostic-status--ok { color: var(--signal-ok); }
+.diagnostic-status--incident { color: var(--signal-incident); }
+.diagnostic-status--limit { color: var(--signal-attention); }
+.diagnostic-status--neutral { color: var(--ink-3); }
+.diagnostic-status--neutral::before { background: transparent; border: 1px solid currentColor; }
+.diagnostic-status__qualifier { font-weight: 400; }
+
+.diagnostic-result__facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-2) var(--space-5); margin: var(--space-2) 0 0; font-size: var(--t-small); }
+.diagnostic-result__facts > div { display: contents; }
+.diagnostic-result__facts dt { color: var(--ink-3); }
+.diagnostic-result__facts dd { margin: 0; color: var(--ink-2); }
+.diagnostic-result__facts a { color: var(--accent); }
+.diagnostic-result__evidence { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.diagnostic-result__details > summary { cursor: pointer; font-size: var(--t-small); color: var(--ink-3); }
+.diagnostic-result__details > summary:hover { color: var(--ink-1); }
+
+.cockpit-diagnostics__failure { max-width: 62ch; }
+.cockpit-diagnostics__actions { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3); margin-top: var(--space-4); }
+.cockpit-diagnostics__action {
+  font-family: var(--font-plex-sans);
+  font-size: var(--t-small);
+  font-weight: var(--w-medium);
+  color: var(--ink-2);
+  background: var(--paper-sunk);
+  border: 1px solid var(--rule-firm);
+  border-radius: var(--radius-panel);
+  padding: 6px var(--space-4);
+  min-height: 32px;
+}
+.cockpit-diagnostics__action:hover:not(:disabled) { background: var(--surface-quiet); }
+.cockpit-diagnostics__action:disabled { color: var(--ink-4); cursor: not-allowed; }
+.cockpit-diagnostics__action--primary { background: var(--accent); border-color: var(--accent); color: #ffffff; }
+.cockpit-diagnostics__action--primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.05); }
+.cockpit-diagnostics__action--primary:disabled { background: var(--paper-sunk); border-color: var(--rule-firm); color: var(--ink-4); }
+.cockpit-diagnostics__cancel { font-family: var(--font-plex-sans); font-size: var(--t-small); color: var(--ink-3); background: transparent; border: 0; padding: var(--space-2) var(--space-3); }
+.cockpit-diagnostics__cancel:hover { color: var(--ink-1); text-decoration: underline; text-underline-offset: 3px; }
+
+.cockpit-diagnostics__integrity { margin: 0 0 var(--space-3); padding: var(--space-3) var(--space-4); background: var(--signal-incident-soft); border-radius: var(--r-sm); color: var(--ink-1); }
+.cockpit-diagnostics__integrity p, .cockpit-diagnostics__integrity ul { margin: 0; }
+.cockpit-diagnostics__files { width: 100%; border-collapse: collapse; font-size: var(--t-small); margin-bottom: var(--space-3); }
+.cockpit-diagnostics__files caption { text-align: left; font-weight: var(--w-medium); color: var(--ink-2); padding-bottom: var(--space-2); }
+.cockpit-diagnostics__files th, .cockpit-diagnostics__files td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--rule); }
+.cockpit-diagnostics__files .banded-table__col--numeric { text-align: right; }
+.cockpit-diagnostics__digest { overflow-wrap: anywhere; }

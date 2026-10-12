@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FunctionKeyBar } from '../../components/foundation/FunctionKeyBar.tsx';
 import { useFunctionKeys, type FunctionKeyBinding } from '../../components/foundation/useFunctionKeys.ts';
 import type { ConfirmationRecord } from '../../data/controlPlaneV2Client.ts';
@@ -6,6 +6,8 @@ import { getCockpitClient } from '../../data/useCockpit.ts';
 import { CONFIRMATIONS_COPY, confirmationActionLabel } from '../../domain/operator.ts';
 import { href } from '../../router.ts';
 import { navigateBack } from './cockpitFunctionKeys.ts';
+import { DEFAULT_ACTION_TIMEOUT_MS, runWithTimeout } from '../../data/controlsPanelFlow.ts';
+import { describeActionError, describeVerifyError, EffectNotConfirmedError } from '../../domain/controlsPanel.ts';
 
 type InboxState =
   | { readonly status: 'loading' }
@@ -19,6 +21,8 @@ export function CockpitConfirmationsScreen() {
   const [nonce, setNonce] = useState(0);
   const [selection, setSelection] = useState<Selection | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Synchronous guard: a double click must never send two decisions. */
+  const deciding = useRef(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const reload = () => setNonce((value) => value + 1);
 
@@ -38,45 +42,51 @@ export function CockpitConfirmationsScreen() {
   }, [nonce]);
 
   const decide = async () => {
-    if (!selection || busy) return;
+    if (!selection || busy || deciding.current) return;
+    deciding.current = true;
     setBusy(true);
     setFeedback(null);
     try {
-      const client = await getCockpitClient();
-      // L'état peut avoir changé depuis l'affichage. Relire la capacité
-      // exacte avant la décision, puis vérifier l'effet auprès du service.
-      const fresh = await client.getConfirmation(selection.record.id);
-      const expectedState = selection.decision === 'execute' ? 'approved' : 'pending';
-      if (fresh.state !== expectedState || !fresh.available[selection.decision]) {
-        setFeedback(CONFIRMATIONS_COPY.changed);
-        return;
-      }
-      if (selection.decision === 'execute') {
-        const action = fresh.actionRef === 'pipeline.remove' ? 'remove'
-          : fresh.actionRef === 'pipeline.restart_initial_copy' ? 'restart_initial_copy' : null;
-        if (!action || fresh.resourceType !== 'pipeline') throw new Error("This action cannot be executed from this screen.");
-        const result = await client.runPipelineAction(fresh.resourceId, action, { confirmationToken: fresh.id });
-        const targetState = action === 'remove' ? 'stopped' : 'copying';
-        if (result.after?.declaredState !== targetState) throw new Error("The service did not confirm the expected effect.");
-        const verified = await client.getConfirmation(fresh.id);
-        if (verified.state !== 'used') throw new Error("The service did not confirm execution.");
-        const pipeline = await client.getPipeline(fresh.resourceId);
-        setFeedback(pipeline.attentionReason ?? result.after?.attentionReason ?? CONFIRMATIONS_COPY.executed);
-        return;
-      }
-      if (selection.decision === 'approve') await client.approveConfirmation(fresh.id);
-      else await client.rejectConfirmation(fresh.id);
-      const verified = await client.getConfirmation(fresh.id);
-      const expected = selection.decision === 'approve' ? 'approved' : 'rejected';
-      if (verified.state !== expected) throw new Error("The service did not confirm the decision.");
-      setFeedback(selection.decision === 'approve' ? CONFIRMATIONS_COPY.approved : CONFIRMATIONS_COPY.rejected);
+      await runWithTimeout(() => performDecision(selection), DEFAULT_ACTION_TIMEOUT_MS);
     } catch (error: unknown) {
-      setFeedback(error instanceof Error ? error.message : String(error));
+      setFeedback(decisionFailureMessage(error));
     } finally {
+      deciding.current = false;
       setBusy(false);
       setSelection(null);
       reload();
     }
+  };
+
+  const performDecision = async (chosen: Selection): Promise<void> => {
+    const client = await getCockpitClient();
+    // The state may have changed since it was displayed: read the exact
+    // capability again before the decision, then verify the effect.
+    const fresh = await client.getConfirmation(chosen.record.id);
+    const expectedState = chosen.decision === 'execute' ? 'approved' : 'pending';
+    if (fresh.state !== expectedState || !fresh.available[chosen.decision]) {
+      setFeedback(CONFIRMATIONS_COPY.changed);
+      return;
+    }
+    if (chosen.decision === 'execute') {
+      const action = fresh.actionRef === 'pipeline.remove' ? 'remove'
+        : fresh.actionRef === 'pipeline.restart_initial_copy' ? 'restart_initial_copy' : null;
+      if (!action || fresh.resourceType !== 'pipeline') throw new Error("This action cannot be executed from this screen.");
+      const result = await client.runPipelineAction(fresh.resourceId, action, { confirmationToken: fresh.id });
+      const targetState = action === 'remove' ? 'stopped' : 'copying';
+      if (result.after?.declaredState !== targetState) throw new EffectNotConfirmedError("The service did not confirm the expected effect.");
+      const verified = await client.getConfirmation(fresh.id);
+      if (verified.state !== 'used') throw new EffectNotConfirmedError("The service did not confirm execution.");
+      const pipeline = await client.getPipeline(fresh.resourceId);
+      setFeedback(pipeline.attentionReason ?? result.after?.attentionReason ?? CONFIRMATIONS_COPY.executed);
+      return;
+    }
+    if (chosen.decision === 'approve') await client.approveConfirmation(fresh.id);
+    else await client.rejectConfirmation(fresh.id);
+    const verified = await client.getConfirmation(fresh.id);
+    const expected = chosen.decision === 'approve' ? 'approved' : 'rejected';
+    if (verified.state !== expected) throw new EffectNotConfirmedError("The service did not confirm the decision.");
+    setFeedback(chosen.decision === 'approve' ? CONFIRMATIONS_COPY.approved : CONFIRMATIONS_COPY.rejected);
   };
 
   return <CockpitConfirmationsView state={state} selection={selection} busy={busy} feedback={feedback}
@@ -171,6 +181,14 @@ export function CockpitConfirmationsView({
     </div> : null}
     <FunctionKeyBar entries={entries} onTrigger={(key) => bindings.find((binding) => binding.key === key)?.onTrigger()} />
   </div>;
+}
+
+/** A refusal, an unknown outcome (timeout, transport, server error) and an
+ *  effect the read-back did not show are three different things. */
+function decisionFailureMessage(error: unknown): string {
+  if (error instanceof EffectNotConfirmedError) return describeVerifyError(error);
+  const described = describeActionError(error);
+  return described.message;
 }
 
 function requester(record: ConfirmationRecord): string {

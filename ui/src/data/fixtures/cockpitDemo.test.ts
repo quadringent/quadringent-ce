@@ -154,7 +154,9 @@ test('generated demo costs stay synthetic at both scopes, and paused costs stay 
   const absentTable = await c.getCosts('table', 'pl_inventory_movements', '24h');
   assert.equal(absentTable.status, 'absent');
   assert.equal(absentTable.amount, null);
+  assert.notEqual(absentTable.synthetic, true);
 });
+
 test('table evidence remains explicitly synthetic and never claims complete reconciliation', async () => {
   const fetch = createCockpitDemoFetch();
   const body = await (await fetch('/v2/pipelines/pl_sales_orders/evidence')).json();
@@ -224,4 +226,68 @@ test('table suspension leaves shared capture unconfirmed and preserves other tab
     method: 'POST', body: JSON.stringify({}),
   });
   assert.deepEqual(await evidence('pl_sales_orders'), before);
+});
+
+const json = async (response: Response) => response.json() as Promise<Record<string, any>>;
+
+test('the demo serves a synthetic control-plane diagnostic that never passes capture, delivery or reconciliation', async () => {
+  const fetch = createCockpitDemoFetch();
+  const report = await json(await fetch('/v2/diagnostics'));
+  assert.equal(report.schema, 'quadringent.diagnostic.v1');
+  assert.equal(report.scope, 'control_plane');
+  assert.equal(report.synthetic, true);
+  const results = report.results as Record<string, any>[];
+  assert.ok(results.length > 10);
+  for (const result of results) {
+    if (['capture.reading', 'delivery.snowflake', 'reconciliation.destination', 'evidence.freshness'].includes(result.code)) {
+      assert.notEqual(result.status, 'passed', `${result.code} ${result.subject?.ref}`);
+    }
+    if (result.evidence?.evidence_kind !== undefined) assert.notEqual(result.evidence.evidence_kind, 'live');
+  }
+  assert.ok(results.some((result) => result.status === 'failed'), 'the demo incident is visible');
+  assert.ok(results.some((result) => result.status === 'unknown'));
+  assert.equal(report.overall.status, 'blocked');
+  assert.match(report.overall.summary, /Synthetic data/);
+});
+
+test('the demo diagnostic parses with the strict client parser and keeps the stale delivery date', async () => {
+  const report = await client().getDiagnostics();
+  const delivery = report.results.find((result) => result.code === 'delivery.snowflake' && result.subject?.ref === 'pl_sales_order_lines')!;
+  assert.equal(delivery.status, 'failed');
+  assert.equal(delivery.since, '2026-09-23T08:40:00Z');
+  assert.equal(delivery.evidenceKind, 'simulation');
+});
+
+test('the pipeline filter keeps one table and 404s on an unknown pipeline', async () => {
+  const c = client();
+  const report = await c.getDiagnostics({ pipelineId: 'pl_sales_orders' });
+  const refs = new Set(report.results.filter((result) => result.subject?.kind === 'pipeline').map((result) => result.subject!.ref));
+  assert.deepEqual([...refs], ['pl_sales_orders']);
+  assert.ok(report.results.some((result) => result.code === 'control_plane.api'));
+  await assert.rejects(() => c.getDiagnostics({ pipelineId: 'pl_unknown' }), (error: unknown) => (error as { status: number }).status === 404);
+});
+
+test('the demo export matches its own preview and says it is synthetic', async () => {
+  const exported = await client().getDiagnosticsExport();
+  assert.deepEqual(Object.keys(exported.files).sort(), exported.preview.files.map((file) => file.name).sort());
+  const { checkExportIntegrity } = await import('../../domain/diagnosticsExport.ts');
+  const integrity = await checkExportIntegrity(exported);
+  assert.deepEqual(integrity.problems, []);
+  assert.ok(exported.preview.limits.some((limit) => /Synthetic data/.test(limit)));
+});
+
+test('source and fleet actions report the tables they changed, as the real service does', async () => {
+  const c = client();
+  const envelope = await c.runSourceAction(DEMO_SOURCE_INVENTORY, 'pause');
+  const applied = (envelope.after as { pipelines: { applied: { pipeline_id: string; after: { declared_state: string } }[] } }).pipelines.applied;
+  assert.ok(applied.length > 0);
+  assert.ok(applied.every((item) => item.after.declared_state === 'paused'));
+  for (const item of applied) assert.equal((await c.getPipeline(item.pipeline_id)).declaredState, 'paused');
+});
+
+test('a pipeline preview announces the transition it would make, without applying it', async () => {
+  const c = client();
+  const envelope = await c.runPipelineAction('pl_sales_customers', 'pause', { dryRun: true });
+  assert.deepEqual((envelope.dryRun as { would_transition: unknown }).would_transition, { from: 'live', to: 'paused' });
+  assert.equal((await c.getPipeline('pl_sales_customers')).declaredState, 'live');
 });

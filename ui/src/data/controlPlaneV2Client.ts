@@ -1,4 +1,19 @@
 import type { DiscoveredTable, KeyStrategy, TableReadiness } from '../domain/wizardTables.ts';
+import {
+  parseDiagnosticExport,
+  parseDiagnosticReport,
+  DiagnosticContractError,
+  type DiagnosticExport,
+  type DiagnosticReport,
+} from './diagnosticsContract.ts';
+
+export type {
+  DiagnosticExport,
+  DiagnosticReport,
+  DiagnosticResult,
+  DiagnosticLayer,
+  DiagnosticStatus,
+} from './diagnosticsContract.ts';
 
 /**
  * Client typé pour `/v2` (docs/plans/2026-09-23-control-plane-v2-contract.md
@@ -339,20 +354,67 @@ const ERROR_CATALOGUE = new Set([
   'internal_error',
 ]);
 
+/** How a failed request is explained to the operator; derived from the HTTP
+ *  status (never from free-form text) so every screen classifies alike. */
+export type ControlPlaneV2ErrorKind =
+  | 'session'
+  | 'forbidden'
+  | 'not_found'
+  | 'rate_limited'
+  | 'conflict'
+  | 'unavailable'
+  | 'invalid_response'
+  | 'rejected';
+
 export class ControlPlaneV2Error extends Error {
   readonly status: number;
   readonly code: string;
   readonly nextAction: string;
   readonly retryable: boolean;
+  /** `Retry-After` in seconds when the service sent one (429/503). */
+  readonly retryAfterSeconds: number | null;
 
-  constructor(status: number, code: string, message: string, nextAction: string, retryable: boolean) {
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    nextAction: string,
+    retryable: boolean,
+    retryAfterSeconds: number | null = null,
+  ) {
     super(message);
     this.name = 'ControlPlaneV2Error';
     this.status = status;
     this.code = code;
     this.nextAction = nextAction;
     this.retryable = retryable;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
+
+  get kind(): ControlPlaneV2ErrorKind {
+    return classifyControlPlaneV2Error(this);
+  }
+}
+
+export function classifyControlPlaneV2Error(error: { readonly status: number; readonly code: string }): ControlPlaneV2ErrorKind {
+  if (error.code === 'invalid_response') return 'invalid_response';
+  if (error.status === 401) return 'session';
+  if (error.status === 403) return 'forbidden';
+  if (error.status === 404) return 'not_found';
+  if (error.status === 429) return 'rate_limited';
+  if (error.status === 409) return 'conflict';
+  if (error.status === 0 || error.status >= 500) return 'unavailable';
+  return 'rejected';
+}
+
+/** `Retry-After` is either delta-seconds or an HTTP date; anything else is ignored. */
+export function parseRetryAfter(header: string | null, now: Date = new Date()): number | null {
+  if (header === null) return null;
+  const value = header.trim();
+  if (/^\d+$/.test(value)) return Number(value);
+  const at = Date.parse(value);
+  if (!Number.isFinite(at)) return null;
+  return Math.max(0, Math.ceil((at - now.getTime()) / 1000));
 }
 
 export interface ControlPlaneV2ClientOptions {
@@ -630,6 +692,21 @@ export class ControlPlaneV2Client {
     return parseCostSnapshot(payload, scope, id);
   }
 
+  /** GET /v2/diagnostics[?pipeline_id=] — `quadringent.diagnostic.v1`. A report
+   *  this console cannot interpret exactly is an `invalid_response` error. */
+  async getDiagnostics(options: { readonly pipelineId?: string } = {}, signal?: AbortSignal): Promise<DiagnosticReport> {
+    const query = options.pipelineId ? `?pipeline_id=${encodeURIComponent(options.pipelineId)}` : '';
+    const payload = await this.getJson(`/diagnostics${query}`, signal);
+    return parseDiagnostics(() => parseDiagnosticReport(payload));
+  }
+
+  /** GET /v2/diagnostics/export — `quadringent.diagnostic-export.v1`. Nothing
+   *  is persisted: the caller shows the preview before offering a download. */
+  async getDiagnosticsExport(signal?: AbortSignal): Promise<DiagnosticExport> {
+    const payload = await this.getJson('/diagnostics/export', signal);
+    return parseDiagnostics(() => parseDiagnosticExport(payload));
+  }
+
   /** GET /v2/confirmations?state= — existe côté serveur. */
   async listConfirmations(state: ConfirmationState | 'all' = 'pending', signal?: AbortSignal): Promise<readonly ConfirmationRecord[]> {
     const query = `?state=${encodeURIComponent(state)}`;
@@ -733,7 +810,7 @@ export class ControlPlaneV2Client {
   }
 
   private async getJson(path: string, signal?: AbortSignal): Promise<unknown> {
-    const response = await this.fetchFn(`${this.basePath}${path}`, {
+    const response = await this.fetchOrUnavailable(`${this.basePath}${path}`, {
       method: 'GET',
       headers: { Accept: 'application/json' },
       signal,
@@ -741,10 +818,21 @@ export class ControlPlaneV2Client {
     return this.readJsonOrThrow(response, path);
   }
 
+  /** A transport failure is "service unavailable" (status 0), never a raw
+   *  `TypeError`; a cancelled request keeps its `AbortError`. */
+  private async fetchOrUnavailable(input: string, init: RequestInit): Promise<Response> {
+    try {
+      return await this.fetchFn(input, init);
+    } catch (error) {
+      if (init.signal?.aborted || (error instanceof Error && error.name === 'AbortError')) throw error;
+      throw new ControlPlaneV2Error(0, 'service_unavailable', "The service cannot be reached.", "Check the connection and try again.", true);
+    }
+  }
+
   /** Comme `write`, mais conserve `verify`/`dry_run` de l'enveloppe générique
    *  (avant/après/vérifie — docs/api-v2.md « Enveloppe d'action générique »). */
   private async writeFull(path: string, body: Record<string, unknown>, signal?: AbortSignal, method: 'POST' | 'PATCH' | 'DELETE' = 'POST'): Promise<ActionEnvelope<unknown>> {
-    const response = await this.fetchFn(`${this.basePath}${path}`, {
+    const response = await this.fetchOrUnavailable(`${this.basePath}${path}`, {
       method,
       headers: {
         Accept: 'application/json',
@@ -762,7 +850,7 @@ export class ControlPlaneV2Client {
   }
 
   private async write(path: string, body: Record<string, unknown>, signal?: AbortSignal, method: 'POST' | 'PATCH' = 'POST'): Promise<{ readonly before: unknown; readonly after: unknown }> {
-    const response = await this.fetchFn(`${this.basePath}${path}`, {
+    const response = await this.fetchOrUnavailable(`${this.basePath}${path}`, {
       method,
       headers: {
         Accept: 'application/json',
@@ -781,19 +869,33 @@ export class ControlPlaneV2Client {
     try {
       payload = await response.json();
     } catch {
-      throw new ControlPlaneV2Error(response.status, 'internal_error', `Unreadable response (${path})`, "Try again later.", true);
+      throw new ControlPlaneV2Error(
+        response.status, 'internal_error', `Unreadable response (${path})`, "Try again later.", true,
+        parseRetryAfter(response.headers?.get?.('Retry-After') ?? null),
+      );
     }
     if (!response.ok) {
-      throw parseErrorEnvelope(response.status, payload);
+      throw parseErrorEnvelope(response.status, payload, parseRetryAfter(response.headers?.get?.('Retry-After') ?? null));
     }
     return payload;
   }
 }
 
-function parseErrorEnvelope(status: number, payload: unknown): ControlPlaneV2Error {
+function parseDiagnostics<T>(parse: () => T): T {
+  try {
+    return parse();
+  } catch (error) {
+    if (error instanceof DiagnosticContractError) {
+      throw new ControlPlaneV2Error(200, 'invalid_response', error.message, "Update the console or the service so their versions match.", false);
+    }
+    throw error;
+  }
+}
+
+function parseErrorEnvelope(status: number, payload: unknown, retryAfterSeconds: number | null = null): ControlPlaneV2Error {
   const error = typeof payload === 'object' && payload !== null ? (payload as Record<string, unknown>).error : null;
   if (typeof error !== 'object' || error === null) {
-    return new ControlPlaneV2Error(status, 'internal_error', "The service returned an unexpected error.", "Try again later.", true);
+    return new ControlPlaneV2Error(status, 'internal_error', "The service returned an unexpected error.", "Try again later.", true, retryAfterSeconds);
   }
   const record = error as Record<string, unknown>;
   const rawCode = typeof record.code === 'string' ? record.code : 'internal_error';
@@ -801,7 +903,7 @@ function parseErrorEnvelope(status: number, payload: unknown): ControlPlaneV2Err
   const message = typeof record.message === 'string' && record.message.trim() ? record.message : "Unknown service error.";
   const nextAction = typeof record.next_action === 'string' && record.next_action.trim() ? record.next_action : "Try again later.";
   const retryable = typeof record.retryable === 'boolean' ? record.retryable : false;
-  return new ControlPlaneV2Error(status, code, message, nextAction, retryable);
+  return new ControlPlaneV2Error(status, code, message, nextAction, retryable, retryAfterSeconds);
 }
 
 /** ``{"ok": bool, "detail": str}`` — forme des sous-résultats de

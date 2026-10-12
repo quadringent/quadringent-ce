@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  ActionTimeoutError,
+  describeActionError,
+  describeVerifyError,
+  EffectNotConfirmedError,
+  expectedDeclaredState,
+  scopeExpectations,
   controlsPanelReducer,
   INITIAL_CONTROLS_PANEL_STATE,
   requiresConfirmation,
@@ -122,4 +128,107 @@ test('a new request while idle, succeeded or failed starts a clean cycle; not wh
   ]);
   assert.equal(whileRunning.phase, 'running', 'a request mid-flight must not interrupt the running action');
   assert.equal(whileRunning.action, 'pause');
+});
+
+const RUNNING: ControlsPanelState = apply([
+  { type: 'request', action: 'pause' },
+  { type: 'preview_ready', preview: {} },
+  { type: 'confirm' },
+]);
+
+test('failure kinds are recorded: refused, unknown result, not confirmed, rejected', () => {
+  assert.equal(controlsPanelReducer(RUNNING, { type: 'run_failed', error: 'x', failure: 'refused' }).failure, 'refused');
+  assert.equal(controlsPanelReducer(RUNNING, { type: 'run_failed', error: 'x', failure: 'unknown_result' }).failure, 'unknown_result');
+  assert.equal(controlsPanelReducer(RUNNING, { type: 'run_failed', error: 'x' }).failure, 'error');
+  const verifying = controlsPanelReducer(RUNNING, { type: 'run_succeeded' });
+  assert.equal(controlsPanelReducer(verifying, { type: 'verify_failed', error: 'x' }).failure, 'not_confirmed');
+  const pending = apply([{ type: 'run_requires_confirmation', confirmationId: 'cf_1' }], RUNNING);
+  assert.equal(controlsPanelReducer(pending, { type: 'confirmation_rejected' }).failure, 'rejected');
+});
+
+test('an accepted request is verifying, never succeeded, until the read-back confirms it', () => {
+  const accepted = controlsPanelReducer(RUNNING, { type: 'run_succeeded' });
+  assert.equal(accepted.phase, 'verifying');
+  assert.notEqual(accepted.phase, 'succeeded');
+  assert.equal(controlsPanelReducer(accepted, { type: 'verified' }).phase, 'succeeded');
+  const failed = controlsPanelReducer(accepted, { type: 'verify_failed', error: 'Effect not confirmed.' });
+  assert.equal(failed.phase, 'failed');
+  assert.notEqual(failed.phase, 'succeeded');
+});
+
+test('after an unknown result the only way forward is reading again, never a second mutation', () => {
+  const unknown = controlsPanelReducer(RUNNING, { type: 'run_failed', error: 'timeout', failure: 'unknown_result' });
+  const checking = controlsPanelReducer(unknown, { type: 'check_state' });
+  assert.equal(checking.phase, 'verifying');
+  assert.equal(checking.action, 'pause');
+  // A refused failure offers no such path.
+  const refused = controlsPanelReducer(RUNNING, { type: 'run_failed', error: 'no', failure: 'refused' });
+  assert.equal(controlsPanelReducer(refused, { type: 'check_state' }), refused);
+  assert.deepEqual(controlsPanelReducer(INITIAL_CONTROLS_PANEL_STATE, { type: 'check_state' }), INITIAL_CONTROLS_PANEL_STATE);
+});
+
+test('a failed approval keeps the panel on the pending confirmation and says why', () => {
+  const pending = apply([{ type: 'run_requires_confirmation', confirmationId: 'cf_1' }], RUNNING);
+  const failed = controlsPanelReducer(pending, { type: 'approval_failed', error: 'Your role does not allow this.' });
+  assert.equal(failed.phase, 'awaiting_confirmation');
+  assert.equal(failed.confirmationState, 'pending');
+  assert.equal(failed.error, 'Your role does not allow this.');
+  assert.equal(controlsPanelReducer(INITIAL_CONTROLS_PANEL_STATE, { type: 'approval_failed', error: 'x' }).error, null);
+});
+
+test('errors are explained by kind: refused statuses, unknown outcomes and unexpected failures', () => {
+  const status = (value: number, extra: Record<string, unknown> = {}) => describeActionError(Object.assign(new Error('service text'), { status: value, ...extra }));
+  assert.equal(status(403).failure, 'refused');
+  assert.match(status(403).message, /Action refused\..*role does not allow/);
+  assert.match(status(409, { code: 'capability_unavailable' }).message, /not possible in the current state.*Service message: service text/);
+  assert.match(status(409, { code: 'action_in_progress' }).message, /already in progress/);
+  assert.match(status(409, { code: 'wrong_confirmation' }).message, /confirmation is missing, expired or not approved/);
+  assert.match(status(404).message, /no longer exists/);
+  assert.match(status(401).message, /session has ended/);
+  assert.match(status(429, { retryAfterSeconds: 7 }).message, /Too many requests.*Retry in 7 s\./);
+  assert.equal(status(400).failure, 'refused');
+});
+
+test('a timeout, a transport failure and a server error are unknown results, not failures to retry', () => {
+  for (const error of [new ActionTimeoutError(), Object.assign(new Error('x'), { status: 0 }), Object.assign(new Error('x'), { status: 502 }), Object.assign(new Error('x'), { status: 503, code: 'executor_unavailable' })]) {
+    const described = describeActionError(error);
+    assert.equal(described.failure, 'unknown_result');
+    assert.match(described.message, /Result unknown\./);
+    assert.match(described.message, /Check the current state before retrying/);
+  }
+  assert.match(describeActionError(new ActionTimeoutError()).message, /nothing was retried automatically/);
+});
+
+test('an unexpected error keeps its own message, or the generic one', () => {
+  assert.deepEqual(describeActionError(new Error('Action not supported at fleet level.')), { failure: 'error', message: 'Action not supported at fleet level.' });
+  assert.deepEqual(describeActionError('boom'), { failure: 'error', message: 'Action not executed.' });
+});
+
+test('a read-back that did not confirm is worded as "Effect not confirmed"', () => {
+  assert.match(describeVerifyError(new EffectNotConfirmedError('The service reports "live" while "paused" was expected.')), /^Effect not confirmed\. The service reports "live"/);
+  assert.match(describeVerifyError(new Error('network')), /^Effect not confirmed\..*could not be read again/);
+  assert.match(describeVerifyError(new ActionTimeoutError()), /^Effect not confirmed\./);
+});
+
+test('the expected state comes from the accepted request first, then from the preview, else it is unknown', () => {
+  assert.equal(expectedDeclaredState({ id: 'pl_1', declaredState: 'paused' }, null), 'paused');
+  assert.equal(expectedDeclaredState(null, { dryRun: { would_transition: { from: 'live', to: 'paused' } } }), 'paused');
+  assert.equal(expectedDeclaredState({ declaredState: 'live' }, { dryRun: { would_transition: { to: 'paused' } } }), 'live');
+  assert.equal(expectedDeclaredState(null, { dryRun: { action: 'pause' } }), null);
+  assert.equal(expectedDeclaredState(null, null), null);
+});
+
+test('scope expectations read the per-table states the service reported, and nothing else', () => {
+  const accepted = { pipelines: { applied: [
+    { pipeline_id: 'pl_1', before: { declared_state: 'live' }, after: { declared_state: 'paused' } },
+    { pipeline_id: 'pl_2', before: { declared_state: 'copying' }, after: { declared_state: 'paused' } },
+  ], skipped: [] } };
+  assert.deepEqual(scopeExpectations(accepted), [
+    { pipelineId: 'pl_1', declaredState: 'paused' },
+    { pipelineId: 'pl_2', declaredState: 'paused' },
+  ]);
+  assert.deepEqual(scopeExpectations({ pipelines: { applied: [], skipped: [] } }), []);
+  assert.equal(scopeExpectations({ affected: ['pl_1'] }), null);
+  assert.equal(scopeExpectations({ pipelines: { applied: [{ pipeline_id: 'pl_1' }] } }), null);
+  assert.equal(scopeExpectations(null), null);
 });

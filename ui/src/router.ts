@@ -18,6 +18,7 @@ export type Route =
   | { name: 'flux'; id: string }
   | { name: 'cockpit' }
   | { name: 'cockpit-confirmations' }
+  | { name: 'cockpit-diagnostics'; pipelineId?: string }
   | { name: 'cockpit-connection'; id: string }
   | { name: 'cockpit-table'; id: string; tab?: CockpitTableTab };
 const pipelineTabs = new Set<PipelineTab>(['overview', 'tables', 'live']);
@@ -46,6 +47,10 @@ export function parseRoute(hash: string): Route {
   }
   if (path === 'cockpit') return { name: 'cockpit' };
   if (path === 'cockpit/confirmations') return { name: 'cockpit-confirmations' };
+  if (path === 'cockpit/diagnostics') {
+    const pipelineId = query.get('pipeline');
+    return pipelineId ? { name: 'cockpit-diagnostics', pipelineId } : { name: 'cockpit-diagnostics' };
+  }
   const cockpitConnectionMatch = /^cockpit\/connection\/([^/?#]+)$/.exec(path);
   if (cockpitConnectionMatch) {
     const id = safeDecode(cockpitConnectionMatch[1]);
@@ -109,6 +114,8 @@ export function href(route: Route): string {
       return '#/cockpit';
     case 'cockpit-confirmations':
       return '#/cockpit/confirmations';
+    case 'cockpit-diagnostics':
+      return route.pipelineId ? `#/cockpit/diagnostics?pipeline=${encodeURIComponent(route.pipelineId)}` : '#/cockpit/diagnostics';
     case 'cockpit-connection':
       return `#/cockpit/connection/${encodeURIComponent(route.id)}`;
     case 'cockpit-table':

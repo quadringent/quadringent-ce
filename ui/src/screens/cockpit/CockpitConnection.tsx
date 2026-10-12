@@ -14,23 +14,26 @@ import { ControlsPanel } from '../../components/ControlsPanel.tsx';
 import { connectionNeedsAttention, sortAndFilterTables, type CockpitConnection, type CockpitTable, type ConnectionTableSortKey, type SortDirection } from '../../domain/cockpit.ts';
 import { getCockpitClient, useCockpitConnections } from '../../data/useCockpit.ts';
 import { href } from '../../router.ts';
-import { requiresConfirmation, type ControlActionKind } from '../../domain/controlsPanel.ts';
+import type { ControlActionKind } from '../../domain/controlsPanel.ts';
+import { scopeControls } from './cockpitActions.ts';
 import type { CockpitConnectionsState } from '../../data/useCockpit.ts';
 import { focusPrimaryControls, navigateBack } from './cockpitFunctionKeys.ts';
 
 export function CockpitConnectionScreen({ connectionId }: { readonly connectionId: string }) {
-  const { state, reload } = useCockpitConnections();
-  return <CockpitConnectionView state={state} connectionId={connectionId} onRefresh={reload} />;
+  const { state, reload, refresh } = useCockpitConnections();
+  return <CockpitConnectionView state={state} connectionId={connectionId} onRefresh={reload} onSettled={refresh} />;
 }
 
 export function CockpitConnectionView({
   state,
   connectionId,
   onRefresh,
+  onSettled,
 }: {
   readonly state: CockpitConnectionsState;
   readonly connectionId: string;
   readonly onRefresh: () => void;
+  readonly onSettled?: () => void;
 }) {
   const [query, setQuery] = useState('');
   const [sortKey, setSortKey] = useState<ConnectionTableSortKey>('name');
@@ -92,7 +95,7 @@ export function CockpitConnectionView({
         <button type="button" className="board__refresh" onClick={onRefresh}>Refresh</button>
       </header>
 
-      <ScopedControls connection={connection} scope={scope} onScopeChange={setScope} onRefresh={onRefresh} />
+      <ScopedControls connection={connection} scope={scope} onScopeChange={setScope} onSettled={onSettled ?? onRefresh} />
 
       {connectionNeedsAttention(connection) ? (
         <ConnectionAttentionBanner connection={connection} />
@@ -138,12 +141,12 @@ function ScopedControls({
   connection,
   scope,
   onScopeChange,
-  onRefresh,
+  onSettled,
 }: {
   readonly connection: CockpitConnection;
   readonly scope: ControlScope;
   readonly onScopeChange: (scope: ControlScope) => void;
-  readonly onRefresh: () => void;
+  readonly onSettled: () => void;
 }) {
   const effectiveScope = scope === 'destination' && !connection.destinationId ? 'connection' : scope;
 
@@ -163,17 +166,7 @@ function ScopedControls({
           level="connection"
           targetLabel={connection.label}
           availableActions={['pause', 'resume'] as readonly ControlActionKind[]}
-          dryRun={async (action) => {
-            const client = await getCockpitClient();
-            return client.runSourceAction(connection.id, action as 'pause' | 'resume', { dryRun: true });
-          }}
-          execute={async (action) => {
-            if (requiresConfirmation(action)) throw new Error("Action not supported at connection level.");
-            const client = await getCockpitClient();
-            await client.runSourceAction(connection.id, action as 'pause' | 'resume');
-            return { pendingConfirmationId: null };
-          }}
-          verify={async () => { onRefresh(); }}
+          {...scopeControls({ level: 'connection', id: connection.id }, { getClient: getCockpitClient, onSettled })}
         />
       ) : null}
 
@@ -182,17 +175,7 @@ function ScopedControls({
           level="destination"
           targetLabel={`Destination of ${connection.label}`}
           availableActions={['pause', 'resume'] as readonly ControlActionKind[]}
-          dryRun={async (action) => {
-            const client = await getCockpitClient();
-            return client.runDestinationAction(connection.destinationId!, action as 'pause' | 'resume', { dryRun: true });
-          }}
-          execute={async (action) => {
-            if (requiresConfirmation(action)) throw new Error("Action not supported at destination level.");
-            const client = await getCockpitClient();
-            await client.runDestinationAction(connection.destinationId!, action as 'pause' | 'resume');
-            return { pendingConfirmationId: null };
-          }}
-          verify={async () => { onRefresh(); }}
+          {...scopeControls({ level: 'destination', id: connection.destinationId }, { getClient: getCockpitClient, onSettled })}
         />
       ) : null}
 
@@ -201,17 +184,7 @@ function ScopedControls({
           level="fleet"
           targetLabel="All connections"
           availableActions={['pause', 'resume'] as readonly ControlActionKind[]}
-          dryRun={async (action) => {
-            const client = await getCockpitClient();
-            return client.runFleetAction(action === 'pause' ? 'pause_all' : 'resume_all', { dryRun: true });
-          }}
-          execute={async (action) => {
-            if (requiresConfirmation(action)) throw new Error("Action not supported at fleet level.");
-            const client = await getCockpitClient();
-            await client.runFleetAction(action === 'pause' ? 'pause_all' : 'resume_all');
-            return { pendingConfirmationId: null };
-          }}
-          verify={async () => { onRefresh(); }}
+          {...scopeControls({ level: 'fleet' }, { getClient: getCockpitClient, onSettled })}
         />
       ) : null}
     </div>

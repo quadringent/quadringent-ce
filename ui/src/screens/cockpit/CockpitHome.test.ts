@@ -123,3 +123,16 @@ test('the function key bar declares F3/F5/F9/F12, F9 disabled without rows and F
   const withRows = render({ status: 'ready', rows: [row()] });
   assert.doesNotMatch(withRows, /aria-keyshortcuts="F9"[^>]*disabled=""/);
 });
+
+test('the home links to the read-only diagnostics screen', () => {
+  const markup = render({ status: 'ready', rows: [row()] });
+  assert.match(markup, /href="#\/cockpit\/diagnostics">Diagnostics</);
+  const empty = render({ status: 'ready', rows: [] });
+  assert.match(empty, /href="#\/cockpit\/diagnostics">Diagnostics</);
+});
+
+test('a generated cost is labelled synthetic in its own cell and never called measured', () => {
+  const markup = render({ status: 'ready', rows: [row({ costToday: { scope: 'connection', id: 'src_1', window: '24h', status: 'synthetic', amount: 4.82, currency: 'USD', basis: null, collectedAt: null } })] });
+  assert.match(markup, />4\.82 USD \(synthetic\)</);
+  assert.doesNotMatch(markup, /measured/);
+});

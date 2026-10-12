@@ -188,10 +188,11 @@ def test_scenario_06_journal_absent(lab_for):
     assert "STRJRNPF" in commands
     assert tables["ORDERS"]["readiness"] == "ready"
     if lab.diagnostics_available():
+        # Diagnostics only cover tables that feed a pipeline: an unselected
+        # table never blocks; its readiness stays on the Tables screen.
         report = _diagnostics(operator)
-        failed = [r for r in _results(report, "source_prerequisites.table") if r["status"] == "failed"]
-        assert [r["subject"]["label"] for r in failed] == ["LABLIB.LEDGER_RAW"] or len(failed) == 1
-        assert report["overall"]["status"] == "blocked"
+        labels = [r["subject"]["label"] for r in _results(report, "source_prerequisites.table")]
+        assert "LABLIB.LEDGER_RAW" not in labels
 
 
 def test_scenario_07_journal_config_incompatible(lab_for):
@@ -202,7 +203,8 @@ def test_scenario_07_journal_config_incompatible(lab_for):
     assert any("CHGJRNOBJ" in item["command"] for item in tables["LEDGER_AFTER"]["cl_fix_commands"])
     if lab.diagnostics_available():
         report = _diagnostics(operator)
-        assert any(r["status"] == "failed" for r in _results(report, "source_prerequisites.table"))
+        labels = [r["subject"]["label"] for r in _results(report, "source_prerequisites.table")]
+        assert "LABLIB.LEDGER_AFTER" not in labels
 
 
 def test_scenario_08_no_usable_key(lab_for):

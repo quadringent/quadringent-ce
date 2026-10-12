@@ -30,6 +30,8 @@ _STAGES = (
     ("reconciliation.destination", "reconciliation", "reconciliation", "Destination reconciliation"),
 )
 _MAX_REASON = 300
+# Six results per pipeline: the report stays well under the contract's bound.
+MAX_PIPELINES_PER_REPORT = 60
 
 
 class DiagnosticsPipelineNotFoundError(LookupError):
@@ -57,6 +59,12 @@ class DiagnosticsService:
             sources = [row for row in sources if row["id"] in source_ids]
             destination_ids = {row["destination_id"] for row in pipelines}
             destinations = [row for row in destinations if row["id"] in destination_ids]
+        total_pipelines = len(pipelines)
+        pipelines = pipelines[:MAX_PIPELINES_PER_REPORT]
+        # Only tables that feed a pipeline are prerequisites; the rest of the
+        # catalog is shown by the wizard and never blocks a diagnosis.
+        piped_tables = {row["table_id"] for row in pipelines}
+        tables = [row for row in tables if row["id"] in piped_tables]
         results = [DiagnosticResult(
             code="control_plane.api", layer="control_plane", status="passed", required=True, observed_at=now,
             provenance="control-plane:api", subject=Subject("control_plane", "v2"),
@@ -64,6 +72,23 @@ class DiagnosticsService:
             next_action="No action.",
             limits="Proves the API and its database answered; capture and delivery are separate results.",
         )]
+        if not (sources or destinations or pipelines):
+            results.append(DiagnosticResult(
+                code="control_plane.configuration", layer="control_plane", status="unknown", required=True,
+                observed_at=now, provenance="control-plane:records", subject=Subject("control_plane", "v2"),
+                summary="No source, destination or pipeline is configured, so nothing can be diagnosed yet.",
+                next_action="Open the activation wizard and declare the IBM i source and the Snowflake destination.",
+                limits="An empty configuration is not a healthy installation.",
+            ))
+        if total_pipelines > len(pipelines):
+            results.append(DiagnosticResult(
+                code="control_plane.report_truncated", layer="control_plane", status="unknown", required=True,
+                observed_at=now, provenance="control-plane:records", subject=Subject("control_plane", "v2"),
+                summary=f"Only {len(pipelines)} of {total_pipelines} pipelines are diagnosed in this report.",
+                next_action="Read one pipeline at a time with ?pipeline_id= (or doctor --pipeline-id).",
+                limits="The report is bounded; pipelines beyond the limit were not read.",
+                evidence={"event_count": total_pipelines},
+            ))
         for row in sources:
             results.extend(self._source_results(row, now))
         for row in tables:
@@ -109,14 +134,15 @@ class DiagnosticsService:
 
     def _source_results(self, row, now: str) -> list[DiagnosticResult]:
         subject = Subject("source", row["id"], row["display_name"])
-        observed = to_utc(row["updated_at"]) or now
+        probe_limits = ("A probe succeeded at least once; the time of that probe is not recorded and it is "
+                        "not re-tested by this diagnostic.")
         if row["detected_version"]:
             auth = DiagnosticResult(
                 code="source.authentication", layer="authentication", status="passed", required=True,
-                observed_at=observed, provenance="control-plane:source-probe", subject=subject,
+                observed_at=now, provenance="control-plane:source-record", subject=subject,
                 summary="A source probe signed on to IBM i and read its release.",
                 next_action="Run Test again after any change to the IBM i account or password.",
-                limits="Last successful probe recorded by the control plane; not re-tested by this diagnostic.",
+                limits=probe_limits,
             )
         else:
             auth = DiagnosticResult(
@@ -128,11 +154,11 @@ class DiagnosticsService:
             )
         if row["tls_fingerprint"]:
             tls = DiagnosticResult(
-                code="source.tls", layer="tls", status="passed", required=True, observed_at=observed,
-                provenance="control-plane:source-probe", subject=subject,
+                code="source.tls", layer="tls", status="passed", required=True, observed_at=now,
+                provenance="control-plane:source-record", subject=subject,
                 summary="A source probe completed a TLS handshake with the IBM i host.",
                 next_action="Compare the fingerprint with the one shown by the IBM i administrator.",
-                limits="Last successful probe recorded by the control plane; not re-tested by this diagnostic.",
+                limits=probe_limits,
                 evidence={"sha256_fingerprint": str(row["tls_fingerprint"])[:120]},
             )
         else:
@@ -222,11 +248,18 @@ class DiagnosticsService:
                 limits="Declared state only; capture and delivery are separate results.",
                 evidence={"declared_state": state},
             ))
-        evidence = self._evidence(row["id"]) if self._evidence else PipelineEvidence(row["id"])
+        unreadable = False
+        try:
+            evidence = self._evidence(row["id"]) if self._evidence else PipelineEvidence(row["id"])
+        except Exception:  # one unreadable evidence source never breaks the whole report
+            unreadable = True
+            stage = EvidenceStage(detail="Evidence could not be read for this table.")
+            evidence = PipelineEvidence(row["id"], provenance="unreadable", reading=stage, delivery=stage,
+                                        reconciliation=stage)
         stage_states = []
         for code, layer, attribute, label in _STAGES:
             stage: EvidenceStage = getattr(evidence, attribute)
-            results.append(_stage_result(code, layer, label, stage, evidence, subject, now))
+            results.append(_stage_result(code, layer, label, stage, evidence, subject, now, unreadable=unreadable))
             stage_states.append(stage.state)
         live = evidence.evidence_kind == "live"
         if "stale" in stage_states:
@@ -246,8 +279,17 @@ class DiagnosticsService:
         return results
 
 
-def _stage_result(code, layer, label, stage: EvidenceStage, evidence: PipelineEvidence, subject, now) -> DiagnosticResult:
+def _stage_result(code, layer, label, stage: EvidenceStage, evidence: PipelineEvidence, subject, now,
+                  *, unreadable: bool = False) -> DiagnosticResult:
     kind = evidence.evidence_kind
+    if unreadable:
+        return DiagnosticResult(
+            code=code, layer=layer, required=True, status="unknown", observed_at=now,
+            provenance="control-plane:evidence:unreadable", subject=subject,
+            summary=f"{label} evidence could not be read for this table.",
+            next_action="Check that the control plane can read the loader logs and evidence store, then refresh.",
+            limits="The evidence source failed; nothing is inferred about the table.",
+            evidence={"stage_state": "absent", "evidence_kind": "absent"})
     common = dict(code=code, layer=layer, required=True, provenance=f"control-plane:evidence:{evidence.provenance}"[:120],
                   subject=subject, evidence={"stage_state": stage.state, "evidence_kind": kind,
                                              "event_count": stage.event_count})

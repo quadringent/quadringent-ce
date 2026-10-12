@@ -98,7 +98,7 @@ def test_configured_credentials_are_not_authentication(engine):
 def test_a_probe_confirmed_source_is_passed_with_its_observation_time(engine):
     seed(engine, "default", prefix="a", detected_version="V7R5M0")
     auth = by_code(client_for(engine).get("/v2/diagnostics").json(), "source.authentication")[0]
-    assert auth["status"] == "passed" and auth["observed_at"] == "2026-10-12T18:30:00Z"
+    assert auth["status"] == "passed"
     assert "not re-tested" in auth["limits"]
 
 
@@ -233,3 +233,63 @@ def test_control_plane_image_ships_every_quadringent_module_it_imports():
         if f"{path}.py" not in dockerfile and f"{path} " not in dockerfile and f"{path}/" not in dockerfile:
             missing.append(module)
     assert missing == []
+
+
+# Review fixes (D08)
+
+def _many_pipelines(engine, count):
+    with engine.begin() as c:
+        for index in range(count):
+            c.execute(v2_schema.tables.insert(), {"id": f"t{index:03d}", "source_id": "asrc", "schema_name": "L",
+                                                   "table_name": f"T{index}", "readiness": "ready"})
+            c.execute(v2_schema.pipelines.insert(), {"id": f"p{index:03d}", "table_id": f"t{index:03d}",
+                                                      "destination_id": "adst", "declared_state": "live"})
+
+
+def test_large_organizations_get_a_bounded_report_that_says_it_is_partial(engine):
+    seed(engine, "default", prefix="a")
+    _many_pipelines(engine, 120)
+    client = client_for(engine)
+    response = client.get("/v2/diagnostics")
+    assert response.status_code == 200
+    truncated = by_code(response.json(), "control_plane.report_truncated")
+    assert truncated and truncated[0]["status"] == "unknown" and "pipeline_id" in truncated[0]["next_action"]
+    assert response.json()["overall"]["status"] != "ready"
+    assert client.get("/v2/diagnostics/export").status_code == 200
+
+
+def test_an_empty_organization_is_incomplete_not_ready(engine):
+    with engine.begin() as c:
+        c.execute(v2_schema.organizations.insert(), {"id": "default", "name": "empty"})
+    body = client_for(engine).get("/v2/diagnostics").json()
+    assert body["overall"]["status"] == "incomplete"
+    assert by_code(body, "control_plane.configuration")[0]["status"] == "unknown"
+
+
+def test_catalog_tables_without_a_pipeline_do_not_block(engine):
+    seed(engine, "default", prefix="a")
+    with engine.begin() as c:
+        c.execute(v2_schema.tables.insert(), {"id": "unrelated", "source_id": "asrc", "schema_name": "LIB",
+                                               "table_name": "UNRELATED", "readiness": "not_journaled"})
+    body = client_for(engine).get("/v2/diagnostics").json()
+    assert all(r["subject"]["ref"] != "unrelated" for r in body["results"] if r["subject"])
+
+
+def test_a_probe_result_is_not_dated_with_an_unrelated_record_update(engine):
+    seed(engine, "default", prefix="a", detected_version="V7R5M0")
+    auth = by_code(client_for(engine).get("/v2/diagnostics").json(), "source.authentication")[0]
+    assert auth["observed_at"] != "2026-10-12T18:30:00Z"
+    assert "time of that probe is not recorded" in auth["limits"]
+
+
+def test_an_unreadable_evidence_source_degrades_one_pipeline_only(engine):
+    seed(engine, "default", prefix="a")
+
+    class Broken(Provider):
+        def evidence(self, pipeline_id):
+            raise TimeoutError("kubernetes log read timed out with token=abc")
+
+    body = client_for(engine, provider=Broken()).get("/v2/diagnostics").json()
+    delivery = by_code(body, "delivery.snowflake")[0]
+    assert delivery["status"] == "unknown" and "could not be read" in delivery["summary"]
+    assert "token=abc" not in json.dumps(body)

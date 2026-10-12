@@ -241,3 +241,30 @@ def test_fixed_operator_guidance_is_not_mangled():
     item = json.loads(build_export(report).files["report.json"])["results"][0]
     assert item["summary"].endswith("quadringent.diagnostic.v1.")
     assert "?pipeline_id=" in item["next_action"] and "--ibmi-ca-file" in item["limits"]
+
+
+def test_subject_labels_and_fixed_refs_leave_only_in_known_shapes():
+    def item(code, subject):
+        return DiagnosticResult(code=code, layer="local_config", status="passed", required=False, observed_at=NOW,
+                                provenance="local:environment", summary="s", next_action="a", limits="l", subject=subject)
+
+    report = DiagnosticReport(
+        generated_at=NOW, scope="local", synthetic=False, software={"product": "quadringent"},
+        results=(
+            item("local_config.cloud_credentials", Subject("tool", "aws", "profile FICTIONAL-PROFILE-7731")),
+            item("local_tools.custom", Subject("tool", "fictional-profile-7731")),
+            item("control_plane.api", Subject("control_plane", "v2", "operator fictional-operator-7731")),
+            item("network.tcp.database", Subject("host", "ibmi.synthetic.invalid", "database 9471/tcp")),
+            item("network.tcp.signon", Subject("host", "ibmi.synthetic.invalid", "reader of fictional-operator-7731")),
+        ),
+    )
+    bundle = build_export(report)
+    exported = "\n".join(content.decode() for content in bundle.files.values()).lower()
+    assert "fictional-profile-7731" not in exported and "fictional-operator-7731" not in exported
+    subjects = [r["subject"] for r in json.loads(bundle.files["report.json"])["results"]]
+    assert subjects[0] == {"kind": "tool", "ref": "aws", "label": None}
+    assert subjects[2]["ref"] == "v2" and subjects[2]["label"] is None
+    assert subjects[3]["label"] == "database 9471/tcp"
+    assert subjects[4]["label"] is None
+    reasons = {o["field"]: o["reason"] for o in json.loads(bundle.files["manifest.json"])["omitted"]}
+    assert "local_config.cloud_credentials.subject.label" in reasons and "local_tools.custom.subject.ref" in reasons

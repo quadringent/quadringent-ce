@@ -61,6 +61,9 @@ _EVIDENCE_PROVENANCE = re.compile(r"control-plane:evidence:(?:absent|unreadable|
 _PSEUDONYMIZED_KINDS = {"host": "host", "source": "source", "destination": "destination", "pipeline": "pipeline",
                         "table": "table"}
 _LABEL_KIND = {"destination": "account", "source": "source", "pipeline": "pipeline", "table": "table"}
+# Subjects that are not pseudonymized only leave with values the producers are known to write.
+_HOST_LABEL = re.compile(r"(?:database|signon|command|server_mapper) \d{1,5}/(?:tcp|tls)")
+_FIXED_REFS = {"tool": _ENUMS["tool"], "control_plane": frozenset({"v2"})}
 
 _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"-----BEGIN [A-Z ]+-----.*?-----END [A-Z ]+-----", re.S), "[redacted: key material]"),
@@ -174,7 +177,6 @@ def build_export(
     pseudonyms = _Pseudonyms(keep_identifiers)
     omitted: list[dict[str, str]] = []
     document = report.to_dict()
-    pending_labels: list[dict] = []
     software = {}
     for key, value in document["software"].items():
         if key == "product" and value == "quadringent":
@@ -200,18 +202,20 @@ def build_export(
                 if not keep_identifiers:
                     omitted.append({"field": f"{item['code']}.subject.label",
                                     "reason": "identifier pseudonymized by default"})
-            elif subject.get("label"):
-                pending_labels.append(item)
+            elif subject.get("label") and (subject["kind"] != "host" or not _HOST_LABEL.fullmatch(subject["label"])):
+                subject["label"] = None
+                omitted.append({"field": f"{item['code']}.subject.label", "reason": "free-text label not exported"})
+        elif subject:
+            if subject["ref"] not in _FIXED_REFS.get(subject["kind"], frozenset()):
+                subject["ref"] = "[redacted]"
+                omitted.append({"field": f"{item['code']}.subject.ref", "reason": "not a known value"})
+            if subject.get("label"):
+                subject["label"] = None
+                omitted.append({"field": f"{item['code']}.subject.label", "reason": "free-text label not exported"})
     for kind, value in extra_identifiers:
         if value:
             pseudonyms(kind, value)
 
-    for item in pending_labels:
-        item["subject"]["label"] = _scrub(item["subject"]["label"], pseudonyms, omitted, f"{item['code']}.subject.label")
-    for item in document["results"]:
-        subject = item.get("subject")
-        if subject and subject["kind"] not in _PSEUDONYMIZED_KINDS:
-            subject["ref"] = _scrub(subject["ref"], pseudonyms, omitted, f"{item['code']}.subject.ref")
     for item in document["results"]:
         code = item["code"]
         for name in ("summary", "next_action", "limits"):

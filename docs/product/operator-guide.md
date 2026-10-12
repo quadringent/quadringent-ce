@@ -15,17 +15,44 @@ With `--admin-email`, the installer prints a single-use activation link: open
 it through the private tunnel it describes and choose the administrator
 password.
 
-## 2. Preflight
+## 2. Preflight and diagnosis
 
-`quadringent install ... --check-ibmi <host>` tests TCP reachability of the
-IBM i host servers (9471, 9476, 9475) without changing anything; it does not
-perform a TLS handshake. In the
-wizard, **Test** probes the IBM i source when the installation has a source
-probe; otherwise it says that only password storage was verified. On the
+`quadringent doctor` checks what this machine can see and says what blocks:
+
+~~~sh
+quadringent doctor --cloud aws --target vm
+quadringent doctor --check-ibmi <host> --tls --ibmi-ca-file <ca.pem>
+quadringent doctor --control-plane --json
+~~~
+
+Local tools and credential configuration always run; network calls happen
+only with `--check-ibmi` (TCP to the database, sign-on and command servers and,
+unless every port is set explicitly, the 449 server mapper), `--tls` (a TLS
+handshake that always verifies the certificate and host name) and
+`--control-plane` (reads `GET /v2/diagnostics` through the tunnel). The doctor
+never signs on to IBM i, never connects to Snowflake and never changes anything.
+
+| State | Meaning |
+|---|---|
+| passed | Observed in this run, within the limits printed next to it |
+| failed | Established problem, with the next action to take |
+| unknown | Not observed: configuration present is not authentication, absent evidence is not success |
+| skipped | Not run, for example the control plane without `--control-plane` |
+
+Synthetic or historical evidence is never `passed`. Exit codes: 0 ready,
+1 blocked, 2 usage error, 3 incomplete; without `--control-plane` a report is
+at best incomplete. `--from-report FILE` re-reads a report saved with
+`--save FILE` offline. `--export FILE.tar.gz --preview` shows what a shareable
+archive would hold; without `--preview` it writes it with private permissions.
+Hosts, accounts and object names are pseudonymized, secrets are removed and
+nothing is sent. The cockpit shows the same results under **Diagnostics**.
+
+In the wizard, **Test** probes the IBM i source when the installation has a
+source probe; otherwise it says that only password storage was verified. On the
 Snowflake step, run the generated script with an administrator role, then
 **Verify access**, which creates and removes a test table and may resume the
-warehouse. Fix the failing step rather than retrying. The chart preflight can write storage
-probe objects and needs site authorization
+warehouse. Fix the failing step rather than retrying. The chart preflight can
+write storage probe objects and needs site authorization
 ([Helm guide](install-client.md#declare-and-commission)).
 
 ## 3. First copy

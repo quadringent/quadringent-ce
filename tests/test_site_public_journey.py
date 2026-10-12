@@ -530,8 +530,10 @@ def test_journal_example_respects_the_ibm_threshold_rule():
 def test_operator_guide_covers_the_operating_path_and_is_published(site):
     guide = read("docs/product/operator-guide.md")
     headings = re.findall(r"^## \d\. (.+)$", guide, re.M)
-    assert headings == ["First installation", "Preflight", "First copy", "Read the evidence",
+    assert headings == ["First installation", "Preflight and diagnosis", "First copy", "Read the evidence",
                         "Outage", "Recovery", "Backup and restore", "Stop and uninstall"]
     page = (site / "docs/operator-guide/index.html").read_text()
     assert "--check-ibmi &lt;host&gt;" in page
     assert "Not measured" in page and "Synthetic or Historical" in page
+    for command in ("quadringent doctor --control-plane --json", "--from-report", "--export"):
+        assert command in page

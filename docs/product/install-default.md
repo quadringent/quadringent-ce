@@ -71,7 +71,9 @@ journaling, authority and Snowflake requirements first.
 terraform, helm and kubectl must be on PATH. AWS VMs also require aws and
 session-manager-plugin; GCP requires gcloud. The installer checks credential
 presence without displaying values. `--check-ibmi <host>` optionally tests TCP
-reachability on 9471, 9476 and 9475; it does not perform a TLS handshake.
+reachability on 9471, 9476, 9475 and the 449 server mapper; it does not perform a
+TLS handshake or sign on. `quadringent doctor` gives the full diagnosis, see the
+[operator guide](operator-guide.md#2-preflight-and-diagnosis).
 
 Required target inputs are checked before terraform apply:
 

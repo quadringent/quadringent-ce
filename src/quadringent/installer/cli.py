@@ -84,7 +84,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Root of the extracted release sdist (contains chart/ and deploy/terraform/; default: current directory)",
     )
     install.add_argument("--image-repository", default=None, help="Override the image repository in the release manifest")
-    install.add_argument("--check-ibmi", default=None, metavar="HOST", help="Test IBM i TCP reachability (9471/9476/9475); does not verify TLS")
+    install.add_argument("--check-ibmi", default=None, metavar="HOST", help="Test IBM i TCP reachability (9471/9476/9475 and the 449 server mapper) before installation; TLS and sign-on are not tested")
     install.add_argument(
         "--existing-bucket", default=None, metavar="NAME",
         help="Reuse an existing S3/GCS bucket (deploy/terraform/<cloud>/base, existing_bucket_name)",

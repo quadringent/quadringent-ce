@@ -208,6 +208,12 @@ def run_doctor(args, runner: CommandRunner, stdout: TextIO, *, environ: Mapping[
     if args.preview and not args.export:
         print("--preview requires --export FILE.tar.gz", file=stdout)
         return EXIT_USAGE
+    ibmi_options = {"--tls": args.tls, "--ibmi-ca-file": args.ibmi_ca_file, "--database-port": args.database_port,
+                    "--signon-port": args.signon_port, "--command-port": args.command_port}
+    orphans = [name for name, value in ibmi_options.items() if value not in (None, False)]
+    if orphans and not args.check_ibmi:
+        print(f"{', '.join(orphans)} only apply with --check-ibmi HOST; nothing was checked", file=stdout)
+        return EXIT_USAGE
     if args.from_report:
         try:
             report = parse_report(json.loads(Path(args.from_report).read_text(encoding="utf-8")))

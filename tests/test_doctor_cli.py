@@ -200,3 +200,11 @@ def test_a_control_plane_without_diagnostics_packaged_is_explained(tmp_path):
     _, output, _ = doctor(["--json", "--control-plane"], fetch=lambda *a: (503, body), tmp_path=tmp_path)
     control = [r for r in json.loads(output)["results"] if r["code"] == "control_plane.api"][0]
     assert "not packaged" in control["summary"] and "database" not in control["next_action"]
+
+
+@pytest.mark.parametrize("argv", [["--tls"], ["--ibmi-ca-file", "ca.pem"], ["--signon-port", "19476"]])
+def test_ibmi_options_without_a_host_are_a_usage_error_not_a_silent_no_op(tmp_path, argv):
+    Refuse.calls = 0
+    code, output, _ = doctor(argv, tmp_path=tmp_path)
+    assert code == 2 and "--check-ibmi" in output
+    assert Refuse.calls == 0

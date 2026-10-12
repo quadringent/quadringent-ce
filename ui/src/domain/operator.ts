@@ -816,6 +816,10 @@ export const EVIDENCE_COPY = {
   provenance: 'Provenance',
   collectedAt: 'Collected at',
   costBasis: 'Basis',
+  costBases: {
+    warehouse_credits: 'Snowflake warehouse credits',
+    average_throughput_estimate: 'estimate from average throughput',
+  } as Readonly<Record<string, string>>,
   observedAt: 'Observed at',
   events: 'Events in measured scope',
   lastBatchDelay: 'Last batch delay',
@@ -838,6 +842,8 @@ export const EVIDENCE_COPY = {
     synthetic: 'Synthetic',
     historical: 'Historical',
     stale: 'Stale',
+    syntheticStale: 'Synthetic, stale',
+    historicalStale: 'Historical, stale',
     missing: 'Not measured',
   },
 } as const;
@@ -852,6 +858,7 @@ export const SYNTHETIC_DEMO_COPY = {
   values: 'Every value is generated locally, including values labelled measured or observed.',
   build: 'Built from source',
   commit: 'commit',
+  dirty: 'with uncommitted changes',
   builtAt: 'built',
   scope: 'This demo is not a release qualification.',
   unavailable: 'This screen needs a running service and is not part of the synthetic demo.',

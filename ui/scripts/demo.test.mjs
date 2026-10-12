@@ -4,16 +4,18 @@ import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { DEMO_CSP, demoProvenance, verifyDemoOutput } from './demo-artifact.mjs';
+import { DEMO_CSP, assertSafeDemoOutDir, demoProvenance, verifyDemoOutput } from './demo-artifact.mjs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { createDemoServer } from './serve-demo.mjs';
 
-function demoTree({ csp = DEMO_CSP, banner = 'Synthetic demo', synthetic = true } = {}) {
+function demoTree({ csp = DEMO_CSP, banner = 'Synthetic demo. Every value is generated locally.', synthetic = true, guard = 'Synthetic demo: no network request is allowed.' } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'quadringent-demo-'));
   mkdirSync(join(root, 'assets'));
   writeFileSync(join(root, 'index.html'),
     `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${csp}"></head>`
     + '<body><div id="root"></div><script type="module" src="./assets/demo.js"></script></body></html>');
-  writeFileSync(join(root, 'assets', 'demo.js'), `console.log(${JSON.stringify(banner)});`);
+  writeFileSync(join(root, 'assets', 'demo.js'), `console.log(${JSON.stringify(banner)}, ${JSON.stringify(guard)});`);
   writeFileSync(join(root, 'PROVENANCE.json'), JSON.stringify({ ...demoProvenance({
     version: '0.3.5', commit: 'a'.repeat(40), builtAtUtc: '2026-10-12T18:00:00Z',
   }), synthetic }));
@@ -38,6 +40,10 @@ test('a complete demo tree passes verification', () => {
 
 test('verification rejects a demo that could reach the network', () => {
   assert.throws(() => verifyDemoOutput(demoTree({ csp: "default-src 'self'" })), /connect-src 'none'/);
+});
+
+test('verification rejects a demo without its network guard', () => {
+  assert.throws(() => verifyDemoOutput(demoTree({ guard: 'none' })), /network guard/);
 });
 
 test('verification rejects a demo without its synthetic banner or provenance flag', () => {
@@ -88,4 +94,31 @@ test('the local server refuses traversal, unknown files and writes', async () =>
 
 test('the local server only binds to loopback', () => {
   assert.throws(() => createDemoServer({ root, host: '0.0.0.0' }), /loopback/);
+});
+
+test('the demo build only writes into build/, an empty folder or an earlier demo output', () => {
+  const repo = mkdtempSync(join(tmpdir(), 'quadringent-repo-'));
+  mkdirSync(join(repo, 'build'));
+  assert.doesNotThrow(() => assertSafeDemoOutDir(join(repo, 'build', 'quadringent-demo-0.3.5'), repo));
+  const empty = mkdtempSync(join(tmpdir(), 'quadringent-empty-'));
+  assert.doesNotThrow(() => assertSafeDemoOutDir(empty, repo));
+  assert.doesNotThrow(() => assertSafeDemoOutDir(join(empty, 'new-folder'), repo));
+  const earlier = demoTree();
+  assert.doesNotThrow(() => assertSafeDemoOutDir(earlier, repo));
+  const victim = mkdtempSync(join(tmpdir(), 'quadringent-victim-'));
+  writeFileSync(join(victim, 'important.txt'), 'keep');
+  assert.throws(() => assertSafeDemoOutDir(victim, repo), /not empty/);
+  for (const forbidden of [repo, join(repo, 'build'), join(repo, 'ui'), join(repo, 'ui', 'dist'), '/']) {
+    assert.throws(() => assertSafeDemoOutDir(forbidden, repo));
+  }
+});
+
+test('verify-build rejects a product build that contains demonstration code', () => {
+  const dist = mkdtempSync(join(tmpdir(), 'quadringent-dist-'));
+  mkdirSync(join(dist, 'assets'));
+  writeFileSync(join(dist, 'assets', 'index-abc.js'), 'const banner = "Synthetic demo";');
+  const script = fileURLToPath(new URL('./verify-build.mjs', import.meta.url));
+  const result = spawnSync(process.execPath, [script, dist], { encoding: 'utf8' });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /fixture ou fallback de démonstration/);
 });

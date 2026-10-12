@@ -300,7 +300,7 @@ function CostsTab({ data }: { readonly data: import('../../data/useCockpit.ts').
         {cost.amount.toFixed(2)} {cost.currency ?? ''}
         <span> · {cost.status === 'measured' ? "measured" : "estimated"}</span>
       </p>
-      {cost.basis ? <p className="cockpit-table__cost-basis">{EVIDENCE_COPY.costBasis}: {cost.basis}</p> : null}
+      {cost.basis ? <p className="cockpit-table__cost-basis">{EVIDENCE_COPY.costBasis}: {EVIDENCE_COPY.costBases[cost.basis] ?? cost.basis}</p> : null}
       {cost.collectedAt ? <p className="cockpit-table__cost-freshness">{EVIDENCE_COPY.collectedAt} <time dateTime={cost.collectedAt}>{cost.collectedAt}</time></p> : null}
     </section>
   );

@@ -1,5 +1,5 @@
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { join, parse, relative, resolve, sep } from 'node:path';
 import { DEMO_CSP } from './serve-demo.mjs';
 
 export { DEMO_CSP };
@@ -35,8 +35,11 @@ export function verifyDemoOutput(directory) {
     throw new Error("The demo page must declare connect-src 'none'");
   }
   const scripts = walk(directory).filter((file) => file.endsWith('.js'));
-  if (!scripts.some((file) => readFileSync(file, 'utf8').includes('Synthetic demo'))) {
+  if (!scripts.some((file) => readFileSync(file, 'utf8').includes('Every value is generated locally'))) {
     throw new Error('The demo bundle must render the Synthetic demo banner');
+  }
+  if (!scripts.some((file) => readFileSync(file, 'utf8').includes('Synthetic demo: no network request is allowed.'))) {
+    throw new Error('The demo bundle must install the network guard');
   }
   const provenance = JSON.parse(readFileSync(join(directory, 'PROVENANCE.json'), 'utf8'));
   if (provenance.synthetic !== true || provenance.connections !== 'none') {
@@ -50,4 +53,28 @@ function walk(directory) {
     const path = join(directory, entry.name);
     return entry.isDirectory() ? walk(path) : [path];
   });
+}
+
+/** The build empties its output folder, so it only accepts a folder under
+ *  <repo>/build/, an empty or missing folder, or an earlier demo output. */
+export function assertSafeDemoOutDir(outDir, repoDir) {
+  const target = resolve(outDir);
+  const repo = resolve(repoDir);
+  const build = join(repo, 'build');
+  if (target === parse(target).root) throw new Error('The demo output cannot be a filesystem root');
+  const protectedDirs = [repo, build, join(repo, 'ui'), join(repo, 'ui', 'dist'), join(repo, 'ui', 'src'), process.env.HOME]
+    .filter(Boolean).map((dir) => resolve(dir));
+  if (protectedDirs.includes(target)) throw new Error(`The demo output cannot be ${target}`);
+  const inside = (parent) => target.startsWith(parent + sep);
+  if (inside(repo) && !inside(build)) throw new Error('Inside the repository, the demo output must be under build/');
+  if (inside(build) || !existsSync(target)) return;
+  const entries = readdirSync(target);
+  if (entries.length === 0) return;
+  try {
+    const provenance = JSON.parse(readFileSync(join(target, 'PROVENANCE.json'), 'utf8'));
+    if (provenance.kind === 'synthetic-demo' && provenance.synthetic === true) return;
+  } catch {
+    // Not an earlier demo output.
+  }
+  throw new Error(`${relative(process.cwd(), target) || target} is not empty and is not a demo output`);
 }

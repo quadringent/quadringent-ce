@@ -11,6 +11,7 @@ export function SyntheticDemoBanner({ provenance }: { readonly provenance: Synth
       <p className="synthetic-demo-banner__provenance">
         {SYNTHETIC_DEMO_COPY.build} <span className="mono">{provenance.version}</span>
         {' · '}{SYNTHETIC_DEMO_COPY.commit} <span className="mono">{provenance.sourceCommit.slice(0, 7)}</span>
+        {provenance.sourceDirty ? <> {SYNTHETIC_DEMO_COPY.dirty}</> : null}
         {' · '}{SYNTHETIC_DEMO_COPY.builtAt} <time className="mono" dateTime={provenance.builtAtUtc}>{provenance.builtAtUtc}</time>
         {' · '}{SYNTHETIC_DEMO_COPY.scope}
       </p>

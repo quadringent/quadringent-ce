@@ -23,7 +23,7 @@ function tableData(overrides: Partial<CockpitTableData> = {}): CockpitTableData 
       { at: '2026-09-23T09:00:00Z', level: 'info', message: "Window confirmed.", incidentId: null },
       { at: '2026-09-23T09:10:00Z', level: 'error', message: "Connection refused.", incidentId: 'inc_1' },
     ],
-    costToday: { scope: 'table', id: 'pl_sales_order_lines', window: '24h', status: 'estimated', amount: 0.34, currency: 'USD', basis: 'estimation_debit_moyen', collectedAt: '2026-09-23T09:00:00Z' },
+    costToday: { scope: 'table', id: 'pl_sales_order_lines', window: '24h', status: 'estimated', amount: 0.34, currency: 'USD', basis: 'average_throughput_estimate', collectedAt: '2026-09-23T09:00:00Z' },
     ...overrides,
   };
 }
@@ -150,7 +150,7 @@ test('simulation and stale evidence remain explicit on the evidence screen', () 
   } });
   const markup = render({ tab: 'proofs', state: { status: 'ready', data } });
   assert.match(markup, /Demonstration — synthetic data/);
-  assert.match(markup, /Stale/);
+  assert.match(markup, /Synthetic, stale/);
 });
 
 test('an evidence request failure leaves the other table tabs usable', () => {
@@ -218,7 +218,8 @@ test('a table without collected evidence says so instead of showing empty stages
 test('an estimated cost names its basis and collection time without calling it observed', () => {
   const markup = render({ tab: 'costs' });
   assert.match(markup, /estimated/);
-  assert.match(markup, /Basis: estimation_debit_moyen/);
+  assert.match(markup, /Basis: estimate from average throughput/);
+  assert.doesNotMatch(markup, /average_throughput_estimate/);
   assert.match(markup, /Collected at <time dateTime="2026-09-23T09:00:00Z">/);
   assert.doesNotMatch(markup, /Observed on|Database:/);
 });

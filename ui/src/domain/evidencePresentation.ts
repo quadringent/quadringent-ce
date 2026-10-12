@@ -32,7 +32,11 @@ export function evidenceKindView(kind: PipelineEvidence['evidenceKind']): Eviden
 
 export function evidenceStageView(stage: EvidenceStage, kind: PipelineEvidence['evidenceKind']): EvidenceStageView {
   if (stage.state === 'absent') return { word: EVIDENCE_COPY.words.missing, tone: 'missing', observedAt: null };
-  if (stage.state === 'stale') return { word: EVIDENCE_COPY.words.stale, tone: 'limit', observedAt: stage.observedAt };
+  if (stage.state === 'stale') {
+    const word = kind === 'simulation' ? EVIDENCE_COPY.words.syntheticStale
+      : kind === 'historical' ? EVIDENCE_COPY.words.historicalStale : EVIDENCE_COPY.words.stale;
+    return { word, tone: 'limit', observedAt: stage.observedAt };
+  }
   if (kind === 'simulation') return { word: EVIDENCE_COPY.words.synthetic, tone: 'limit', observedAt: stage.observedAt };
   if (kind === 'historical') return { word: EVIDENCE_COPY.words.historical, tone: 'limit', observedAt: stage.observedAt };
   if (kind === 'absent') return { word: EVIDENCE_COPY.words.missing, tone: 'missing', observedAt: null };

@@ -37,3 +37,9 @@ test('the banner never presents demo values as measurements', () => {
   assert.match(html, /Every value is generated locally/);
   assert.match(html, /including values labelled measured or observed/);
 });
+
+test('a build from uncommitted sources says so next to its commit', () => {
+  const html = renderToStaticMarkup(createElement(SyntheticDemoBanner, { provenance: { ...provenance, sourceDirty: true } }));
+  assert.match(html, /with uncommitted changes/);
+  assert.doesNotMatch(renderToStaticMarkup(createElement(SyntheticDemoBanner, { provenance })), /uncommitted/);
+});

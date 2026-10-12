@@ -23,6 +23,11 @@ const forbiddenFragments = [
   'fixture_fallback',
 ];
 
+// Synthetic demo build (ui/src/demo): its banner, bridges and provenance never
+// ship in product code. Source maps are excluded from this check because they
+// embed whole source modules, including tree-shaken operator copy.
+const demoFragments = ['synthetic demo', 'demobridge', '__quadringent_demo'];
+
 for (const file of walk(distDir)) {
   if (file.toLowerCase().includes('fixture')) {
     offenders.push(file);
@@ -31,7 +36,8 @@ for (const file of walk(distDir)) {
 
   try {
     const content = readFileSync(file, 'utf8').toLowerCase();
-    if (forbiddenFragments.some((fragment) => content.includes(fragment))) {
+    if (forbiddenFragments.some((fragment) => content.includes(fragment))
+        || (!file.endsWith('.map') && demoFragments.some((fragment) => content.includes(fragment)))) {
       offenders.push(file);
     }
   } catch {

@@ -11,6 +11,7 @@ export const DEMO_HOME: DemoRoute = { name: 'cockpit' };
 export interface SyntheticDemoProvenance {
   readonly version: string;
   readonly sourceCommit: string;
+  readonly sourceDirty?: boolean;
   readonly builtAtUtc: string;
 }
 

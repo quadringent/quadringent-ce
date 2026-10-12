@@ -49,3 +49,9 @@ test('evidence kinds reuse the v1 caveats so both cockpits say the same thing', 
   assert.equal(evidenceKindView('simulation').tone, 'limit');
   assert.equal(evidenceKindView('live').tone, 'observed');
 });
+
+test('a stale synthetic or historical stage keeps its kind in the word', () => {
+  assert.equal(evidenceStageView(stage('stale'), 'simulation').word, 'Synthetic, stale');
+  assert.equal(evidenceStageView(stage('stale'), 'historical').word, 'Historical, stale');
+  assert.equal(evidenceStageView(stage('stale'), 'live').word, 'Stale');
+});

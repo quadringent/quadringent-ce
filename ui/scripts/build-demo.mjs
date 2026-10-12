@@ -16,7 +16,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { build } from 'vite';
-import { DEMO_CSP, demoProvenance, verifyDemoOutput } from './demo-artifact.mjs';
+import { DEMO_CSP, assertSafeDemoOutDir, demoProvenance, verifyDemoOutput } from './demo-artifact.mjs';
 import { createDemoServer } from './serve-demo.mjs';
 
 const uiDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -33,9 +33,7 @@ const provenance = demoProvenance({ version, commit, builtAtUtc, sourceDirty });
 
 const name = `quadringent-demo-${version}`;
 const outDir = outIndex >= 0 ? resolve(process.cwd(), args[outIndex + 1]) : join(repoDir, 'build', name);
-if (outDir === uiDir || outDir === join(uiDir, 'dist') || outDir.startsWith(join(uiDir, 'src'))) {
-  throw new Error('The demo must not be written over the product build or the sources');
-}
+assertSafeDemoOutDir(outDir, repoDir);
 
 await build({
   configFile: false,
@@ -51,7 +49,7 @@ await build({
   }],
   resolve: { preserveSymlinks: true },
   define: {
-    __QUADRINGENT_DEMO_PROVENANCE__: JSON.stringify({ version, sourceCommit: commit, builtAtUtc }),
+    __QUADRINGENT_DEMO_PROVENANCE__: JSON.stringify({ version, sourceCommit: commit, sourceDirty, builtAtUtc }),
   },
   build: { outDir, emptyOutDir: true, target: 'es2022', sourcemap: false },
 });

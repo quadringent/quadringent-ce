@@ -97,7 +97,7 @@ def test_scan_receipt_is_separate_from_public_release_assets():
     attachment = next(step["with"]["files"] for step in jobs["release"]["steps"]
                       if step.get("uses", "").startswith("softprops/action-gh-release@"))
     assert set(attachment.split()) == {"supply-chain/*", "packages/**/*.whl",
-                                       "packages/**/*.tar.gz", "packages/*.tgz"}
+                                       "packages/**/*.tar.gz", "packages/*.tgz", "packages/**/*.sha256"}
 
 
 def test_prepared_variants_are_distinct_exact_manifests(tmp_path):

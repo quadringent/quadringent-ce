@@ -158,3 +158,86 @@ def test_export_document_for_the_cockpit_has_a_preview_and_text_files():
     assert document["schema"] == "quadringent.diagnostic-export.v1"
     assert {item["name"] for item in document["preview"]["files"]} == set(document["files"])
     assert all(isinstance(text, str) for text in document["files"].values())
+
+
+# Formats beyond the canaries above (independent review): none may survive.
+import base64  # noqa: E402
+
+TRAPS = {
+    "github": "token ghp_abcdefghijklmnopqrstuvwxyz0123456789AB",
+    "anthropic": "key sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAA",
+    "aws_secret": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    "slack": "xox" "b-12345678901-1234567890123-abcdefghijklmnopqrstuvwx",
+    "path": "see /home/jdoe/.aws/credentials and C:\\Users\\jdoe\\secrets.txt",
+    "ip": "cannot reach 198.51.100.23:9476",
+    "host_upper": "AS400.CORP.EXAMPLE.COM refused",
+    "b64_key": base64.b64encode(b"-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----").decode(),
+    "hex": "deadbeef" * 8,
+    "email": "contact jdoe@corp.example.com",
+    "url_no_scheme": "grafana.corp.example.com/d/abc?auth=SECRET123",
+    "password_is": "password is hunter2",
+    "account_words": "account xy12345.eu-west-1 failed for user SVC_QDT",
+    "dsn": "postgres://u:p@h/db",
+    "json_password": '{"password": "hunter2"}',
+    "aws_session": "FwoGZXIvYXdzEJr//////////wEaDExampleSessionTokenExampleSessionToken0000000000",
+}
+NEEDLES = ["ghp_", "sk-ant", "wJalr", "xoxb", "jdoe", "198.51.100.23", "corp.example.com", "SECRET123", "hunter2",
+           "SVC_QDT", "xy12345", "MIIE", "LS0tLS1CRUdJTi", "ExampleSessionToken", "deadbeef", "u:p@h"]
+
+
+def _trap_report(text):
+    return DiagnosticReport(
+        generated_at=NOW, scope="local", synthetic=False,
+        software={"product": "quadringent", "version": "0.3.5", "hostname": "as400.corp.example.com",
+                  "distribution": f"password=hunter2 {text}"},
+        results=(DiagnosticResult(
+            code="network.tcp.database", layer="network", status="failed", required=True, observed_at=NOW,
+            provenance="probe:" + text[:20].replace(" ", "_"), summary=text, next_action=text, limits=text,
+            subject=Subject("host", "as400.corp.example.com", f"reader at as400.corp.example.com {text[:40]}"),
+            evidence={"error": text[:100], "found": True, "tool": text[:100]}),),
+    )
+
+
+@pytest.mark.parametrize("name", sorted(TRAPS))
+def test_secret_and_identity_formats_never_survive(name):
+    text = TRAPS[name]
+    bundle = build_export(_trap_report(text), extra_identifiers=[("host", "as400.corp.example.com"), ("user", "jdoe")])
+    exported = "\n".join(content.decode() for content in bundle.files.values()).lower()
+    for needle in NEEDLES:
+        if needle.lower() in text.lower() or needle in ("hunter2", "corp.example.com"):
+            assert needle.lower() not in exported, f"{name}: {needle}"
+
+
+def test_software_keeps_only_allowed_fields():
+    bundle = build_export(_trap_report("x"))
+    report = json.loads(bundle.files["report.json"])
+    assert set(report["software"]) <= {"product", "version", "distribution"}
+    assert "distribution" not in report["software"]  # not one of the known distributions
+    assert "as400.corp.example.com" not in bundle.files["manifest.json"].decode()  # the omission names the key, never the value
+
+
+def test_evidence_values_are_restricted_to_known_vocabularies():
+    report = DiagnosticReport(
+        generated_at=NOW, scope="local", synthetic=False, software={"product": "quadringent"},
+        results=(DiagnosticResult(
+            code="network.tcp.database", layer="network", status="failed", required=True, observed_at=NOW,
+            provenance="probe:tcp", summary="s", next_action="a", limits="l",
+            evidence={"error": "connection refused", "tool": "terraform", "stage_state": "stale",
+                      "port": 9471, "readiness": "/etc/passwd"}),),
+    )
+    evidence = json.loads(build_export(report).files["report.json"])["results"][0]["evidence"]
+    assert evidence == {"error": "connection refused", "tool": "terraform", "stage_state": "stale", "port": 9471}
+
+
+def test_fixed_operator_guidance_is_not_mangled():
+    report = DiagnosticReport(
+        generated_at=NOW, scope="local", synthetic=False, software={"product": "quadringent"},
+        results=(DiagnosticResult(
+            code="control_plane.api", layer="control_plane", status="failed", required=True, observed_at=NOW,
+            provenance="doctor:control-plane", summary="The control plane answered with a report outside quadringent.diagnostic.v1.",
+            next_action="Read one pipeline at a time with ?pipeline_id= (or doctor --pipeline-id).",
+            limits="Run quadringent doctor --check-ibmi HOST --tls, optionally with --ibmi-ca-file."),),
+    )
+    item = json.loads(build_export(report).files["report.json"])["results"][0]
+    assert item["summary"].endswith("quadringent.diagnostic.v1.")
+    assert "?pipeline_id=" in item["next_action"] and "--ibmi-ca-file" in item["limits"]

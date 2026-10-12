@@ -29,13 +29,35 @@ MAX_FILE_BYTES = 1_000_000
 MAX_TOTAL_BYTES = 4_000_000
 DEFAULT_MAX_TIMELINE = 200
 
-# Evidence fields that may leave the installation, and the shape of their values.
-ALLOWED_EVIDENCE = frozenset({
-    "port", "error", "stage_state", "evidence_kind", "sha256_fingerprint", "custom_ca", "event_count",
-    "lag_seconds", "duplicate_count", "readiness", "declared_state", "verification_state", "journal_status",
-    "images", "key_strategy", "tool", "found", "status_code",
+# Evidence fields that may leave the installation, each with its allowed values.
+_NUMBER = (int, float)
+_ERRORS = frozenset({
+    "host name not resolved", "timed out", "connection refused", "connection reset", "network error",
+    "connection failed", "certificate does not match the host name", "certificate expired",
+    "certificate not trusted", "TLS handshake refused", "CA file unreadable", "contract mismatch",
 })
-_SAFE_VALUE = re.compile(r"[A-Za-z0-9 _.:/()*#-]{0,120}")
+_ENUMS = {
+    "stage_state": frozenset({"observed", "stale", "absent"}),
+    "evidence_kind": frozenset({"live", "historical", "simulation", "absent"}),
+    "readiness": frozenset({"ready", "not_journaled", "images_incomplete", "no_key", "journal_mismatch", "unknown"}),
+    "declared_state": frozenset({"not_started", "copying", "live", "paused", "attention", "stopped", "removed"}),
+    "verification_state": frozenset({"verified", "failed", "declared_not_verified"}),
+    "images": frozenset({"*BOTH", "*AFTER"}),
+    "key_strategy": frozenset({"primary_key", "unique", "rrn", "declared", "none"}),
+    "tool": frozenset({"terraform", "helm", "kubectl", "aws", "session-manager-plugin", "gcloud"}),
+}
+_BOOLEANS = frozenset({"found", "custom_ca"})
+_NUMBERS = frozenset({"port", "event_count", "lag_seconds", "duplicate_count", "status_code"})
+_SOFTWARE_DISTRIBUTIONS = frozenset({"wheel", "installed", "checkout", "control-plane"})
+# Provenance values come from the producers; anything else is replaced.
+_PROVENANCES = frozenset({
+    "control-plane:api", "control-plane:destination-record", "control-plane:pipeline-record",
+    "control-plane:records", "control-plane:source-record", "control-plane:table-discovery",
+    "doctor:control-plane", "doctor:not-requested", "doctor:not-tested", "local:PATH", "local:ca-file",
+    "local:environment", "probe:tcp", "probe:tls",
+})
+_EVIDENCE_PROVENANCE = re.compile(r"control-plane:evidence:(?:absent|unreadable|demo_fixture|lab_fixture|"
+                                  r"kubernetes_loader_log|synthetic_fixture|[a-z]+_(?:log|fixture|projection|store))")
 _PSEUDONYMIZED_KINDS = {"host": "host", "source": "source", "destination": "destination", "pipeline": "pipeline",
                         "table": "table"}
 _LABEL_KIND = {"destination": "account", "source": "source", "pipeline": "pipeline", "table": "table"}
@@ -47,10 +69,24 @@ _SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bBearer\s+\S+", re.I), "Bearer [redacted]"),
     (re.compile(r"\beyJ[\w-]+\.[\w-]+\.[\w-]+"), "[redacted: token]"),
     (re.compile(r"\bqdt_[a-z]{2}_\w+"), "[redacted: token]"),
+    (re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{16,}|sk-[A-Za-z0-9_-]{16,}|xox[abprs]-[A-Za-z0-9-]{10,})"),
+     "[redacted: token]"),
     (re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{8,}\b"), "[redacted: access key]"),
     (re.compile(r"\b([\w-]*(?:password|passwd|pwd|token|secret|api[_-]?key|access[_-]?key|cookie|session|"
-                r"authorization|credential|signature|sig))[\w-]*\s*[=:]\s*[^\s;,&\"']+", re.I), r"\1=[redacted]"),
+                r"authorization|credential|signature|sig)[\w-]*)[\"']?\s*[=:]\s*[\"']?[^\s;,&\"']+", re.I),
+     r"\1=[redacted]"),
+    (re.compile(r"\b(password|passwd|secret|token|api key)\s+(?:is|was)\s+\S+", re.I), r"\1 [redacted]"),
     (re.compile(r"\b(account|user|username|login|host|warehouse|role)\s*=\s*[^\s;,&\"']+", re.I), r"\1=[redacted]"),
+    (re.compile(r"\b(account|user|username|login|warehouse|role)\s+(?=[A-Za-z0-9_.-]*[0-9_.])[A-Za-z0-9_.-]{3,}", re.I),
+     r"\1 [redacted]"),
+    (re.compile(r"\b[\w.+-]+@[\w-]+(?:\.[\w-]+)+\b"), "[redacted: email]"),
+    (re.compile(r"(?:~|/(?:Users|home|private|var|etc|tmp|opt|root|srv|mnt))(?:/[^\s'\"]+)+"), "[redacted: path]"),
+    (re.compile(r"\b[A-Za-z]:\\\S+"), "[redacted: path]"),
+    (re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b"), "[redacted: address]"),
+    (re.compile(r"\b[0-9a-f]*::[0-9a-f:]+\b", re.I), "[redacted: address]"),
+    (re.compile(r"\b(?:[a-z0-9-]+\.){2,}[a-z]{2,}\b(?:/\S*)?", re.I), "[redacted: host]"),
+    (re.compile(r"\b[0-9a-fA-F]{32,}\b"), "[redacted: hex]"),
+    (re.compile(r"[A-Za-z0-9+/]{40,}={0,2}"), "[redacted: encoded value]"),
 )
 
 
@@ -115,7 +151,7 @@ def _scrub(text: str, pseudonyms: _Pseudonyms, omitted: list[dict[str, str]], fi
     if not pseudonyms.keep:
         replaced = cleaned
         for original in sorted(pseudonyms.originals, key=len, reverse=True):
-            replaced = replaced.replace(original, pseudonyms.originals[original])
+            replaced = re.sub(re.escape(original), pseudonyms.originals[original], replaced, flags=re.I)
         if replaced != cleaned:
             omitted.append({"field": field, "reason": "identifier pseudonymized by default"})
         cleaned = replaced
@@ -138,6 +174,18 @@ def build_export(
     pseudonyms = _Pseudonyms(keep_identifiers)
     omitted: list[dict[str, str]] = []
     document = report.to_dict()
+    pending_labels: list[dict] = []
+    software = {}
+    for key, value in document["software"].items():
+        if key == "product" and value == "quadringent":
+            software[key] = value
+        elif key == "version" and re.fullmatch(r"[0-9A-Za-z.+-]{1,40}", value):
+            software[key] = value
+        elif key == "distribution" and value in _SOFTWARE_DISTRIBUTIONS:
+            software[key] = value
+        else:
+            omitted.append({"field": f"software.{key}", "reason": "not an exported field"})
+    document["software"] = software
 
     for item in document["results"]:
         subject = item.get("subject")
@@ -152,25 +200,32 @@ def build_export(
                 if not keep_identifiers:
                     omitted.append({"field": f"{item['code']}.subject.label",
                                     "reason": "identifier pseudonymized by default"})
+            elif subject.get("label"):
+                pending_labels.append(item)
     for kind, value in extra_identifiers:
         if value:
             pseudonyms(kind, value)
 
+    for item in pending_labels:
+        item["subject"]["label"] = _scrub(item["subject"]["label"], pseudonyms, omitted, f"{item['code']}.subject.label")
+    for item in document["results"]:
+        subject = item.get("subject")
+        if subject and subject["kind"] not in _PSEUDONYMIZED_KINDS:
+            subject["ref"] = _scrub(subject["ref"], pseudonyms, omitted, f"{item['code']}.subject.ref")
     for item in document["results"]:
         code = item["code"]
-        for name in ("summary", "next_action", "limits", "provenance"):
+        for name in ("summary", "next_action", "limits"):
             item[name] = _scrub(item[name], pseudonyms, omitted, f"{code}.{name}")
+        if item["provenance"] not in _PROVENANCES and _EVIDENCE_PROVENANCE.fullmatch(item["provenance"]) is None:
+            item["provenance"] = "other"
+            omitted.append({"field": f"{code}.provenance", "reason": "not a known provenance value"})
         kept: dict[str, object] = {}
         for key, value in item["evidence"].items():
-            if key not in ALLOWED_EVIDENCE:
-                omitted.append({"field": f"{code}.evidence.{key}", "reason": "not an exported field (free text may hold secrets)"})
-                continue
-            if isinstance(value, str):
-                value = _scrub(value, pseudonyms, omitted, f"{code}.evidence.{key}")
-                if _SAFE_VALUE.fullmatch(value) is None:
-                    omitted.append({"field": f"{code}.evidence.{key}", "reason": "value removed: secret-shaped or free text"})
-                    continue
-            kept[key] = value
+            if _allowed_evidence(key, value):
+                kept[key] = value
+            else:
+                omitted.append({"field": f"{code}.evidence.{key}",
+                                "reason": "not an exported field or value (free text may hold secrets)"})
         item["evidence"] = kept
 
     events = sorted(
@@ -222,6 +277,20 @@ def build_export(
         "limits": limits,
     }
     return ExportBundle(files=files, preview=preview, generated_at=report.generated_at)
+
+
+def _allowed_evidence(key: str, value: object) -> bool:
+    if value is None:
+        return key in _NUMBERS or key in _ENUMS
+    if key in _BOOLEANS:
+        return isinstance(value, bool)
+    if key in _NUMBERS:
+        return isinstance(value, _NUMBER) and not isinstance(value, bool)
+    if key == "error":
+        return isinstance(value, str) and (value in _ERRORS or re.fullmatch(r"status \d{3}", value) is not None)
+    if key == "sha256_fingerprint":
+        return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+    return key in _ENUMS and value in _ENUMS[key]
 
 
 def _json(value: object) -> bytes:

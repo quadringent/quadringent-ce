@@ -150,7 +150,7 @@ test('simulation and stale evidence remain explicit on the evidence screen', () 
   } });
   const markup = render({ tab: 'proofs', state: { status: 'ready', data } });
   assert.match(markup, /Demonstration — synthetic data/);
-  assert.match(markup, /stale/);
+  assert.match(markup, /Stale/);
 });
 
 test('an evidence request failure leaves the other table tabs usable', () => {
@@ -171,4 +171,54 @@ test('evidence identifies a producer version only when reported by the service',
     assert.match(markup, /Producer version/);
     assert.match(markup, producerVersion ? /synthetic-build/ : /Not reported by the service/);
   }
+});
+
+test('evidence stages show a word and tone for each state, with no green or time for missing stages', () => {
+  const absent = { state: 'absent', observedAt: null, eventCount: null, lagSeconds: null, duplicateCount: null, detail: 'Not measured.' };
+  const data = tableData({ evidence: {
+    pipelineId: 'pl_sales_order_lines', provenance: 'kubernetes_loader_log', evidenceKind: 'live',
+    collectedAt: '2026-10-10T12:00:00Z',
+    reading: { ...absent, state: 'observed', observedAt: '2026-10-10T11:59:00Z', eventCount: 4, detail: 'Read.' },
+    delivery: { ...absent, state: 'stale', observedAt: '2026-10-10T10:00:00Z', eventCount: 2, detail: 'Old.' },
+    reconciliation: absent,
+  } });
+  const markup = render({ tab: 'proofs', state: { status: 'ready', data } });
+  assert.match(markup, /evidence-state--observed[^>]*>Observed/);
+  assert.match(markup, /evidence-state--limit[^>]*>Stale/);
+  assert.match(markup, /evidence-state--missing[^>]*>Not measured/);
+  // The live evidence label and the one observed stage; never the stale or missing stages.
+  assert.equal((markup.match(/evidence-state--observed/g) ?? []).length, 2);
+});
+
+test('synthetic evidence is never presented as an observation', () => {
+  const observed = { state: 'observed', observedAt: '2026-09-23T09:00:00Z', eventCount: 120, lagSeconds: 6.2, duplicateCount: null, detail: 'Synthetic.' };
+  const data = tableData({ evidence: {
+    pipelineId: 'pl_sales_order_lines', provenance: 'demo_fixture', evidenceKind: 'simulation',
+    collectedAt: '2026-09-23T09:00:00Z', reading: observed, delivery: observed,
+    reconciliation: { ...observed, state: 'absent', observedAt: null, eventCount: null, lagSeconds: null },
+  } });
+  const markup = render({ tab: 'proofs', state: { status: 'ready', data } });
+  assert.doesNotMatch(markup, /evidence-state--observed/);
+  assert.match(markup, /do not come from your system/);
+  assert.match(markup, /Provenance/);
+  assert.match(markup, /demo_fixture/);
+});
+
+test('a table without collected evidence says so instead of showing empty stages as data', () => {
+  const absent = { state: 'absent', observedAt: null, eventCount: null, lagSeconds: null, duplicateCount: null, detail: 'Not measured.' };
+  const data = tableData({ evidence: {
+    pipelineId: 'pl_sales_order_lines', provenance: 'demo_fixture', evidenceKind: 'absent',
+    collectedAt: null, reading: absent, delivery: absent, reconciliation: absent,
+  } });
+  const markup = render({ tab: 'proofs', state: { status: 'ready', data } });
+  assert.match(markup, /No evidence collected/);
+  assert.match(markup, /Collected at<\/dt><dd>—/);
+});
+
+test('an estimated cost names its basis and collection time without calling it observed', () => {
+  const markup = render({ tab: 'costs' });
+  assert.match(markup, /estimated/);
+  assert.match(markup, /Basis: estimation_debit_moyen/);
+  assert.match(markup, /Collected at <time dateTime="2026-09-23T09:00:00Z">/);
+  assert.doesNotMatch(markup, /Observed on|Database:/);
 });

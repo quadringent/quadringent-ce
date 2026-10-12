@@ -527,3 +527,23 @@
 .cockpit-table__evidence-stage dt { color: var(--ink-3); font-size: var(--t-small); }
 .cockpit-table__evidence-stage dd { margin: 0; font-family: var(--font-mono); }
 .cockpit-table__evidence-stage p { font-size: var(--t-small); }
+
+/* Evidence states: green only for a live observation; synthetic, historical
+   and stale evidence keep the amber proof-limit signal; missing stays neutral. */
+.cockpit-table__evidence-summary { display: grid; gap: var(--space-2); margin-bottom: var(--space-4); }
+.cockpit-table__evidence-summary p { margin: 0; }
+.cockpit-table__evidence-facts { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-6); margin: 0; }
+.cockpit-table__evidence-facts dt { color: var(--ink-3); font-size: var(--t-small); }
+.cockpit-table__evidence-facts dd { margin: 0; font-family: var(--font-mono); font-size: var(--t-small); }
+.evidence-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--t-small);
+  font-weight: 600;
+}
+.evidence-state::before { content: ""; width: 8px; height: 8px; border-radius: 1px; background: currentColor; }
+.evidence-state--observed { color: var(--signal-ok); }
+.evidence-state--limit { color: var(--signal-attention); }
+.evidence-state--missing { color: var(--text-muted); }
+.evidence-state--missing::before { background: transparent; border: 1px solid currentColor; }

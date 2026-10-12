@@ -14,6 +14,7 @@ DOC_PAGES = {
     "docs/product/compatibility.md": ("compatibility", "Compatibility and prerequisites for IBM i and Snowflake"),
     "docs/product/install-default.md": ("installation", "Install Quadringent on AWS or GCP"),
     "docs/product/install-client.md": ("helm-installation", "Helm installation and prerequisites"),
+    "docs/product/operator-guide.md": ("operator-guide", "Operator guide: install, evidence and recovery"),
     "docs/architecture.md": ("architecture", "IBM i to Snowflake replication architecture"),
     "docs/product/quadringent-destination-proof-contract.md": ("delivery-evidence", "Reading, delivery and reconciliation evidence"),
     "docs/operations.md": ("operations", "Operate and recover Quadringent"),

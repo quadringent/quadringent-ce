@@ -813,6 +813,33 @@ export function confirmationActionLabel(actionRef: string): string {
 export const EVIDENCE_COPY = {
   producerVersion: 'Producer version',
   versionMissing: 'Not reported by the service.',
+  provenance: 'Provenance',
+  collectedAt: 'Collected at',
+  costBasis: 'Basis',
+  observedAt: 'Observed at',
+  events: 'Events in measured scope',
+  lastBatchDelay: 'Last batch delay',
+  duplicates: 'Duplicates in measured scope',
+  unavailable: 'Absent — no delivery evidence available for this table.',
+  stages: {
+    reading: 'Journal capture',
+    delivery: 'Snowflake delivery',
+    reconciliation: 'Destination reconciliation',
+  },
+  kinds: {
+    live: 'Live evidence',
+    historical: 'Historical evidence',
+    simulation: 'Demonstration — synthetic data',
+    absent: 'No evidence collected',
+  },
+  absentKindDetail: 'The service has not collected evidence for this table yet. Nothing is inferred from capture state.',
+  words: {
+    observed: 'Observed',
+    synthetic: 'Synthetic',
+    historical: 'Historical',
+    stale: 'Stale',
+    missing: 'Not measured',
+  },
 } as const;
 
 /* ------------------------------------------------------------------ */

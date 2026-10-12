@@ -417,7 +417,7 @@ def test_cost_section_uses_code_defaults_and_marks_credits_not_measured():
 def test_compatibility_is_one_click_from_home_install_and_getting_started(site):
     home = (site / "index.html").read_text()
     assert 'href="docs/compatibility/"' in home
-    for guide in ("installation", "getting-started", "pilot"):
+    for guide in ("installation", "getting-started", "pilot", "operator-guide"):
         assert 'href="../compatibility/"' in (site / f"docs/{guide}/index.html").read_text(), guide
 
 
@@ -430,3 +430,16 @@ def test_getting_started_points_to_the_default_installer_first(site):
 def test_journal_example_respects_the_ibm_threshold_rule():
     guide = read("docs/product/install-client.md")
     assert not ("THRESHOLD(*NONE)" in guide and "MNGRCV(*SYSTEM)" in guide)
+
+
+
+# C04 — operator guide
+
+def test_operator_guide_covers_the_operating_path_and_is_published(site):
+    guide = read("docs/product/operator-guide.md")
+    headings = re.findall(r"^## \d\. (.+)$", guide, re.M)
+    assert headings == ["First installation", "Preflight", "First copy", "Read the evidence",
+                        "Outage", "Recovery", "Backup and restore", "Stop and uninstall"]
+    page = (site / "docs/operator-guide/index.html").read_text()
+    assert "--check-ibmi &lt;host&gt;" in page
+    assert "Not measured" in page and "Synthetic or Historical" in page

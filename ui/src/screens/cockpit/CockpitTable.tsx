@@ -23,6 +23,7 @@ import type { ControlActionKind } from '../../domain/controlsPanel.ts';
 import { ControlPlaneV2Error, pendingConfirmationId, type LogLevel } from '../../data/controlPlaneV2Client.ts';
 import { focusPrimaryControls, navigateBack } from './cockpitFunctionKeys.ts';
 import { EVIDENCE_COPY } from '../../domain/operator.ts';
+import { evidenceKindView, evidenceStageView } from '../../domain/evidencePresentation.ts';
 
 const TABS: readonly { readonly id: CockpitTableTab; readonly label: string }[] = [
   { id: 'metrics', label: "Metrics" },
@@ -299,46 +300,52 @@ function CostsTab({ data }: { readonly data: import('../../data/useCockpit.ts').
         {cost.amount.toFixed(2)} {cost.currency ?? ''}
         <span> · {cost.status === 'measured' ? "measured" : "estimated"}</span>
       </p>
-      {cost.basis ? <p className="cockpit-table__cost-basis">Database: {cost.basis}</p> : null}
-      {cost.collectedAt ? <p className="cockpit-table__cost-freshness">Observed on {cost.collectedAt}</p> : null}
+      {cost.basis ? <p className="cockpit-table__cost-basis">{EVIDENCE_COPY.costBasis}: {cost.basis}</p> : null}
+      {cost.collectedAt ? <p className="cockpit-table__cost-freshness">{EVIDENCE_COPY.collectedAt} <time dateTime={cost.collectedAt}>{cost.collectedAt}</time></p> : null}
     </section>
   );
 }
 
 function ProofsTab({ data }: { readonly data: import('../../data/useCockpit.ts').CockpitTableData }) {
   const evidence = data.evidence;
-  const stages = evidence ? [
-    ['Journal capture', evidence.reading],
-    ['Snowflake delivery', evidence.delivery],
-    ['Destination reconciliation', evidence.reconciliation],
-  ] as const : [];
+  if (!evidence) {
+    return <section className="cockpit-table__tab" aria-label="Evidence"><p>{data.evidenceError ?? EVIDENCE_COPY.unavailable}</p></section>;
+  }
+  const kind = evidenceKindView(evidence.evidenceKind);
+  const stages = [
+    ['reading', evidence.reading],
+    ['delivery', evidence.delivery],
+    ['reconciliation', evidence.reconciliation],
+  ] as const;
   return (
     <section className="cockpit-table__tab" aria-label="Evidence">
-      {!evidence ? <p>{data.evidenceError ?? 'Absent — no delivery evidence available for this table.'}</p> : (
-        <>
-          <p className="cockpit-table__note">
-            {evidence.evidenceKind === 'simulation' ? 'Demonstration — synthetic data' : `Evidence: ${evidence.evidenceKind}`}
-            {' · '}{evidence.provenance}
-            {evidence.collectedAt ? <> · Read at <time dateTime={evidence.collectedAt}>{evidence.collectedAt}</time></> : null}
-          </p>
-          <p className="cockpit-table__note">{EVIDENCE_COPY.producerVersion}: {evidence.producerVersion ?? EVIDENCE_COPY.versionMissing}</p>
-          <div className="cockpit-table__evidence">
-            {stages.map(([label, stage]) => (
-              <article className="cockpit-table__evidence-stage" key={label}>
-                <h2>{label}</h2>
-                <p className="cockpit-table__note">{stage.state === 'absent' ? 'Not measured' : stage.state}</p>
-                <dl>
-                  <div><dt>Observed at</dt><dd>{stage.observedAt ? <time dateTime={stage.observedAt}>{stage.observedAt}</time> : '—'}</dd></div>
-                  <div><dt>Events in measured scope</dt><dd>{stage.eventCount === null ? '—' : stage.eventCount.toLocaleString('en-US')}</dd></div>
-                  <div><dt>Last batch delay</dt><dd>{stage.lagSeconds === null ? '—' : `${stage.lagSeconds} s`}</dd></div>
-                  {label === 'Destination reconciliation' ? <div><dt>Duplicates in measured scope</dt><dd>{stage.duplicateCount === null ? '—' : stage.duplicateCount.toLocaleString('en-US')}</dd></div> : null}
-                </dl>
-                <p>{stage.detail}</p>
-              </article>
-            ))}
-          </div>
-        </>
-      )}
+      <div className="cockpit-table__evidence-summary">
+        <p><span className={`evidence-state evidence-state--${kind.tone}`}>{kind.label}</span></p>
+        {kind.caveat ? <p className="cockpit-table__note">{kind.caveat}</p> : null}
+        <dl className="cockpit-table__evidence-facts">
+          <div><dt>{EVIDENCE_COPY.provenance}</dt><dd>{evidence.provenance}</dd></div>
+          <div><dt>{EVIDENCE_COPY.collectedAt}</dt><dd>{evidence.collectedAt ? <time dateTime={evidence.collectedAt}>{evidence.collectedAt}</time> : '—'}</dd></div>
+          <div><dt>{EVIDENCE_COPY.producerVersion}</dt><dd>{evidence.producerVersion ?? EVIDENCE_COPY.versionMissing}</dd></div>
+        </dl>
+      </div>
+      <div className="cockpit-table__evidence">
+        {stages.map(([key, stage]) => {
+          const view = evidenceStageView(stage, evidence.evidenceKind);
+          return (
+            <article className="cockpit-table__evidence-stage" key={key}>
+              <h2>{EVIDENCE_COPY.stages[key]}</h2>
+              <p><span className={`evidence-state evidence-state--${view.tone}`}>{view.word}</span></p>
+              <dl>
+                <div><dt>{EVIDENCE_COPY.observedAt}</dt><dd>{view.observedAt ? <time dateTime={view.observedAt}>{view.observedAt}</time> : '—'}</dd></div>
+                <div><dt>{EVIDENCE_COPY.events}</dt><dd>{stage.eventCount === null ? '—' : stage.eventCount.toLocaleString('en-US')}</dd></div>
+                <div><dt>{EVIDENCE_COPY.lastBatchDelay}</dt><dd>{stage.lagSeconds === null ? '—' : `${stage.lagSeconds} s`}</dd></div>
+                {key === 'reconciliation' ? <div><dt>{EVIDENCE_COPY.duplicates}</dt><dd>{stage.duplicateCount === null ? '—' : stage.duplicateCount.toLocaleString('en-US')}</dd></div> : null}
+              </dl>
+              <p>{stage.detail}</p>
+            </article>
+          );
+        })}
+      </div>
     </section>
   );
 }

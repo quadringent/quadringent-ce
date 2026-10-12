@@ -138,6 +138,9 @@ def test_local_references_and_anchors_resolve(page: _Page):
             assert href[1:] in page.ids, href
         elif href.startswith("assets/fonts/") and href.endswith(".woff2"):
             assert href.removeprefix("assets/fonts/") in build_site.FONT_PACKAGES, href
+        elif href.startswith("mailto:"):
+            # The private pilot contact: an address, never a local path or a query with data.
+            assert re.fullmatch(r"mailto:quadringent@proton\.me(\?subject=[A-Za-z0-9%]+)?", href), href
         elif not href.startswith(("../", "https://", "data:")):
             assert (SITE / href).is_file(), href
     for image in page.images:

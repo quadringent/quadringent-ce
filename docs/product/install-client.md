@@ -112,11 +112,15 @@ An authorized IBM i administrator executes any suggested CL commands. The API
 never executes them. For a synthetic example:
 
 ```text
-CRTJRNRCV JRNRCV(SALES/QSQJRN0001) THRESHOLD(*NONE) TEXT('Quadringent journal receiver')
+CRTJRNRCV JRNRCV(SALES/QSQJRN0001) THRESHOLD(<site value in KB>) TEXT('Quadringent journal receiver')
 CRTJRN JRN(SALES/QSQJRN) JRNRCV(SALES/QSQJRN0001) MNGRCV(*SYSTEM) TEXT('Quadringent journal')
 STRJRNPF FILE(SALES/ORDHDR) JRN(SALES/QSQJRN) IMAGES(*BOTH) OMTJRNE(*OPNCLO)
 CHGJRNOBJ OBJ((SALES/ORDHDR *FILE)) ATR(*IMAGES) IMAGES(*BOTH)
 ```
+
+`MNGRCV(*SYSTEM)` needs a receiver threshold other than `*NONE`
+([CRTJRN](https://www.ibm.com/docs/en/i/7.5?topic=ssw_ibm_i_75/cl/crtjrn.htm)); size
+it and the receiver retention with [compatibility and prerequisites](compatibility.md).
 
 For RRN, use `PATCH /v2/tables/{id}` with `acknowledge_rrn: true`.
 `RGZPFM` or `CLRPFM` requires resynchronization. Tables from different

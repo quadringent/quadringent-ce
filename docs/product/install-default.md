@@ -57,10 +57,13 @@ configure the supplied ServiceAccount yourself. Public images need no pull secre
 
 ## Prerequisites
 
+Check [compatibility and prerequisites](compatibility.md) for the IBM i,
+journaling, authority and Snowflake requirements first.
+
 terraform, helm and kubectl must be on PATH. AWS VMs also require aws and
 session-manager-plugin; GCP requires gcloud. The installer checks credential
-presence without displaying values. --check-ibmi <host> optionally tests TLS
-reachability on 9471, 9476 and 9475.
+presence without displaying values. `--check-ibmi <host>` optionally tests TCP
+reachability on 9471, 9476 and 9475; it does not perform a TLS handshake.
 
 Required target inputs are checked before terraform apply:
 

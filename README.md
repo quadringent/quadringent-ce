@@ -82,8 +82,9 @@ contact IBM i, AWS or Snowflake. A connection created in Installation is saved
 locally as **configured, not active yet**. The `.local-state/` directory retains
 configured connections across restarts.
 
-For actual systems, follow the [installation guide](docs/product/install-client.md).
-It distinguishes prerequisites, configuration and replication evidence.
+For actual systems, check [compatibility and prerequisites](docs/product/compatibility.md),
+then follow the [installation guide](docs/product/install-default.md). Sites that
+manage their own Helm values use the [Helm guide](docs/product/install-client.md).
 
 ## Observed preview results — October 12, 2026
 

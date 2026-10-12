@@ -14,6 +14,10 @@ admission of future artifacts. Check the current version and its dated
 qualification in the README; earlier evidence remains bound to its original
 artifacts. Check Releases for actual availability.
 
+Before asking for a pilot, check
+[compatibility and prerequisites](compatibility.md) to see what has been
+tested, what is required and what has not been tested.
+
 ## First proposed service
 
 A **fixed-scope pilot: installation and validation on the customer's
@@ -79,6 +83,7 @@ runs in DEV/INT.
 
 1. **Prerequisite review.** Select the admitted version and scope; verify
    permissions, TLS, journaling, destination and retention. See
+   [compatibility and prerequisites](compatibility.md),
    [installation](install-default.md) and [security](../../SECURITY.md).
 2. **Installation.** Deploy verified public artifacts on the chosen site.
    Retain effective settings and resource identities.

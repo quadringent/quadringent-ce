@@ -11,6 +11,7 @@ from urllib.parse import urlparse, urlsplit
 DOC_PAGES = {
     "README.md": ("getting-started", "Getting started with IBM i CDC to Snowflake"),
     "docs/product/synthetic-demo.md": ("demo", "Try the cockpit with synthetic data"),
+    "docs/product/compatibility.md": ("compatibility", "Compatibility and prerequisites for IBM i and Snowflake"),
     "docs/product/install-default.md": ("installation", "Install Quadringent on AWS or GCP"),
     "docs/product/install-client.md": ("helm-installation", "Helm installation and prerequisites"),
     "docs/architecture.md": ("architecture", "IBM i to Snowflake replication architecture"),
@@ -27,6 +28,7 @@ DOC_PAGES = {
 DOC_DESCRIPTIONS = {
     "README.md": "Start with Quadringent Community: what it replicates from IBM i to Snowflake, its preview status and how to try it.",
     "docs/product/synthetic-demo.md": "Run the Quadringent cockpit locally with synthetic data, without IBM i, Snowflake, cloud access or credentials.",
+    "docs/product/compatibility.md": "Check IBM i releases, journaling, keys, authorities, receiver retention, Snowflake roles and default resources before installing Quadringent.",
     "docs/product/install-default.md": "Install Quadringent on AWS or GCP, on a dedicated VM or an existing cluster, with a reviewed Terraform plan.",
     "docs/product/install-client.md": "Install Quadringent with Helm: secrets, values, table readiness, journaling and commissioning steps.",
     "docs/product/operator-guide.md": "Operate a DEV/INT installation: preflight, first copy, reading evidence, outages, recovery, backup and stop.",

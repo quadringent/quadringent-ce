@@ -363,3 +363,70 @@ def test_links_to_repository_files_point_to_existing_files(site):
             if link.startswith(prefix):
                 path = link.removeprefix(prefix).split("#")[0]
                 assert (ROOT / path).exists(), (page, link)
+
+
+# C02 — compatibility and prerequisites before installation
+
+COMPAT = "docs/product/compatibility.md"
+
+
+def test_compatibility_page_marks_every_row_tested_required_or_not_tested():
+    page = read(COMPAT)
+    rows = re.findall(r"^\| ([^|]+) \| (Tested|Required|Not tested)[^|]* \|", page, re.M)
+    assert len(rows) >= 12
+    statuses = {status for _, status in rows}
+    assert statuses == {"Tested", "Required", "Not tested"}
+    text = flat(page)
+    for topic in ("IBM i 7.5", "*BOTH", "primary key", "RGZPFM", "CLRPFM", "commitment control", "CCSID 65535"):
+        assert topic in text, topic
+
+
+def test_authorities_cite_ibm_and_never_ask_for_all_object_authority():
+    page = read(COMPAT)
+    section_text = flat(section(page, "IBM i authorities"))
+    assert "https://www.ibm.com/docs/en/i/7.5?topic=services-display-journal-table-function" in section_text
+    assert "*USE" in section_text and "*EXECUTE" in section_text and "*OBJEXIST" in section_text
+    assert "not been tested at runtime" in section_text
+    assert "*ALLOBJ is not required" in section_text
+    assert "Do not grant *ALLOBJ" in section_text
+
+
+def test_retention_is_a_formula_with_a_labelled_hypothetical_example():
+    text = flat(section(read(COMPAT), "Journal receiver retention"))
+    assert "maximum outage + maximum lag + recovery time" in text
+    assert "Hypothetical example" in text
+    assert "not a recommendation" in text
+    assert "DLTRCV(*YES)" in text
+
+
+def test_snowflake_prerequisites_split_provisioning_from_runtime_and_by_mode():
+    text = flat(section(read(COMPAT), "Snowflake prerequisites"))
+    for phrase in ("Provisioning administrator", "Runtime service role", "AUTO_SUSPEND = 60",
+                   "AUTO_RESUME = TRUE", "no stage, pipe or storage integration", "Snowpipe Streaming",
+                   "ACCOUNTADMIN is not required"):
+        assert phrase in text, phrase
+
+
+def test_cost_section_uses_code_defaults_and_marks_credits_not_measured():
+    text = flat(section(read(COMPAT), "Default resources and cost"))
+    assert "t3.medium" in text and "e2-medium" in text and "40 GB" in text
+    assert "Not measured" in text
+    assert "deploy/terraform/aws/vm/variables.tf" in text
+
+
+def test_compatibility_is_one_click_from_home_install_and_getting_started(site):
+    home = (site / "index.html").read_text()
+    assert 'href="docs/compatibility/"' in home
+    for guide in ("installation", "getting-started", "pilot"):
+        assert 'href="../compatibility/"' in (site / f"docs/{guide}/index.html").read_text(), guide
+
+
+def test_getting_started_points_to_the_default_installer_first(site):
+    page = (site / "docs/getting-started/index.html").read_text()
+    assert page.index('href="../installation/"') < page.index('href="../helm-installation/"') if 'href="../helm-installation/"' in page else True
+    assert 'href="../installation/"' in page
+
+
+def test_journal_example_respects_the_ibm_threshold_rule():
+    guide = read("docs/product/install-client.md")
+    assert not ("THRESHOLD(*NONE)" in guide and "MNGRCV(*SYSTEM)" in guide)

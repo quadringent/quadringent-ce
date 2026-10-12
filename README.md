@@ -19,10 +19,13 @@ The engine, API and local cockpit are open source under [Apache-2.0](LICENSE),
 with no license key or commercial table limit. Operators pay their own
 infrastructure costs. No production qualification is claimed.
 
-The current preview is **0.3.5**; its qualification summary is not published yet.
-The latest published qualification covers **0.3.4**: its observed DEV/INT scope
-and outstanding checks are recorded in the [dated qualification summary](site/qualification-0.3.4.json).
-Historical measurements apply only to their original artifacts and scopes.
+The current preview is **0.3.5**. Its [scoped runtime receipt](site/runtime-0.3.5.json)
+records initial copy on four targets and an EKS application cycle, with cleanup
+independently verified. Native CDC writes, reader outage, latency and complete
+infrastructure-loss recovery remain unestablished on 0.3.5.
+The latest published recovery campaign covers **0.3.4** in a separate
+[dated recovery receipt](site/recovery-0.3.4.json). Historical measurements apply
+only to their original artifacts and scopes.
 
 Contributions use the same license. Separate services or advanced extensions
 may be paid offerings in the future; rights granted on published versions
@@ -87,7 +90,55 @@ For actual systems, check [compatibility and prerequisites](docs/product/compati
 then follow the [installation guide](docs/product/install-default.md). Sites that
 manage their own Helm values use the [Helm guide](docs/product/install-client.md).
 
-## Observed preview results — October 12, 2026
+## Scoped 0.3.5 observations — October 12, 2026
+
+Fresh initial copy used two synthetic tables with 55 source rows each on AWS VM,
+EKS, GCP VM and GKE: **8 new copy Jobs**, **110 mirror rows and 110 history C images
+per target**, with exact typed values. No new source INSERT/UPDATE/DELETE was
+performed. The baseline was subsequently restored from typed-verified pre-copy
+clones; a separate typed read after restoration was not part of the review.
+
+The EKS **0.3.5 → 0.3.4 → 0.3.5** rollback/re-upgrade and application reinstall
+retained the **same PostgreSQL PVC**, keys, pipeline identities, RAW and external
+checkpoints, with pipelines paused. Nondefault load settings were not exercised.
+AWS upgrade used **direct Helm**: the public installer safely refused an AMI-change
+replacement, so a complete AWS public-installer upgrade is not established.
+
+[Scoped runtime receipt](site/runtime-0.3.5.json). Fresh campaign resources and
+temporary access were removed; protected original stopped VMs and disks remain.
+**0.3.5 native CDC writes, reader faults, cold/warm latency and full
+cloud-loss recovery are not established.** Source equivalence to 0.3.4 does not
+turn that version's observations into 0.3.5 execution evidence.
+
+## Latest published 0.3.4 recovery — October 12, 2026
+
+Fresh infrastructure and **new PostgreSQL PVCs** on all four targets restored
+PostgreSQL, original keys/auth state, RAW, checkpoints and pipeline identities.
+The baseline came from historical archives; this was not an initial copy from
+empty on 0.3.4. **4 reader SIGKILL** trials with source writes acknowledged inside
+the stops passed native resume and complete typed reads: **110 mirror rows and
+148 history images per site**, with unique event IDs.
+
+All **8 cold/warm observations** met the 10 s gate: one cold and one warm trial
+per target. SQL begin → Snowflake mirror upper bounds, **not P95 or an SLA**:
+
+| Target | Cold upper bound (s) | Warm upper bound (s) |
+|---|---|---|
+| AWS VM | 6.983 | 3.995 |
+| EKS | 7.595 | 3.763 |
+| GCP VM | 8.876 | 5.711 |
+| GKE | 8.548 | 5.697 |
+
+[Published recovery receipt](site/recovery-0.3.4.json). An earlier AWS crash
+window was too short for an ACK; a separately recorded subsequent crash passed.
+This campaign is separate from the earlier failed latency trial below and does
+not qualify production, an external pilot or 0.3.5 native CDC.
+
+## Earlier 0.3.4 trial — historical
+
+The [original qualification summary](site/qualification-0.3.4.json) remains
+unchanged. Its readbacks and SQL/ACK clocks are retained below, without merging
+its 136 images with the later 148-image recovery campaign.
 
 The published 0.3.2 artifacts installed on AWS VM, EKS, GCP VM and GKE.
 Two synthetic journaled tables, 110 initial typed rows per site, native
@@ -104,8 +155,9 @@ upper bounds across six source writes and twelve history/mirror signals per site
 The 10 s gate failed on three targets. Including source-client startup, maxima
 were **16.466 s / 13.936 s / 18.795 s / 16.863 s**; all four exceeded 10 s.
 Readers and loaders were already running. This is not an application-startup test,
-a universal latency guarantee or production qualification. Reader-failure and
-complete site reconstruction still require repetition on 0.3.4.
+a universal latency guarantee or production qualification. At the time of that
+earlier summary, reader failure and complete site reconstruction were not
+established on 0.3.4. The later recovery receipt above is separate evidence.
 
 ## Historical measurements from October 5–6, 2026
 

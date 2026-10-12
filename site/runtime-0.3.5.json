@@ -1,0 +1,169 @@
+{
+  "schema": "quadringent.scoped-runtime-summary.v1",
+  "version": "0.3.5",
+  "source_commit": "1baec99b5afe44396630faf153a38425ffbe13db",
+  "release_url": "https://github.com/quadringent/quadringent-ce/releases/tag/v0.3.5",
+  "date_utc": "2026-10-12",
+  "provenance": "Maintainer-observed synthetic DEV/INT campaign on two IBM i tables; source receipts, executed workload identities and typed destination query evidence retained privately. Independently reviewed within the maintainer agent team; not external certification.",
+  "qualification_scope": "Fresh initial copy on four targets, upgrade on four targets, and a paused version cycle/application reinstall on EKS.",
+  "production_qualified": false,
+  "external_pilot_validated": false,
+  "universal_latency_guarantee": false,
+  "artifacts": {
+    "ci_url": "https://github.com/quadringent/quadringent-ce/actions/runs/38288373244",
+    "release_workflow_url": "https://github.com/quadringent/quadringent-ce/actions/runs/38289264886",
+    "capture_image_digest": "sha256:5385f46a7e08b401ec26feef4381ad9cba24d687b23c304946e086f4c72ebdca",
+    "control_plane_image_digest": "sha256:93766d9b0232d7877637f747ac700e676fc2a5cd227750ce939849fc1d256b89",
+    "verifier_image_digest": "sha256:5d0483904a0cb6b9e52f00341437b06b08161cfc153e3b41f3efd9df28c6d042"
+  },
+  "initial_copy": {
+    "passed": true,
+    "tables_per_target": 2,
+    "source_rows_per_table": 55,
+    "new_source_writes": 0,
+    "full_typed_comparison": true,
+    "sites": {
+      "aws-vm": {
+        "passed": true,
+        "initially_empty_destination_tables": 4,
+        "new_executed_copy_jobs": 2,
+        "mirror_rows": 110,
+        "history_C_images": 110,
+        "typed_values_exact": true,
+        "history_EVENT_ID_overlap_with034": 0,
+        "baseline_restored": true,
+        "temporary_copy_access_revoked": true,
+        "active_plus60s_autosuspend_credit_upper": 0.04600716037500001,
+        "observed_finished_utc": "2026-10-12T19:25:37.477598+00:00"
+      },
+      "eks": {
+        "passed": true,
+        "initially_empty_destination_tables": 4,
+        "new_executed_copy_jobs": 2,
+        "mirror_rows": 110,
+        "history_C_images": 110,
+        "typed_values_exact": true,
+        "history_EVENT_ID_overlap_with034": 0,
+        "baseline_restored": true,
+        "temporary_copy_access_revoked": true,
+        "active_plus60s_autosuspend_credit_upper": 0.04948684087500001,
+        "observed_finished_utc": "2026-10-12T19:27:14.096384+00:00"
+      },
+      "gke": {
+        "passed": true,
+        "initially_empty_destination_tables": 4,
+        "new_executed_copy_jobs": 2,
+        "mirror_rows": 110,
+        "history_C_images": 110,
+        "typed_values_exact": true,
+        "history_EVENT_ID_overlap_with034": 0,
+        "baseline_restored": true,
+        "temporary_copy_access_revoked": true,
+        "active_plus60s_autosuspend_credit_upper": 0.053307856500000014,
+        "observed_finished_utc": "2026-10-12T19:33:47.727117+00:00"
+      },
+      "gcp-vm": {
+        "passed": true,
+        "initially_empty_destination_tables": 4,
+        "new_executed_copy_jobs": 2,
+        "mirror_rows": 110,
+        "history_C_images": 110,
+        "typed_values_exact": true,
+        "history_EVENT_ID_overlap_with034": 0,
+        "baseline_restored": true,
+        "temporary_copy_access_revoked": true,
+        "active_plus60s_autosuspend_credit_upper": 0.059600867250000016,
+        "observed_finished_utc": "2026-10-12T19:30:27.831984+00:00"
+      }
+    }
+  },
+  "upgrade": {
+    "sites": {
+      "aws-vm": {
+        "passed": true,
+        "path": "direct Helm only",
+        "public_installer_full_pass": false
+      },
+      "eks": {
+        "passed": true,
+        "path": "public installer",
+        "public_installer_full_pass": true
+      },
+      "gcp-vm": {
+        "passed": true,
+        "path": "public installer",
+        "public_installer_full_pass": true
+      },
+      "gke": {
+        "passed": true,
+        "path": "public installer",
+        "public_installer_full_pass": true
+      }
+    }
+  },
+  "eks_version_cycle": {
+    "passed": true,
+    "sequence": [
+      "0.3.5",
+      "0.3.4",
+      "0.3.5"
+    ],
+    "pipelines_paused": true,
+    "postgres_pvc_retained": true,
+    "pipeline_ids_and_encryption_auth_state_retained": true,
+    "nondefault_load_settings_exercised": false
+  },
+  "eks_application_reinstall": {
+    "passed": true,
+    "version": "0.3.5",
+    "scope": "Application removed and recreated using the same PostgreSQL PVC, keys, RAW storage and external checkpoints; pipelines paused."
+  },
+  "current_version_native_CDC_writes_outage_and_latency": {
+    "status": "NOT_ESTABLISHED",
+    "new_source_writes": 0
+  },
+  "current_version_full_infrastructure_loss_recovery": {
+    "status": "NOT_EXECUTED"
+  },
+  "historical_engine_reference": {
+    "version": "0.3.4",
+    "source_commit": "1b8488b184bd7fe11afec67f685946137a4cea22",
+    "summary_url": "https://github.com/quadringent/quadringent-ce/releases/download/v0.3.4/qualification-0.3.4-recovery-20261012.json",
+    "source_equivalence": "Capture, loader, verifier and API source inspected as unchanged between 0.3.4 and 0.3.5. Version metadata and installer differ; source equivalence does not establish 0.3.5 runtime behavior."
+  },
+  "cleanup": {
+    "status": "PASS",
+    "scope": "Fresh campaign compute, disks, clusters and temporary access removed. Protected original VMs, disks and network retained; original VMs stopped and the original public RDP rule disabled.",
+    "finished_utc": "2026-10-12T19:58:40.360957+00:00",
+    "all_four_warehouses_suspended": true,
+    "cloud_compute_removed": true,
+    "fresh_raw_and_checkpoints_removed": true,
+    "temporary_access_revoked": true,
+    "local_readers_and_port_forwards_stopped": true,
+    "original_archives_preserved": true,
+    "invoice_verified": false
+  },
+  "limitations": [
+    "0.3.5 initial copy used two synthetic tables with 55 source rows each. No new source INSERT, UPDATE or DELETE occurred in these copy trials.",
+    "0.3.5 native CDC writes, reader outage with source ACK during the outage, cold/warm latency and complete infrastructure-loss recovery were not executed in this campaign.",
+    "Historical 0.3.4 observations remain separately versioned; they do not become 0.3.5 execution evidence.",
+    "The AWS 0.3.5 application upgrade used direct Helm. The public installer safely refused an AMI-change replacement, so a complete AWS public-installer upgrade is not established for 0.3.5.",
+    "The EKS reinstall retained its PostgreSQL PVC; this is not complete cloud-loss reconstruction.",
+    "EKS version-cycle load settings were defaults; preservation of nondefault settings was not exercised.",
+    "The 0.3.5 trial baseline was restored from typed-verified pre-copy clones with recorded metadata swaps; a separate post-restoration typed SQL read was not part of the review.",
+    "Per-trial credit bounds estimate compute runtime plus 60-second auto-suspend at Standard Gen2 X-Small 1.35 credits/hour. They are not invoices or measured 24-hour cost.",
+    "No P95, SLA, production-scale capacity, minimal IBM i-authority qualification or external pilot is established."
+  ],
+  "receipt_sha256": {
+    "aws-vm_fresh_copy": "9599aa42a954ce60a640c9b6e5bf674fe228a1bbe37ad67f2aec941f7efb88d8",
+    "eks_fresh_copy": "72a1ed9586c15c5310df7f979399d36f85ac95d9930cd7d21ee70ca429f5d609",
+    "gke_fresh_copy": "3ffe4b92ef42297307086ceab5fe32b25637641a6e778fe748c393759ad9f6db",
+    "gcp-vm_fresh_copy": "e7d99455cb14acae65b8ddc5ecd36d73889d4d67505bb51aad67ea70da384bee",
+    "runtime035_review": "8634326ebd463c8b203e18a79b58fa3f9af636918db7df828e7355e795fb9a41",
+    "cleanup_cloud": "e8b75b362df4ca756aeb8a496d098036d51e9bb733fe0ad7bee2ce3012f13916",
+    "cleanup_warehouses": "be0cb11f8f20bf24e4fe937cea012c655c16a363ddbf76d1f4c5bbea72f2c1a5",
+    "cleanup_revocations": "cd643e87766f0977dbea1fcf53e79916c189821d34e16dd7acf1c4ced6d2c27f",
+    "cleanup_network_scope": "6b4b779cdabe5a6fa99881254d0d5ee2283dc63831e828874c15cad8afaf4aa7"
+  },
+  "public_ready": true
+}

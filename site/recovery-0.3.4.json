@@ -1,0 +1,87 @@
+{
+  "schema": "quadringent-maintainer-observation/v1",
+  "version": "0.3.4",
+  "artifact_source_sha": "1b8488b184bd7fe11afec67f685946137a4cea22",
+  "observed_at_utc": "2026-10-12T18:13:31.648212+00:00",
+  "scope": "Maintainer-observed synthetic DEV/INT qualification; two source tables and four disposable installations. Underlying receipts are retained privately; this is not external-user validation.",
+  "initial_copy_from_empty_on_this_version": "not observed in this campaign; initial baseline was restored from historical archives",
+  "reconstruction": "Fresh infrastructure and new PVCs, restored PostgreSQL, RAW/checkpoints, encryption/auth state and configured pipelines; historical archives retained.",
+  "source_mutation_ACKs_in_this_campaign": 6,
+  "latency": {
+    "threshold_seconds": 10,
+    "metric": "Source SQL begin to observed Snowflake mirror visibility, upper-bound seconds",
+    "conditions": "One cold and one warm trial per target in the declared synthetic campaign; cold warehouse SUSPENDED was read immediately before SQL and first successful MERGE corroborated.",
+    "all_observed_trials_passed": true,
+    "P95_SLA_or_universal_latency_established": false
+  },
+  "sites": {
+    "aws-vm": {
+      "complete_reconstruction_passed": true,
+      "same_historical_PVC_reused": false,
+      "native_resume_passed": true,
+      "pipeline_ids_retained": true,
+      "admitted_runtime034": true,
+      "actual_reader_SIGKILL_and_ACK_inside_stop_passed": true,
+      "cold_SQL_to_mirror_upper_bound_s": 6.983157,
+      "warm_SQL_to_mirror_upper_bound_s": 3.995223,
+      "mirror_rows": 110,
+      "history_images": 148,
+      "full_typed_rows_and_history_exact": true,
+      "EVENT_ID_unique": true
+    },
+    "eks": {
+      "complete_reconstruction_passed": true,
+      "same_historical_PVC_reused": false,
+      "native_resume_passed": true,
+      "pipeline_ids_retained": true,
+      "admitted_runtime034": true,
+      "actual_reader_SIGKILL_and_ACK_inside_stop_passed": true,
+      "cold_SQL_to_mirror_upper_bound_s": 7.594923,
+      "warm_SQL_to_mirror_upper_bound_s": 3.763158,
+      "mirror_rows": 110,
+      "history_images": 148,
+      "full_typed_rows_and_history_exact": true,
+      "EVENT_ID_unique": true
+    },
+    "gcp-vm": {
+      "complete_reconstruction_passed": true,
+      "same_historical_PVC_reused": false,
+      "native_resume_passed": true,
+      "pipeline_ids_retained": true,
+      "admitted_runtime034": true,
+      "actual_reader_SIGKILL_and_ACK_inside_stop_passed": true,
+      "cold_SQL_to_mirror_upper_bound_s": 8.876047,
+      "warm_SQL_to_mirror_upper_bound_s": 5.710877,
+      "mirror_rows": 110,
+      "history_images": 148,
+      "full_typed_rows_and_history_exact": true,
+      "EVENT_ID_unique": true
+    },
+    "gke": {
+      "complete_reconstruction_passed": true,
+      "same_historical_PVC_reused": false,
+      "native_resume_passed": true,
+      "pipeline_ids_retained": true,
+      "admitted_runtime034": true,
+      "actual_reader_SIGKILL_and_ACK_inside_stop_passed": true,
+      "cold_SQL_to_mirror_upper_bound_s": 8.548406,
+      "warm_SQL_to_mirror_upper_bound_s": 5.697056,
+      "mirror_rows": 110,
+      "history_images": 148,
+      "full_typed_rows_and_history_exact": true,
+      "EVENT_ID_unique": true
+    }
+  },
+  "limitations": [
+    "Initial copy from empty on version0.3.4 not established by restore.",
+    "An initial AWS crash window was too short for an ACK and retained as incomplete; a separately recorded subsequent crash passed.",
+    "No production or external pilot qualification.",
+    "No invoice or cost-per-24h verified.",
+    "The prior0.3.4 latency failure remains historical evidence; this new observation does not erase it."
+  ],
+  "receipt_sha256": {
+    "verdict034.actual.private.json": "d16dfd5d45548245a62c8d21eb4a3d5a2abeae83df3c92b58720047d182965a1",
+    "reconciliation034.actual.private.json": "c2640b0a58e968e47dc19d456a51bc3ecee3422c16abbf0967c02e43ec2e046a"
+  },
+  "public_ready": true
+}

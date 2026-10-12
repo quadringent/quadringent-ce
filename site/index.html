@@ -52,7 +52,7 @@
     <dl class="release-facts" aria-label="Release status">
       <div><dt>License</dt><dd>Apache-2.0, with no activation key or commercial table limit</dd></div>
       <div><dt>Version</dt><dd><span class="mono">0.3.5</span> DEV/INT preview</dd></div>
-      <div><dt>Observed scope</dt><dd>Qualification of 0.3.5 not published yet. Latest published qualification (0.3.4): typed CDC readback on four cloud targets; 10 s gate failed on 3 of 4 targets in one cold-warehouse trial</dd></div>
+      <div><dt>Observed scope</dt><dd>0.3.5: fresh initial copy on 4 targets; native CDC, outage and latency not established. Published 0.3.4 recovery: new PVCs, reader recovery and 8 cold/warm observations within 10 s; no P95 or SLA</dd></div>
       <div><dt>Production</dt><dd>Not qualified, no SLA</dd></div>
     </dl>
   </section>
@@ -200,11 +200,64 @@ quadringent install --cloud gcp --target cluster \
     <div class="section__head">
       <p class="eyebrow">Qualification</p>
       <h2 id="qualification-title">What was measured, where, and when.</h2>
-      <p>Each result stays bound to its version, targets and observation window: DEV/INT tests on isolated installations using synthetic tables. The harness threshold is <span class="mono">10 s</span> per write, and each result names where its clock starts. These operator-observed results do not qualify production.</p>
+      <p>Each result stays bound to its version, targets and observation window: DEV/INT tests on isolated installations using synthetic tables. Latency campaigns use a harness threshold of <span class="mono">10 s</span> per write, and each result names where its clock starts. These operator-observed results do not qualify production.</p>
     </div>
-    <p class="release-status"><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not published</span></span><span><strong><span class="mono">0.3.5</span>, published 2026-10-12.</strong> Its qualification summary is not published yet; the results below belong to 0.3.4 and do not establish 0.3.5. See the <a href="https://github.com/quadringent/quadringent-ce/releases/tag/v0.3.5">v0.3.5 release notes</a>.</span></p>
-    <div class="current-release" aria-labelledby="current-release-title">
-      <h3 id="current-release-title"><span class="mono">0.3.4</span> · latest published qualification · observed <time datetime="2026-10-12">2026-10-12</time></h3>
+    <p class="release-status"><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Scoped observations</span></span><span><strong><span class="mono">0.3.5</span>, published 2026-10-12.</strong> Current-version copy and EKS application observations appear first. The separately published 0.3.4 recovery campaign and earlier trials keep their own version and scope. See the <a href="https://github.com/quadringent/quadringent-ce/releases/tag/v0.3.5">v0.3.5 release notes</a>.</span></p>
+    <div class="current-release" id="runtime-035" aria-labelledby="runtime-035-title">
+      <p class="eyebrow">Current version · scoped runtime observations · <time datetime="2026-10-12">2026-10-12</time></p>
+      <h3 id="runtime-035-title">0.3.5: initial copy and an EKS application cycle.</h3>
+      <p>Maintainer-observed DEV/INT tests on two synthetic IBM i tables, 55 source rows each. This scope proves copied data and retained application state; it does not establish native CDC or recovery on this version. Cleanup was independently verified; see the <a href="runtime-0.3.5.json">scoped runtime receipt (JSON)</a>.</p>
+      <ul class="result-list">
+        <li><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Observed</span></span><span><strong>Fresh initial copy.</strong> Four targets, 8 new copy Jobs, initially empty destination tables: 110 mirror rows and 110 history C images per target, with exact typed values. 0 new source writes occurred in these trials.</span></li>
+        <li><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Observed</span></span><span><strong>EKS: 0.3.5 → 0.3.4 → 0.3.5.</strong> Rollback, re-upgrade and application reinstallation retained the same PostgreSQL PVC, pipeline identities, original keys, RAW and external checkpoints; pipelines paused. Nondefault load settings were not exercised.</span></li>
+        <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Limited path</span></span><span><strong>AWS upgrade.</strong> The public installer refused an AMI-change replacement; the observed upgrade used direct Helm only. A complete AWS public-installer upgrade was not established.</span></li>
+        <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not established</span></span><span><strong>Native CDC writes, reader outage and cold/warm latency on 0.3.5.</strong> No new source mutations, SIGKILL-with-ACK campaign or latency trial was executed on this version.</span></li>
+        <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not executed</span></span><span><strong>Complete infrastructure-loss recovery on 0.3.5.</strong> Reusing the EKS PVC is an application reinstall, not cloud-loss reconstruction.</span></li>
+      </ul>
+      <div class="table-scroll" tabindex="0" role="region" aria-labelledby="copy-035-caption">
+        <table class="banded-table">
+          <caption id="copy-035-caption">0.3.5: fresh copy readback and upgrade path by target</caption>
+          <thead><tr><th scope="col">Target</th><th scope="col">Mirror rows</th><th scope="col">History C images</th><th scope="col">New copy Jobs</th><th scope="col">Upgrade path</th></tr></thead>
+          <tbody>
+            <tr data-target="aws-vm"><th scope="row">AWS VM</th><td class="mono">110</td><td class="mono">110</td><td class="mono">2</td><td>direct Helm only</td></tr>
+            <tr data-target="eks"><th scope="row">EKS</th><td class="mono">110</td><td class="mono">110</td><td class="mono">2</td><td>public installer</td></tr>
+            <tr data-target="gcp-vm"><th scope="row">GCP VM</th><td class="mono">110</td><td class="mono">110</td><td class="mono">2</td><td>public installer</td></tr>
+            <tr data-target="gke"><th scope="row">GKE</th><td class="mono">110</td><td class="mono">110</td><td class="mono">2</td><td>public installer</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Observed copy execution and typed SQL readback on all four targets. The baseline was then restored from typed-verified pre-copy clones; a separate typed read after restoration was not part of this review. The <a href="https://github.com/quadringent/quadringent-ce/releases/tag/v0.3.5">0.3.5 release</a> and this scoped receipt remain distinct from the 0.3.4 campaign below.</p>
+    </div>
+    <!-- /runtime-035 -->
+    <div class="current-release" id="recovery-034" aria-labelledby="recovery-034-title">
+      <p class="eyebrow">Latest published recovery campaign · version 0.3.4 · <time datetime="2026-10-12T18:13:31.648212+00:00">2026-10-12, 18:13 UTC</time></p>
+      <h3 id="recovery-034-title">Reconstruction and reader recovery, observed on four targets.</h3>
+      <ul class="result-list">
+        <li><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Observed</span></span><span><strong>Fresh infrastructure and new PostgreSQL PVCs.</strong> Restored PostgreSQL, original encryption/auth state, RAW, external checkpoints and configured pipelines. Historical archives supplied the baseline: this was not an initial copy from empty.</span></li>
+        <li><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Observed</span></span><span><strong>4 reader SIGKILL recoveries.</strong> Source writes were acknowledged inside the stops; native resume and complete typed readback passed on all four targets: 110 mirror rows, 148 history images and unique event IDs per site.</span></li>
+        <li><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Passed</span></span><span><strong>8 cold/warm observations within 10 s.</strong> One cold and one warm trial per target; SQL begin → mirror visibility upper bounds, not P95 or an SLA. Cold warehouses were read as suspended immediately before SQL.</span></li>
+      </ul>
+      <div class="table-scroll" tabindex="0" role="region" aria-labelledby="recovery-034-caption">
+        <table class="banded-table">
+          <caption id="recovery-034-caption">0.3.4 recovery: complete readback and SQL begin → mirror upper-bound seconds</caption>
+          <thead><tr><th scope="col">Target</th><th scope="col">Mirror rows</th><th scope="col">History images</th><th scope="col">Cold</th><th scope="col">Warm</th><th scope="col">10 s gate</th></tr></thead>
+          <tbody>
+            <tr data-target="aws-vm"><th scope="row">AWS VM</th><td class="mono">110</td><td class="mono">148</td><td class="mono">6.983</td><td class="mono">3.995</td><td><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Passed</span></span></td></tr>
+            <tr data-target="eks"><th scope="row">EKS</th><td class="mono">110</td><td class="mono">148</td><td class="mono">7.595</td><td class="mono">3.763</td><td><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Passed</span></span></td></tr>
+            <tr data-target="gcp-vm"><th scope="row">GCP VM</th><td class="mono">110</td><td class="mono">148</td><td class="mono">8.876</td><td class="mono">5.711</td><td><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Passed</span></span></td></tr>
+            <tr data-target="gke"><th scope="row">GKE</th><td class="mono">110</td><td class="mono">148</td><td class="mono">8.548</td><td class="mono">5.697</td><td><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Passed</span></span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Source: the <a href="recovery-0.3.4.json">published recovery receipt (JSON)</a>. An earlier AWS crash window was too short for an ACK; a separately recorded subsequent crash passed. These 0.3.4 observations do not establish 0.3.5 native CDC, outages or latency, and do not erase the earlier failed trial.</p>
+    </div>
+    <!-- /recovery-034 -->
+    <details class="history" id="earlier-034-trial">
+      <summary>Earlier 0.3.4 trial — historical, above threshold</summary>
+    <div class="current-release" id="historical-034" aria-labelledby="historical-034-title">
+      <h3 id="historical-034-title">Earlier 0.3.4 trial — historical, above threshold.</h3>
+      <p class="eyebrow">Historical summary · <time datetime="2026-10-12">2026-10-12</time></p>
+      <p class="note">Historical snapshot: these 136-image readbacks and clocks are not merged with the later recovery campaign. Its missing evidence describes what was established at that earlier point.</p>
       <ul class="result-list">
         <li><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Observed</span></span><span><strong>Typed CDC readback.</strong> INSERT, UPDATE and DELETE on four targets: 136 history images and 110 mirror rows per site, all seven business columns matched, 0 duplicate event IDs.</span></li>
         <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Above threshold</span></span><span><strong>Cold-warehouse latency.</strong> 1 trial, 6 source writes, warehouses suspended before the first write: the 10 s gate passed on 1 of 4 targets.</span></li>
@@ -213,9 +266,9 @@ quadringent install --cloud gcp --target cluster \
         <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not established</span></span><span><strong>Fresh installation and initial copy.</strong> Not established on 0.3.4; observed on 0.3.2 with 2 tables and 110 rows per site.</span></li>
         <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not established</span></span><span><strong>Complete site loss and reconstruction.</strong> Not established on 0.3.4.</span></li>
       </ul>
-      <div class="table-scroll" tabindex="0" role="region" aria-labelledby="latency-caption">
+      <div class="table-scroll" tabindex="0" role="region" aria-labelledby="historical-latency-caption">
         <table class="banded-table">
-          <caption id="latency-caption">Cold-warehouse latency by target, version 0.3.4: maximum seconds over 6 writes</caption>
+          <caption id="historical-latency-caption">Cold-warehouse latency by target, version 0.3.4: maximum seconds over 6 writes</caption>
           <thead>
             <tr><th scope="col">Target</th><th scope="col">SQL start → visible</th><th scope="col">Source acknowledgement → visible</th><th scope="col">Including source-client launch</th><th scope="col">10 s gate</th></tr>
           </thead>
@@ -229,7 +282,8 @@ quadringent install --cloud gcp --target cluster \
       </div>
       <p class="note">Upper bounds of first-visible observations, not exact ingestion timestamps. Readers and loaders were already running. Sources: the <a href="qualification-0.3.4.json">dated qualification summary (JSON)</a> and the <a href="https://github.com/quadringent/quadringent-ce/releases/tag/v0.3.4">v0.3.4 release</a>.</p>
     </div>
-    <!-- /current-release -->
+    <!-- /historical-034 -->
+    </details>
     <dl class="platforms" aria-label="Test platforms">
       <div><dt class="eyebrow">AWS</dt><dd>EC2 VM with k3s, or existing EKS; S3 raw storage</dd></div>
       <div><dt class="eyebrow">GCP</dt><dd>Compute Engine VM with k3s, or existing GKE; GCS raw storage</dd></div>
@@ -253,7 +307,7 @@ quadringent install --cloud gcp --target cluster \
         </tbody>
       </table>
     </div>
-    <details class="history">
+    <details class="history" id="historical-02">
       <summary>Earlier 0.2.x results: historical, artifacts not published</summary>
       <p>These versions predate this public repository; their artifacts and evidence are not published here. Their latency clock starts at the IBM i acknowledgement with warehouses already running, so it is not comparable to the 0.3.4 cold-warehouse clock, which starts at the SQL statement with suspended warehouses.</p>
       <div class="table-scroll" tabindex="0" role="region" aria-label="Historical 0.2.x results">
@@ -285,17 +339,15 @@ quadringent install --cloud gcp --target cluster \
       <p>These known items are tracked and inform operational decisions.</p>
     </div>
     <ul class="limits">
-      <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">To repeat</span></span><span><strong>Reader failure on 0.3.4.</strong> Real reader outages passed on 0.3.2; the current release still needs its own outage and source-write readback.</span></li>
-      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not published</span></span><span><strong>Qualification of 0.3.5.</strong> Not published yet; the 0.3.4 results do not establish 0.3.5.</span></li>
-      <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">To repeat</span></span><span><strong>Fresh installation and initial copy on 0.3.4.</strong> Observed on 0.3.2; the current release still needs its own fresh installation and initial copy.</span></li>
-      <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">To demonstrate</span></span><span><strong>Complete site reconstruction.</strong> Repeat loss, reconstruction and renewed CDC with the exact current release. Historical rebuilds apply only to their original versions.</span></li>
-      <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Above threshold</span></span><span><strong>Cold-warehouse latency.</strong> The first 0.3.4 trial exceeded 10 s on three targets from SQL start. All four exceeded 10 s when source-client startup was included.</span></li>
-      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not qualified</span></span><span><strong>Production.</strong> No PROD qualification; the chart rejects promotion to PROD.</span></li>
+      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not established</span></span><span><strong>Native CDC writes, reader outage and latency on 0.3.5.</strong> The copy and EKS cycle do not establish new source mutations, acknowledged writes during reader failure, or cold/warm latency on this version.</span></li>
+      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not executed</span></span><span><strong>Complete infrastructure loss on 0.3.5.</strong> EKS reinstallation retained the same PostgreSQL PVC. Full cloud-loss reconstruction remains outside this campaign.</span></li>
+      <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Limited path</span></span><span><strong>AWS public-installer upgrade.</strong> An AMI-change replacement was safely refused; the observed 0.3.5 upgrade used direct Helm. Preservation of nondefault EKS load settings was not exercised.</span></li>
+      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not established</span></span><span><strong>Initial copy from empty on 0.3.4.</strong> Its later reconstruction restored a historical baseline. Fresh copy on 0.3.5 is separate evidence.</span></li>
+      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Bounded trials</span></span><span><strong>Latency beyond the campaign.</strong> Eight 0.3.4 cold/warm upper bounds passed 10 s; the earlier failed trial remains historical. No P95, SLA or universal latency guarantee is established.</span></li>
+      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not qualified</span></span><span><strong>Production and external pilot.</strong> No production-scale capacity, minimal IBM i-authority qualification or external-user validation is established. Snowflake cost per 24 h is not measured.</span></li>
+      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Desktop only</span></span><span><strong>Other devices.</strong> Cockpit designed for desktop workstations, with a 1440 px keyboard-and-mouse reference; other sizes are not qualified.</span></li>
       <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">To protect</span></span><span><strong>Cockpit access.</strong> Unauthenticated loopback by default; secure access before exposing it.</span></li>
-      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Bounded</span></span><span><strong>Latency.</strong> No universal ten-second guarantee for every workload or startup.</span></li>
-      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Partial</span></span><span><strong>Evidence per table.</strong> Separate stages are available; capture and reconciliation still need their own observations. Missing measurements remain explicit.</span></li>
-      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Partial</span></span><span><strong>Historical archives.</strong> Historical RAW archives remain incomplete on two test sites.</span></li>
-      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Desktop</span></span><span><strong>Workstations.</strong> Cockpit designed for desktop workstations, with a 1440 px keyboard-and-mouse reference; other sizes are not qualified.</span></li>
+      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Partial</span></span><span><strong>Evidence per table.</strong> Capture, delivery and reconciliation require their own current observations. Missing measurements remain explicit.</span></li>
     </ul>
   </section>
 

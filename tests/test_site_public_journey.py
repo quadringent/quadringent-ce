@@ -166,16 +166,9 @@ import json  # noqa: E402
 from html.parser import HTMLParser  # noqa: E402
 
 
-def current_summary() -> dict:
-    """The published qualification summary with the highest version."""
-    files = sorted(ROOT.glob("site/qualification-*.json"),
-                   key=lambda p: tuple(int(x) for x in p.stem.split("-", 1)[1].split(".")))
-    assert files, "no published qualification summary"
-    return json.loads(files[-1].read_text())
-
-
-def version_tuple(value: str) -> tuple[int, ...]:
-    return tuple(int(x) for x in value.split("."))
+def historical_summary() -> dict:
+    """The original 0.3.4 trial, retained separately from later campaigns."""
+    return json.loads(read("site/qualification-0.3.4.json"))
 
 
 def release_version() -> str:
@@ -194,84 +187,142 @@ def text_of(html: str) -> str:
     return flat(re.sub(r"<[^>]+>", " ", html))
 
 
-def test_hero_states_the_published_version_and_the_gate_result():
-    summary = current_summary()
-    release = release_version()
+def scoped_summary(name: str) -> dict:
+    return json.loads(read(f"site/{name}.json"))
+
+
+def evidence_block(name: str) -> str:
+    return re.search(rf'<div[^>]*id="{name}".*?<!-- /{name} -->', read("site/index.html"), re.S)[0]
+
+
+def target_rows(block: str) -> dict[str, str]:
+    return dict(re.findall(r'<tr data-target="([^"]+)">(.*?)</tr>', block, re.S))
+
+
+def test_hero_uses_latest_scoped_observations_without_transferring_versions():
+    runtime = scoped_summary("runtime-0.3.5")
+    recovery = scoped_summary("recovery-0.3.4")
     facts = text_of(re.search(r'<dl class="release-facts".*?</dl>', read("site/index.html"), re.S)[0])
-    assert version_tuple(release) >= version_tuple(summary["version"])
-    if release != summary["version"]:
-        assert f"Qualification of {release} not published yet" in facts
-        assert f"Latest published qualification ({summary['version']})" in facts
-    latency = summary["cold_warehouse_latency"]
-    targets = latency["targets"]
-    failed = [t for t, v in targets.items() if not v["SQL_and_ACK_threshold_passed"]]
-    assert "incomplete" not in facts
-    if failed:
-        assert f'{latency["threshold_seconds"]} s gate failed on {len(failed)} of {len(targets)} targets' in facts
-    else:
-        assert f'{latency["threshold_seconds"]} s gate passed on all {len(targets)} targets' in facts
+    assert release_version() == runtime["version"]
+    assert "fresh initial copy on 4 targets" in facts
+    assert "native CDC, outage and latency not established" in facts
+    assert f'{recovery["version"]} recovery' in facts
+    assert "8 cold/warm observations within 10 s" in facts
+    assert "gate failed on 3" not in facts
 
 
-def test_current_release_results_come_first_and_match_the_summary():
-    summary = current_summary()
-    section = homepage_section(read("site/index.html"), "qualification")
-    current = re.search(r'<div class="current-release".*?</div>\s*<!-- /current-release -->', section, re.S)
-    assert current, "current release block"
-    assert section.index(current[0]) < section.index("0.3.3")
-    text = text_of(current[0])
-    assert summary["version"] in text and summary["date_utc"] in current[0]
+def test_current_runtime_copy_numbers_and_upgrade_paths_match_receipt():
+    runtime = scoped_summary("runtime-0.3.5")
+    block = evidence_block("runtime-035")
+    text = text_of(block)
+    assert runtime["version"] in text and runtime["date_utc"] in block
+    sites = runtime["initial_copy"]["sites"]
+    rows = target_rows(block)
+    assert set(rows) == set(sites)
+    assert f'{sum(site["new_executed_copy_jobs"] for site in sites.values())} new copy Jobs' in text
+    assert f'{runtime["initial_copy"]["new_source_writes"]} new source writes' in text
+    for target, values in sites.items():
+        assert values["passed"] and values["typed_values_exact"]
+        cells = re.findall(r'<td class="mono">([0-9]+)</td>', rows[target])
+        assert cells == [str(values["mirror_rows"]), str(values["history_C_images"]), str(values["new_executed_copy_jobs"])]
+        assert runtime["upgrade"]["sites"][target]["path"] in text_of(rows[target])
+    assert "EKS: 0.3.5 → 0.3.4 → 0.3.5" in text
+    assert runtime["eks_version_cycle"]["postgres_pvc_retained"]
+    assert "same PostgreSQL PVC" in text and "pipelines paused" in text
+    assert "public installer refused" in text and "direct Helm" in text
+    assert runtime["upgrade"]["sites"]["aws-vm"]["public_installer_full_pass"] is False
+    assert "Not established" in text and "Not executed" in text
+
+
+def test_runtime_publication_gate_is_preserved_and_draft_is_not_claimed_published():
+    runtime = scoped_summary("runtime-0.3.5")
+    assert isinstance(runtime["public_ready"], bool)
+    if runtime["public_ready"] is False:
+        text = text_of(evidence_block("runtime-035"))
+        assert "Publication requires cleanup review" in text
+        assert "published runtime qualification" not in text.lower()
+    assert "runtime-0.3.5.json" in read("site/index.html")
+
+
+def test_recovery_targets_counts_faults_and_latency_match_receipt():
+    summary = scoped_summary("recovery-0.3.4")
+    assert summary["public_ready"] is True
+    block = evidence_block("recovery-034")
+    text = text_of(block)
+    assert summary["observed_at_utc"] in block
+    assert "new PostgreSQL PVCs" in text and "4 reader SIGKILL" in text
+    assert "acknowledged inside the stops" in text and "not an initial copy from empty" in text
+    assert "SQL begin → mirror" in text and "upper bounds" in text
+    assert "not P95 or an SLA" in text
+    rows = target_rows(block)
+    assert set(rows) == set(summary["sites"])
+    for target, values in summary["sites"].items():
+        assert values["actual_reader_SIGKILL_and_ACK_inside_stop_passed"]
+        assert values["complete_reconstruction_passed"] and not values["same_historical_PVC_reused"]
+        assert values["full_typed_rows_and_history_exact"] and values["EVENT_ID_unique"]
+        cells = re.findall(r'<td class="mono">([0-9.]+)</td>', rows[target])
+        assert cells == [str(values["mirror_rows"]), str(values["history_images"]),
+                         f'{values["cold_SQL_to_mirror_upper_bound_s"]:.3f}', f'{values["warm_SQL_to_mirror_upper_bound_s"]:.3f}']
+        assert "Passed" in text_of(rows[target])
+        assert max(values["cold_SQL_to_mirror_upper_bound_s"], values["warm_SQL_to_mirror_upper_bound_s"]) <= summary["latency"]["threshold_seconds"]
+
+
+def test_original_threshold_failure_remains_historical_with_its_original_clock():
+    summary = historical_summary()
+    block = evidence_block("historical-034")
+    text = text_of(block)
+    assert "historical" in text.lower()
+    assert "Above threshold" in text
     cdc = summary["typed_cdc_readback"]
     assert f'{cdc["history_images_per_site"]} history images' in text
     assert f'{cdc["mirror_rows_per_site"]} mirror rows' in text
     assert f'{cdc["duplicate_event_ids"]} duplicate event IDs' in text
+    assert "136" in text and "148" not in text
+    assert "not merged" in text and "SQL start → visible" in text
     for target, values in summary["cold_warehouse_latency"]["targets"].items():
-        row = re.search(rf'<tr data-target="{target}">.*?</tr>', current[0], re.S)
-        assert row, target
-        cells = re.findall(r'<td class="mono">([0-9.]+)</td>', row[0])
+        row = target_rows(block)[target]
+        cells = re.findall(r'<td class="mono">([0-9.]+)</td>', row)
         assert cells == [f'{values["maximum_SQL_start_seconds"]:.3f}', f'{values["maximum_ACK_seconds"]:.3f}',
-                         f'{values["maximum_source_client_launch_seconds"]:.3f}'], target
-        word = "Passed" if values["SQL_and_ACK_threshold_passed"] else "Above threshold"
-        assert word in text_of(row[0])
-
-
-def test_results_distinguish_failure_missing_and_observed():
-    summary = current_summary()
-    current = re.search(r'<div class="current-release".*?<!-- /current-release -->',
-                        read("site/index.html"), re.S)[0]
-    assert "status-word--attention" in current      # threshold failure
-    assert "status-word--proven" in current         # observed pass
-    assert "status-word--neutral" in current        # not established on this version
-    if summary["reader_outage"]["applies_to_0_3_4"] is False:
-        assert f'Not established on {summary["version"]}' in text_of(current)
+                         f'{values["maximum_source_client_launch_seconds"]:.3f}']
+        assert ("Passed" if values["SQL_and_ACK_threshold_passed"] else "Above threshold") in text_of(row)
+    home = read("site/index.html")
+    assert home.index('id="runtime-035"') < home.index('id="recovery-034"') < home.index('id="historical-034"')
 
 
 def test_historical_results_are_labelled_and_not_compared_as_equivalent():
-    section = homepage_section(read("site/index.html"), "qualification")
-    history = re.search(r'<details class="history".*?</details>', section, re.S)
-    assert history, "historical results are grouped"
+    qualification = homepage_section(read("site/index.html"), "qualification")
+    history = re.search(r'<details class="history" id="historical-02".*?</details>', qualification, re.S)
+    assert history
     assert "historical, artifacts not published" in text_of(history[0]).lower()
     assert "not comparable" in text_of(history[0])
-    before_history = section[:section.index(history[0])]
-    assert not re.search(r">0\.2\.\d+", before_history), "0.2.x results appear before the history block"
+    assert not re.search(r">0\.2\.\d+", qualification[:qualification.index(history[0])])
 
 
 def test_limits_name_every_gap_of_the_current_version():
-    summary = current_summary()
+    runtime = scoped_summary("runtime-0.3.5")
     limits = text_of(homepage_section(read("site/index.html"), "limits"))
-    if summary["initial_copy"]["version"] != summary["version"]:
-        assert f'Fresh installation and initial copy on {summary["version"]}' in limits
+    assert runtime["current_version_native_CDC_writes_outage_and_latency"]["status"] == "NOT_ESTABLISHED"
+    for word in ["Native CDC writes, reader outage and latency on 0.3.5", "Complete infrastructure loss on 0.3.5",
+                 "AWS public-installer upgrade", "same PostgreSQL PVC", "P95", "SLA", "Initial copy from empty on 0.3.4"]:
+        assert word in limits
 
 
-def test_readme_matches_the_published_status_and_avoids_overclaims():
-    summary = current_summary()
-    release = release_version()
+def test_readme_matches_scoped_receipts_and_preserves_historical_results():
+    runtime = scoped_summary("runtime-0.3.5")
+    recovery = scoped_summary("recovery-0.3.4")
     readme = flat(read("README.md"))
-    assert f"The current preview is **{release}**" in readme
-    if release != summary["version"]:
-        assert f"latest published qualification covers **{summary['version']}**" in readme
-    assert "Targets qualified by batch" not in readme
-    assert "independently observed" not in readme
-    for values in summary["cold_warehouse_latency"]["targets"].values():
+    assert f'The current preview is **{runtime["version"]}**' in readme
+    for name in ["runtime-0.3.5.json", "recovery-0.3.4.json", "qualification-0.3.4.json"]:
+        assert name in readme
+    assert "8 new copy Jobs" in readme and "110 history C images" in readme
+    assert "same PostgreSQL PVC" in readme and "direct Helm" in readme
+    assert "148 history images" in readme and "136 history images" in readme
+    assert "8 cold/warm observations" in readme and "not P95 or an SLA" in readme
+    assert "Targets qualified by batch" not in readme and "independently observed" not in readme
+    for values in recovery["sites"].values():
+        assert f'{values["cold_SQL_to_mirror_upper_bound_s"]:.3f}' in readme
+        assert f'{values["warm_SQL_to_mirror_upper_bound_s"]:.3f}' in readme
+    for values in historical_summary()["cold_warehouse_latency"]["targets"].values():
         assert f'{values["maximum_SQL_start_seconds"]:.3f}' in readme
 
 

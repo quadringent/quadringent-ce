@@ -5,7 +5,7 @@ you can see connections, tables, an initial copy, an incident and per-table
 evidence before you have IBM i or Snowflake access.
 
 **Synthetic demo: no IBM i, Snowflake or cloud connection.** Every value is
-generated in your browser, including values labelled measured or observed.
+generated in your browser. Evidence and costs are explicitly marked synthetic.
 This demo is not a release qualification and proves nothing about a real
 installation.
 
@@ -58,6 +58,8 @@ or the v1 views, show a notice instead.
 - A banner on every screen states **Synthetic demo**, the source version, the
   commit and the UTC build time. `PROVENANCE.json` records the same facts.
 
-The demo version is the source version of the clone. It can be newer than the
-latest published release; check [Releases](https://github.com/quadringent/quadringent-ce/releases)
-for published versions and their dated qualification.
+The demo records the source version and commit of the clone. A clone of `main`
+can include unreleased changes even when its version matches a published release.
+Check the commit in `PROVENANCE.json` and
+[Releases](https://github.com/quadringent/quadringent-ce/releases) for the published
+artifacts and their dated qualification.

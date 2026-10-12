@@ -1317,3 +1317,78 @@ def test_resumed_table_loads_raw_receipts_buffered_while_delivery_was_paused(tmp
         assert all(any(event.event_id in sql for sql in statements) for event in events)
     assert checkpoint.load() == events[-1].position
     assert loader.discover_pending_receipts(store, checkpoint) == []
+
+
+def test_loader_refreshes_checkpoint_once_per_idle_cycle(tmp_path):
+    storage = _ReceiptCacheStorage(tmp_path)
+    (table,) = loader.parse_table_set(_TABLE_SET_JSON)
+    checkpoint = storage.checkpoint_store(loader.loader_checkpoint_stream_key(table.table_id))
+    checkpoint.commit(JournalPosition("R1", 1))
+    cursor = Mock()
+    checkpoint = Mock(wraps=checkpoint)
+    with patch.object(storage, "checkpoint_store", return_value=checkpoint):
+        reads = checkpoint.load
+        for sequence in (1, 2):
+            _put_cached_receipt(storage, "raw", f"receipts/{sequence}.json", None, JournalPosition("R1", sequence))
+            # Another completed cycle can advance the durable offset between polls.
+            checkpoint.commit(JournalPosition("R1", sequence))
+            reads.reset_mock()
+            assert loader.load_table_once(
+                table, plan=loader.build_plan(table, database="D", schema="S"), storage=storage,
+                raw_prefix_root="raw", streaming_client_factory=None, cursor=cursor, history_mode="sql",
+            ) == (0, 0)
+            assert reads.call_count == 1
+            storage.object_store("raw")._path_for(f"receipts/{sequence}.json").unlink()
+    cursor.execute.assert_not_called()
+
+
+def test_existing_snapshot_checkpoint_is_reused_before_commit_checks(tmp_path):
+    storage = _ReceiptCacheStorage(tmp_path)
+    (base,) = loader.parse_table_set(_TABLE_SET_JSON)
+    table = replace(base, evidence_key="raw/tbl1/evidence/run.json")
+    start, end = JournalPosition("R1", 20), JournalPosition("R1", 21)
+    checkpoint = storage.checkpoint_store(loader.loader_checkpoint_stream_key(table.table_id, table.evidence_key))
+    checkpoint.commit(start)
+    boundary = JournalBoundary(receiver_library="SALES", receiver_name="R1", last_sequence=20,
+                               observed_at=datetime(2026, 9, 28, 8, 0, tzinfo=timezone.utc))
+    evidence = InitialCopyEvidence(pipeline_id="pipe1", table_id=table.table_id, run_id="run", boundary=boundary,
+                                  rows_copied=0, completed_at=datetime(2026, 9, 28, 8, 1, tzinfo=timezone.utc),
+                                  snapshot_batches=())
+    storage.object_store("").put_once(table.evidence_key, json.dumps(evidence.to_dict()).encode())
+    _put_cached_receipt(storage, "raw", "receipts/next.json", start, end)
+    cursor = Mock()
+    checkpoint = Mock(wraps=checkpoint)
+    with patch.object(storage, "checkpoint_store", return_value=checkpoint):
+        reads = checkpoint.load
+        commit_reads = []
+        original = loader.advance_loader_checkpoint
+        def advance(store, position):
+            commit_reads.append(reads.call_count)
+            original(store, position)
+        with patch.object(loader, "advance_loader_checkpoint", side_effect=advance):
+            assert loader.load_table_once(
+                table, plan=loader.build_plan(table, database="D", schema="S"), storage=storage,
+                raw_prefix_root="raw", streaming_client_factory=None, cursor=cursor, history_mode="sql",
+            ) == (0, 0)
+        assert commit_reads == [1]
+    assert checkpoint.load() == end
+    cursor.execute.assert_not_called()
+
+
+def test_all_tables_are_delivered_before_lag_queries():
+    (first,) = loader.parse_table_set(_TABLE_SET_JSON)
+    second = replace(first, table_id="tbl2", table_name="DETAIL")
+    calls = []
+    def deliver(table, **kwargs):
+        calls.append(("deliver", table.table_name))
+        return 1, 2
+    def measure(plan, cursor):
+        calls.append(("measure", plan.history_table))
+        return StreamingLagMetrics(1.0, 2.0)
+    with patch.object(loader, "load_table_once", side_effect=deliver), patch.object(
+        loader, "measure_and_log_lag", side_effect=measure
+    ):
+        loader.run_once(storage=None, tables=(first, second), raw_prefix_root="raw", database="D", schema="S",
+                        streaming_client_factory=None, cursor=None, ensure_schema=False, history_mode="sql")
+    assert calls == [("deliver", "ORDHDR"), ("deliver", "DETAIL"),
+                     ("measure", "ORDHDR_HISTORY"), ("measure", "DETAIL_HISTORY")]

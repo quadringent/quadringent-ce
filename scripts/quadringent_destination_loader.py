@@ -55,6 +55,7 @@ LOG = logging.getLogger("quadringent.destination_loader")
 _RECEIPT_READ_BUDGET_BYTES = 65_536
 _RECEIPT_LIST_BUDGET = 5_000
 _RECEIPT_CACHE_BYTES = 16 * 1024 * 1024
+_UNREAD_CHECKPOINT = object()
 
 
 class DestinationLoaderError(RuntimeError):
@@ -364,6 +365,7 @@ def discover_pending_receipts(
     store: ObjectStore, checkpoint_store: CheckpointStore, *, fleet_store: ObjectStore | None = None,
     max_receipts: int = _RECEIPT_LIST_BUDGET,
     predecessors: dict[JournalPosition, JournalPosition | None] | None = None,
+    current_checkpoint: JournalPosition | None | object = _UNREAD_CHECKPOINT,
 ) -> list[PendingReceipt]:
     """Suit les liens ``previous`` des reçus, sans ordonner les receveurs par nom.
 
@@ -405,7 +407,9 @@ def discover_pending_receipts(
 
     if not by_previous:
         return []
-    resume = checkpoint_store.load()
+    resume = checkpoint_store.load() if current_checkpoint is _UNREAD_CHECKPOINT else current_checkpoint
+    if resume is not None and not isinstance(resume, JournalPosition):
+        raise DestinationLoaderError("invalid current checkpoint")
     if resume is None:
         roots = [previous for previous in by_previous if previous not in ends]
         if len(roots) != 1:
@@ -816,7 +820,8 @@ def _load_table_once(
                 return 0, 0
         predecessors: dict[JournalPosition, JournalPosition | None] = {}
         pending = discover_pending_receipts(
-            object_store, checkpoint_store, fleet_store=root_store, predecessors=predecessors
+            object_store, checkpoint_store, fleet_store=root_store, predecessors=predecessors,
+            current_checkpoint=initial_checkpoint,
         )
     if not pending and (initial_checkpoint is not None or not table.evidence_key):
         # L'ouverture d'un canal Snowpipe implique une session réseau et des
@@ -844,7 +849,8 @@ def _load_table_once(
     merge = MirrorMergePlan(plan=plan)
 
     try:
-        snapshot_loaded = load_snapshot_once(
+        # A checkpoint for this copy run already proves its snapshot was applied.
+        snapshot_loaded = (bool(table.evidence_key) and initial_checkpoint is not None) or load_snapshot_once(
             table, storage=storage, raw_prefix_root=raw_prefix_root, checkpoint_store=checkpoint_store,
             history_loader=history_loader, merge=merge, cursor=cursor, cycle_metrics=cycle_metrics,
         )
@@ -870,8 +876,9 @@ def _load_table_once(
                     receiver=evidence.boundary.receiver_name, sequence=evidence.boundary.last_sequence
                 )
 
+        committed = history_loader.resume_position()
         committed_index = committed_receipt_index(
-            pending, history_loader.resume_position(), checkpoint_store.load(), predecessors
+            pending, committed, checkpoint_store.load() if committed is not None else None, predecessors
         )
 
         batches_processed = 0
@@ -1054,6 +1061,7 @@ def run_once(*, storage: StorageBackend, tables: tuple[LoaderTable, ...], raw_pr
              session_pool: StreamingSessionPool | None = None,
              receipt_cache: ImmutableReceiptCache | None = None,
              history_mode: str = "streaming", mirror_schema: str | None = None) -> None:
+    measurements: list[tuple[LoaderTable, TableDestinationPlan, int, int]] = []
     for table in tables:
         plan = build_plan(table, database=database, schema=schema, mirror_schema=mirror_schema)
         if ensure_schema:
@@ -1076,17 +1084,20 @@ def run_once(*, storage: StorageBackend, tables: tuple[LoaderTable, ...], raw_pr
         if processed:
             LOG.info("table=%s batches=%d events=%d", table.table_name, processed, appended)
         if processed or snapshot_applied or measure_lag:
-            lag = measure_and_log_lag(plan, cursor)
-            # Ce relevé suit le MERGE synchrone du lot. Quand la table a
-            # avancé, l'âge de sa dernière mutation dans le miroir mesure
-            # le délai de livraison IBM i -> miroir de ce lot. Au repos le
-            # même âge augmente : ne jamais le publier comme une nouvelle
-            # livraison sans lot traité.
-            if processed and lag.mirror_lag_seconds is not None and lag.mirror_lag_seconds >= 0:
-                LOG.info(
-                    "delivery table=%s new_events=%d mirror_seconds=%s",
-                    table.table_name, appended, lag.mirror_lag_seconds,
-                )
+            measurements.append((table, plan, processed, appended))
+    # Lag reads must not delay delivery of the next table in the same pass.
+    for table, plan, processed, appended in measurements:
+        lag = measure_and_log_lag(plan, cursor)
+        # Ce relevé suit le MERGE synchrone du lot. Quand la table a
+        # avancé, l'âge de sa dernière mutation dans le miroir mesure
+        # le délai de livraison IBM i -> miroir de ce lot. Au repos le
+        # même âge augmente : ne jamais le publier comme une nouvelle
+        # livraison sans lot traité.
+        if processed and lag.mirror_lag_seconds is not None and lag.mirror_lag_seconds >= 0:
+            LOG.info(
+                "delivery table=%s new_events=%d mirror_seconds=%s",
+                table.table_name, appended, lag.mirror_lag_seconds,
+            )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1122,6 +1133,7 @@ def main(argv: list[str] | None = None) -> int:
     connection = _connect_snowflake(
         account=account, user=user, role=role, private_key_pem=private_key_pem, warehouse=warehouse
     )
+    streaming_client_factory: Callable[[str], SnowpipeStreamingClientAdapter] | None
     if history_mode == "streaming":
         profile = _streaming_profile(
             account=account, user=user, role=role, private_key_pem=private_key_pem,

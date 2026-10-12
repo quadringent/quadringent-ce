@@ -5,7 +5,7 @@ python scripts/sync_version.py derives chart version/appVersion, Java and UI
 versions and the npm lockfile. CI requires --check. For this candidate:
 
 ```sh
-python scripts/sync_version.py --check --release v0.3.3
+python scripts/sync_version.py --check --release v0.3.4
 ```
 
 /v1/version reads installed package metadata; images read the same pyproject

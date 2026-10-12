@@ -33,11 +33,11 @@ tables_router = APIRouter(prefix="/v2/tables", tags=["tables"])
 
 
 def _service(request: Request) -> TablesService:
-    return TablesService(request.app.state.engine)
+    return TablesService(request.app.state.engine, org_id=request.app.state.org_id)
 
 
 def _pipelines_service(request: Request) -> PipelinesService:
-    return PipelinesService(request.app.state.engine)
+    return PipelinesService(request.app.state.engine, org_id=request.app.state.org_id)
 
 
 @sources_router.get("/{source_id}/tables")

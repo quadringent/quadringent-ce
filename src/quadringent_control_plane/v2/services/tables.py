@@ -108,14 +108,26 @@ class TableRecord:
 class TablesService:
     """Façade Postgres/SQLite (SQLAlchemy Core) pour la ressource Table."""
 
-    def __init__(self, engine: Engine) -> None:
+    def __init__(self, engine: Engine, *, org_id: str | None = None) -> None:
+        """``org_id`` scopes sources and tables to one organization; ``None``
+        keeps the global view of system processes."""
         self._engine = engine
+        self._org_id = org_id
+
+    def _org_sources(self):
+        return select(v2_schema.sources.c.id).where(v2_schema.sources.c.org_id == self._org_id)
+
+    def _scoped_tables(self, query):
+        if self._org_id is None:
+            return query
+        return query.where(v2_schema.tables.c.source_id.in_(self._org_sources()))
 
     def _require_source(self, source_id: str) -> None:
         with self._engine.connect() as connection:
-            row = connection.execute(
-                select(v2_schema.sources.c.id).where(v2_schema.sources.c.id == source_id)
-            ).first()
+            query = select(v2_schema.sources.c.id).where(v2_schema.sources.c.id == source_id)
+            if self._org_id is not None:
+                query = query.where(v2_schema.sources.c.org_id == self._org_id)
+            row = connection.execute(query).first()
         if row is None:
             raise SourceNotFoundError(source_id)
 
@@ -145,7 +157,7 @@ class TablesService:
     def get(self, table_id: str) -> TableRecord:
         with self._engine.connect() as connection:
             row = (
-                connection.execute(select(v2_schema.tables).where(v2_schema.tables.c.id == table_id))
+                connection.execute(self._scoped_tables(select(v2_schema.tables).where(v2_schema.tables.c.id == table_id)))
                 .mappings()
                 .first()
             )
@@ -272,7 +284,7 @@ class TablesService:
             columns = tuple(key_columns)
         with self._engine.begin() as connection:
             row = (
-                connection.execute(select(v2_schema.tables).where(v2_schema.tables.c.id == table_id))
+                connection.execute(self._scoped_tables(select(v2_schema.tables).where(v2_schema.tables.c.id == table_id)))
                 .mappings()
                 .first()
             )
@@ -323,8 +335,7 @@ class TablesService:
         validated = _validate_discovered_columns(columns)
         with self._engine.begin() as connection:
             result = connection.execute(
-                update(v2_schema.tables)
-                .where(v2_schema.tables.c.id == table_id)
+                self._scoped_tables(update(v2_schema.tables).where(v2_schema.tables.c.id == table_id))
                 .values(discovered_columns=validated)
             )
             if result.rowcount == 0:

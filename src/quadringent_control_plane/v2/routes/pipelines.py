@@ -42,7 +42,7 @@ router = APIRouter(prefix="/v2/pipelines", tags=["pipelines"])
 
 
 def _service(request: Request) -> PipelinesService:
-    return PipelinesService(request.app.state.engine)
+    return PipelinesService(request.app.state.engine, org_id=request.app.state.org_id)
 
 
 def _confirmations_service(request: Request) -> ConfirmationsService:

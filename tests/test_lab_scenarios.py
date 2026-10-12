@@ -510,20 +510,17 @@ _XFAIL_ORG = (
 )
 
 
-@pytest.mark.xfail(strict=True, reason=_XFAIL_ORG)
 def test_scenario_18_pipelines_list_is_organization_scoped(lab_for):
     other = lab_for("cross_organization").session("other")
     ids = {item["id"] for item in other.get("/v2/pipelines").json()["items"]}
     assert ids == {fixtures.PIPELINE_OTHER_ORDERS}
 
 
-@pytest.mark.xfail(strict=True, reason=_XFAIL_ORG)
 def test_scenario_18_pipeline_detail_is_organization_scoped(lab_for):
     other = lab_for("cross_organization").session("other")
     assert other.get(f"/v2/pipelines/{fixtures.PIPELINE_ORDERS}").status_code == 404
 
 
-@pytest.mark.xfail(strict=True, reason=_XFAIL_ORG)
 def test_scenario_18_actions_cannot_target_another_organization(lab_for):
     lab = lab_for("cross_organization")
     # The main organization's operator tries to pause the other organization's pipeline.
@@ -532,7 +529,6 @@ def test_scenario_18_actions_cannot_target_another_organization(lab_for):
     assert lab.executor_events(fixtures.PIPELINE_OTHER_ORDERS) == []
 
 
-@pytest.mark.xfail(strict=True, reason=_XFAIL_ORG)
 def test_scenario_18_sources_are_organization_scoped(lab_for):
     other = lab_for("cross_organization").session("other")
     ids = {item["id"] for item in other.get("/v2/sources").json()["items"]}

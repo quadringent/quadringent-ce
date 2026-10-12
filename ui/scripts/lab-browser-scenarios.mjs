@@ -309,7 +309,7 @@ const checks = [
       assert.deepEqual(await ledger(base, 'pipeline_executor'), [], 'nothing runs before confirmation');
       await tabTo(page, 'Confirm');
       await page.keyboard.press('Enter');
-      await page.getByText('Effect verified by reading again.').waitFor();
+      await page.getByText('Declared state confirmed (paused). The effect on delivery is not observed.').waitFor();
       assert.equal((await ledger(base, 'pipeline_executor')).filter((e) => e.event === 'pause').length, 1);
       const reread = await page.evaluate(async (id) => (await (await fetch(`/v2/pipelines/${id}`)).json()).declared_state, ORDERS);
       assert.equal(reread, 'paused');
@@ -325,7 +325,9 @@ const checks = [
       assert.equal((await ledger(base, 'pipeline_executor')).filter((e) => e.event === 'restart_initial_copy').length, 0);
       await page.getByRole('button', { name: 'Approve', exact: true }).click();
       await page.getByRole('button', { name: 'Restart, now approved' }).click();
-      await page.getByText('Effect verified by reading again.').waitFor();
+      // CUSTOMERS was already copying: the restart ran once, but rereading the same
+      // declared state cannot confirm its effect, and the screen says so.
+      await page.getByText('The declared state was already "copying" before the action').waitFor();
       assert.equal((await ledger(base, 'pipeline_executor')).filter((e) => e.event === 'restart_initial_copy').length, 1);
     },
   },

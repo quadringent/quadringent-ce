@@ -17,7 +17,7 @@ class JsonCheckpointStoreTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             store.compare_and_set(JournalPosition('R1',9), JournalPosition('R1',30))
         self.assertEqual(client.put_calls[-1]['ExpressionAttributeValues'],
-                         {':receiver':{'S':'R1'}, ':sequence':{'N':'9'}})
+                         {':receiver':{'S':'R1'}, ':sequence':{'N':'9'}, ':legacy_format':{'S':'as400-checkpoint-v1'}})
         self.assertEqual(store.load(), JournalPosition('R1',20))
 
     def test_local_cas_allows_only_one_writer_for_the_same_predecessor(self):

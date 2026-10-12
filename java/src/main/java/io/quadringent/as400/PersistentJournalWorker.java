@@ -46,6 +46,18 @@ public final class PersistentJournalWorker {
                 if (isShutdown(trimmed)) {
                     break;
                 }
+                if (isReceiverIdentity(trimmed)) {
+                    try {
+                        active.emitReceiverIdentity(ReadOnlyReceiverIdentity.Request.fromFields(
+                                JournalSession.parseFlatJson(trimmed)), System.out);
+                        System.out.println("identity_done");
+                    }
+                    catch (Exception error) {
+                        System.out.println("identity_error=" + error.getClass().getSimpleName());
+                    }
+                    System.out.flush();
+                    continue;
+                }
                 if (isCatalog(trimmed)) {
                     try {
                         CatalogRequest request = catalogRequest(trimmed);
@@ -137,6 +149,15 @@ public final class PersistentJournalWorker {
         try {
             Map<String, String> fields = JournalSession.parseFlatJson(line);
             return "sql_window".equalsIgnoreCase(fields.get("cmd"));
+        }
+        catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isReceiverIdentity(String line) {
+        try {
+            return "receiver_identity".equals(JournalSession.parseFlatJson(line).get("cmd"));
         }
         catch (RuntimeException ignored) {
             return false;

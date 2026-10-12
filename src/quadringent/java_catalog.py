@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import dataclasses
 import os
+import re
 import subprocess
 import time
 from typing import Callable, Sequence
 
 from .continuous import ReceiverCatalog, ReceiverSnapshot
-from .java_worker import PersistentJavaWorker
+from .java_worker import PersistentJavaWorker, validate_receiver_identity_request
+from .receiver_identity import ReceiverIdentity
 
 
 CATALOG_HEADER = "as400-receiver-catalog-v2"
@@ -89,6 +91,38 @@ def parse_tail_output(output: str) -> ReceiverSnapshot | None:
         first_sequence=_optional_sequence(fields["first_sequence"]),
         last_sequence=_optional_sequence(fields["last_sequence"]),
     )
+
+
+def parse_receiver_identity_output(output: str, *, journal_library: str, journal_name: str,
+                                   receiver_library: str, receiver_name: str,
+                                   asp_number: int) -> ReceiverIdentity:
+    validate_receiver_identity_request(receiver_library=receiver_library,
+                                       receiver_name=receiver_name, asp_number=asp_number)
+    validate_receiver_identity_request(receiver_library=journal_library,
+                                       receiver_name=journal_name, asp_number=asp_number)
+    if not isinstance(output, str) or len(output) > 256:
+        raise ValueError("IBM i receiver identity output invalid")
+    lines = output.splitlines()
+    if len(lines) != 2 or lines[0] != "as400-receiver-identity-v1":
+        raise ValueError("IBM i receiver identity header or rows invalid")
+    fields = lines[1].split("\t")
+    if len(fields) != 9 or fields[:5] != ["identity", journal_library, journal_name,
+                                        receiver_library, receiver_name]:
+        raise ValueError("IBM i receiver identity scope differs")
+    values = []
+    for token in fields[5:]:
+        if re.fullmatch(r"(?:0|[1-9][0-9]*|-[1-9][0-9]*)", token) is None:
+            raise ValueError("IBM i receiver identity component invalid")
+        value = int(token)
+        if not -(2 ** 63) <= value < 2 ** 63:
+            raise ValueError("IBM i receiver identity component outside BIGINT")
+        values.append(value)
+    if values[0] != asp_number:
+        raise ValueError("IBM i receiver identity ASP differs")
+    return ReceiverIdentity(journal_library=journal_library, journal_name=journal_name,
+                            receiver_library=receiver_library, receiver_name=receiver_name,
+                            native_generation_kind="ibmi-ifs-object-v1",
+                            native_generation=":".join(str(value) for value in values))
 
 
 class JavaReceiverCatalog(ReceiverCatalog):
@@ -222,6 +256,21 @@ class WorkerReceiverCatalog:
             )
         except ValueError as error:
             raise RuntimeError("IBM i receiver catalog output invalid") from error
+
+    def identity(self, *, journal_library: str, journal_name: str, receiver_library: str,
+                 receiver_name: str, asp_number: int) -> ReceiverIdentity:
+        validate_receiver_identity_request(receiver_library=journal_library,
+                                           receiver_name=journal_name, asp_number=asp_number)
+        validate_receiver_identity_request(receiver_library=receiver_library,
+                                           receiver_name=receiver_name, asp_number=asp_number)
+        output = self.worker.receiver_identity(receiver_library=receiver_library,
+                                               receiver_name=receiver_name, asp_number=asp_number)
+        try:
+            return parse_receiver_identity_output(output, journal_library=journal_library,
+                                                 journal_name=journal_name, receiver_library=receiver_library,
+                                                 receiver_name=receiver_name, asp_number=asp_number)
+        except ValueError as error:
+            raise RuntimeError("IBM i receiver identity output invalid") from error
 
     def tail(self) -> ReceiverSnapshot | None:
         """Sonde bornee : uniquement le receiver ATTACHED du journal.

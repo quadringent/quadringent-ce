@@ -17,8 +17,17 @@ from pathlib import Path
 import re
 from typing import Any
 
+from .checkpoint import (
+    _bound_record,
+    _checkpoint_position,
+    _decode_checkpoint_json,
+    _legacy_record,
+    _parse_checkpoint_record,
+    _validate_bound_update,
+)
 from .contract import JournalPosition
 from .object_store import _read_bounded, _validate_read_budget
+from .receiver_identity import BoundCheckpoint
 from .source_gate import GATE_FORMAT_VERSION, SourceGatePolicy, _RevisionedSourceGate, _empty_record
 
 CHECKPOINT_FORMAT_VERSION = "as400-checkpoint-v1"
@@ -162,16 +171,14 @@ class _GenerationRecord:
                 # report a generation no writer can match, so CAS fails.
                 return self._reread()
             raise
-        record = json.loads(payload)
-        if not isinstance(record, dict):
-            raise ValueError("GCS record is not an object")
+        record = _decode_checkpoint_json(payload)
         return record, int(blob.generation)
 
     def _reread(self) -> tuple[dict[str, Any] | None, int]:
         blob = self._bucket.get_blob(self.name)
         if blob is None:
             return None, 0
-        record = json.loads(blob.download_as_bytes(if_generation_match=blob.generation))
+        record = _decode_checkpoint_json(blob.download_as_bytes(if_generation_match=blob.generation))
         return record, int(blob.generation)
 
     def write(self, record: dict[str, Any], expected_generation: int) -> bool:
@@ -214,20 +221,22 @@ class GcsCheckpointStore:
     def object_name(self) -> str:
         return self._record.name
 
-    def _read(self) -> tuple[JournalPosition | None, int]:
+    def _read_checkpoint(self) -> tuple[JournalPosition | BoundCheckpoint | None, int]:
         record, generation = self._record.read()
         if record is None:
             return None, 0
         try:
-            if record.get("stream_id") != self.stream_key:
+            if type(record.get("stream_id")) is not str or record["stream_id"] != self.stream_key:
                 raise KeyError("stream_id")
-            return JournalPosition(receiver=str(record["receiver"]),
-                                   sequence=int(record["sequence"])), generation
+            return _parse_checkpoint_record({key: value for key, value in record.items() if key != "stream_id"}), generation
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError("invalid GCS checkpoint record") from error
 
     def load(self) -> JournalPosition | None:
-        return self._read()[0]
+        return _checkpoint_position(self._read_checkpoint()[0])
+
+    def load_bound(self) -> BoundCheckpoint | None:
+        return _bound_record(self._read_checkpoint()[0])
 
     def commit(self, position: JournalPosition) -> None:
         previous = self.load()
@@ -251,11 +260,21 @@ class GcsCheckpointStore:
     def compare_and_set(self, previous: JournalPosition | None, position: JournalPosition) -> None:
         if previous is not None and previous.receiver == position.receiver and position.sequence < previous.sequence:
             raise ValueError("checkpoint moved backwards")
-        current, generation = self._read()
+        current, generation = self._read_checkpoint()
+        if isinstance(current, BoundCheckpoint):
+            raise ValueError("legacy checkpoint write cannot overwrite bound checkpoint v2")
         if current != previous:
             raise RuntimeError("checkpoint compare-and-set conflict")
-        record = {"format_version": CHECKPOINT_FORMAT_VERSION, "stream_id": self.stream_key,
-                  "receiver": position.receiver, "sequence": position.sequence}
+        record = {**_legacy_record(position), "stream_id": self.stream_key}
+        if not self._record.write(record, generation):
+            raise RuntimeError("checkpoint compare-and-set conflict")
+
+    def compare_and_set_bound(self, previous: BoundCheckpoint | None, candidate: BoundCheckpoint) -> None:
+        _validate_bound_update(previous, candidate)
+        current, generation = self._read_checkpoint()
+        if _bound_record(current) != previous:
+            raise RuntimeError("checkpoint compare-and-set conflict")
+        record = {**candidate.to_dict(), "stream_id": self.stream_key}
         if not self._record.write(record, generation):
             raise RuntimeError("checkpoint compare-and-set conflict")
 

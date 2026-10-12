@@ -320,6 +320,13 @@ success. The reader rechecks status, library and bounds after the scan, before
 RAW/receipts/checkpoint publication; required metadata never uses a stale fallback.
 These checks do not establish durable receiver-generation identity: replacement
 under the same name with identical bounds remains a separate, unqualified gap.
+The checkpoint-v2 storage APIs retain scope, capture epoch, journal/library and
+native receiver generation under full-envelope CAS; v1 cannot be adopted or v2
+rewritten by legacy writers. A separate worker lookup reads the IBM i IFS object
+identity triplet for an exact receiver path, currently requiring system ASP 1.
+These building blocks are not yet wired into continuous capture or initial-copy
+boundaries. Runtime/RAW/receipt propagation, historical name reservations and
+native append/recreation/restore stability remain required before activation.
 A nine-result sentinel fails.
 Read each segment separately under the aggregate 1,000-entry budget. Decoded images
 and independent ROWPOS must cover exactly the same positions. Retain/revalidate

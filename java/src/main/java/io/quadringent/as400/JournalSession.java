@@ -167,6 +167,12 @@ public final class JournalSession implements AutoCloseable {
         return settings.schema();
     }
 
+    public void emitReceiverIdentity(ReadOnlyReceiverIdentity.Request request, PrintStream out)
+            throws Exception {
+        ReadOnlyReceiverIdentity.writeIdentity(
+                jdbc, journal.journalLibrary(), journal.journalName(), request, out);
+    }
+
     public void emitTail(PrintStream out) throws Exception {
         ReadOnlyReceiverCatalog.writeTail(jdbc, journal.journalLibrary(), journal.journalName(), out);
     }

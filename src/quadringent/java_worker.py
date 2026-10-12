@@ -221,6 +221,14 @@ class LinePump:
 
 
 
+def validate_receiver_identity_request(*, receiver_library: str, receiver_name: str, asp_number: int) -> None:
+    for value in (receiver_library, receiver_name):
+        if not isinstance(value, str) or re.fullmatch(r"[A-Z0-9_$#@]{1,10}", value) is None:
+            raise ValueError("invalid IBM i system identifier")
+    if type(asp_number) is not int or asp_number != 1:
+        raise ValueError("only explicit system ASP 1 is supported")
+
+
 class PersistentJavaWorker:
     """One JVM for catalog and journal windows; AS400/JDBC stay open."""
 
@@ -352,6 +360,29 @@ class PersistentJavaWorker:
                 error_prefix="probe_error=",
                 failure="IBM i source probe failed",
             )
+        except Exception:
+            self._kill_worker()
+            raise
+
+    def receiver_identity(self, *, receiver_library: str, receiver_name: str, asp_number: int) -> str:
+        validate_receiver_identity_request(receiver_library=receiver_library,
+                                           receiver_name=receiver_name, asp_number=asp_number)
+        deadline = time.monotonic() + self.timeout_seconds
+        process = self._ensure_worker()
+        try:
+            self._write(process, {"cmd": "receiver_identity", "receiver_library": receiver_library,
+                                  "receiver_name": receiver_name, "asp_number": asp_number})
+            lines = []
+            for _ in range(3):
+                line = self._readline(process, deadline)
+                if line.startswith("identity_error="):
+                    raise RuntimeError("IBM i receiver identity lookup failed")
+                if line.strip() == "identity_done":
+                    if len(lines) != 2:
+                        raise RuntimeError("IBM i receiver identity output invalid")
+                    return "".join(lines)
+                lines.append(line)
+            raise RuntimeError("IBM i receiver identity output overflow")
         except Exception:
             self._kill_worker()
             raise

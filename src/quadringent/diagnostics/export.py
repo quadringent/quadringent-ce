@@ -47,7 +47,7 @@ _ENUMS = {
     "tool": frozenset({"terraform", "helm", "kubectl", "aws", "session-manager-plugin", "gcloud"}),
 }
 _BOOLEANS = frozenset({"found", "custom_ca"})
-_NUMBERS = frozenset({"port", "event_count", "lag_seconds", "duplicate_count", "status_code"})
+_NUMBERS = frozenset({"port", "event_count", "lag_seconds", "duplicate_count", "status_code", "pipeline_count"})
 _SOFTWARE_DISTRIBUTIONS = frozenset({"wheel", "installed", "checkout", "control-plane"})
 # Provenance values come from the producers; anything else is replaced.
 _PROVENANCES = frozenset({

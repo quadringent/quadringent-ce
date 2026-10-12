@@ -87,7 +87,7 @@ class DiagnosticsService:
                 summary=f"Only {len(pipelines)} of {total_pipelines} pipelines are diagnosed in this report.",
                 next_action="Read one pipeline at a time with ?pipeline_id= (or doctor --pipeline-id).",
                 limits="The report is bounded; pipelines beyond the limit were not read.",
-                evidence={"event_count": total_pipelines},
+                evidence={"pipeline_count": total_pipelines},
             ))
         for row in sources:
             results.extend(self._source_results(row, now))

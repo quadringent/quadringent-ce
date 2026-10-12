@@ -254,6 +254,7 @@ def test_large_organizations_get_a_bounded_report_that_says_it_is_partial(engine
     assert response.status_code == 200
     truncated = by_code(response.json(), "control_plane.report_truncated")
     assert truncated and truncated[0]["status"] == "unknown" and "pipeline_id" in truncated[0]["next_action"]
+    assert truncated[0]["evidence"] == {"pipeline_count": 121}
     assert response.json()["overall"]["status"] != "ready"
     assert client.get("/v2/diagnostics/export").status_code == 200
 

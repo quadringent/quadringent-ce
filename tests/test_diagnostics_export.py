@@ -268,3 +268,20 @@ def test_subject_labels_and_fixed_refs_leave_only_in_known_shapes():
     assert subjects[4]["label"] is None
     reasons = {o["field"]: o["reason"] for o in json.loads(bundle.files["manifest.json"])["omitted"]}
     assert "local_config.cloud_credentials.subject.label" in reasons and "local_tools.custom.subject.ref" in reasons
+
+
+def test_keeping_identifiers_never_keeps_free_text_labels():
+    def item(code, subject):
+        return DiagnosticResult(code=code, layer="network", status="failed", required=True, observed_at=NOW,
+                                provenance="probe:tcp", summary="s", next_action="a", limits="l", subject=subject)
+
+    report = DiagnosticReport(
+        generated_at=NOW, scope="local", synthetic=False, software={"product": "quadringent"},
+        results=(item("network.tcp.signon", Subject("host", "ibmi.synthetic.invalid", "reader fictional-7731")),
+                 item("local_config.cloud_credentials", Subject("tool", "aws", "profile fictional-7731"))),
+    )
+    bundle = build_export(report, keep_identifiers=True)
+    exported = "\n".join(content.decode() for content in bundle.files.values())
+    assert "fictional-7731" not in exported and "ibmi.synthetic.invalid" in exported
+    reasons = {o["field"]: o["reason"] for o in json.loads(bundle.files["manifest.json"])["omitted"]}
+    assert reasons["network.tcp.signon.subject.label"] == "free-text label not exported"

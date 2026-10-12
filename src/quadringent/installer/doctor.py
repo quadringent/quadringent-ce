@@ -210,9 +210,17 @@ def run_doctor(args, runner: CommandRunner, stdout: TextIO, *, environ: Mapping[
         return EXIT_USAGE
     ibmi_options = {"--tls": args.tls, "--ibmi-ca-file": args.ibmi_ca_file, "--database-port": args.database_port,
                     "--signon-port": args.signon_port, "--command-port": args.command_port}
-    orphans = [name for name, value in ibmi_options.items() if value not in (None, False)]
+    orphans = [name for name, value in ibmi_options.items() if value is not None and value is not False]
     if orphans and not args.check_ibmi:
         print(f"{', '.join(orphans)} only apply with --check-ibmi HOST; nothing was checked", file=stdout)
+        return EXIT_USAGE
+    if args.pipeline_id is not None and not args.control_plane:
+        print("--pipeline-id only applies with --control-plane; nothing was checked", file=stdout)
+        return EXIT_USAGE
+    collection = [name for name, value in (("--check-ibmi", args.check_ibmi), ("--cloud", args.cloud),
+                                           ("--control-plane", args.control_plane)) if value]
+    if args.from_report and collection:
+        print(f"--from-report reuses a saved report; {', '.join(collection)} would not be run", file=stdout)
         return EXIT_USAGE
     if args.from_report:
         try:

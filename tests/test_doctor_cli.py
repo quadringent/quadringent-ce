@@ -208,3 +208,25 @@ def test_ibmi_options_without_a_host_are_a_usage_error_not_a_silent_no_op(tmp_pa
     code, output, _ = doctor(argv, tmp_path=tmp_path)
     assert code == 2 and "--check-ibmi" in output
     assert Refuse.calls == 0
+
+
+@pytest.mark.parametrize("argv", [["--database-port", "0"], ["--command-port", "19475"], ["--pipeline-id", "p-1"]])
+def test_more_orphan_options_are_usage_errors(tmp_path, argv):
+    code, output, _ = doctor(argv, tmp_path=tmp_path)
+    assert code == 2 and ("--check-ibmi" in output or "--control-plane" in output)
+
+
+def test_ibmi_options_with_a_host_are_accepted(tmp_path):
+    code, output, _ = doctor(["--json", "--check-ibmi", "ibmi.synthetic.invalid", "--signon-port", "19476",
+                              "--database-port", "19471", "--command-port", "19475"], tmp_path=tmp_path)
+    assert code == 1 and parse_report(json.loads(output))
+
+
+@pytest.mark.parametrize("extra", [["--check-ibmi", "ibmi.synthetic.invalid"], ["--cloud", "aws"], ["--control-plane"]])
+def test_a_saved_report_is_never_mixed_with_new_checks(tmp_path, extra):
+    saved = tmp_path / "saved.json"
+    _, output, _ = doctor(["--json"], tmp_path=tmp_path)
+    saved.write_text(output, encoding="utf-8")
+    Refuse.calls = 0
+    code, output, _ = doctor(["--from-report", str(saved), *extra], tmp_path=tmp_path)
+    assert code == 2 and "--from-report" in output and Refuse.calls == 0

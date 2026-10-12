@@ -100,6 +100,7 @@ def history_row(record,columns,library,table):
 
 def receiver_windows(boundary,checkpoint,catalog,args):
     """Conserve l’ordre SQL source ; aucune chaîne déduite des noms ou de l’horloge."""
+    from quadringent.continuous import require_receiver_link
     from quadringent.java_catalog import parse_catalog_output
     if (not isinstance(catalog,dict) or catalog.get('kind')!='ibmi-source-receiver-catalog' or
         catalog.get('journal_library')!=args.journal_library or catalog.get('journal_name')!=args.journal_name or
@@ -117,6 +118,8 @@ def receiver_windows(boundary,checkpoint,catalog,args):
         raise ValueError("catalog not bound to the admitted bytes/JAR and runtime")
     rows=parse_catalog_output(output)
     if not 1<=len(rows)<=8:raise ValueError("receiver chain over budget or truncated")
+    if len(rows)>1 and not rows[0].chain_links_observed:
+        raise ValueError("native receiver links required for multi-receiver qualification")
     if type(boundary.get('last_sequence'))is not int or boundary['last_sequence']<0:raise ValueError("initial boundary absent")
     names=set();previous=None;windows=[];budget=0
     for index,row in enumerate(rows):
@@ -125,6 +128,8 @@ def receiver_windows(boundary,checkpoint,catalog,args):
             re.fullmatch(r'[A-Z0-9_$#@]{1,10}',library) is None or
             type(first)is not int or type(last)is not int or not 1<=first<=last):raise ValueError("incomplete or duplicate receiver")
         if previous is not None and first!=previous+1:raise ValueError("receiver chain gap or reset")
+        if index and row.chain_links_observed:
+            require_receiver_link(rows[index-1],row)
         names.add(name);previous=last
         if index==0 and (name!=boundary.get('receiver_name') or library!=boundary.get('receiver_library')):
             raise ValueError("initial receiver not anchored in the copy")

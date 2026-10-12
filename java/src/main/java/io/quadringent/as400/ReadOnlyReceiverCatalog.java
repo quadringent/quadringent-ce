@@ -27,7 +27,7 @@ import com.ibm.as400.access.SecureAS400;
  * sorted lexically. Output contains only receiver metadata and no row data.
  */
 public final class ReadOnlyReceiverCatalog {
-    private static final String HEADER = "as400-receiver-catalog-v1";
+    private static final String HEADER = "as400-receiver-catalog-v2";
     private static final String OBJECT_HEADER = "as400-object-catalog-v1";
 
     private ReadOnlyReceiverCatalog() {
@@ -116,7 +116,11 @@ public final class ReadOnlyReceiverCatalog {
                            JOURNAL_RECEIVER_NAME,
                            STATUS,
                            FIRST_SEQUENCE_NUMBER,
-                           LAST_SEQUENCE_NUMBER
+                           LAST_SEQUENCE_NUMBER,
+                           PREVIOUS_JOURNAL_RECEIVER_LIBRARY,
+                           PREVIOUS_JOURNAL_RECEIVER,
+                           NEXT_JOURNAL_RECEIVER_LIBRARY,
+                           NEXT_JOURNAL_RECEIVER
                       FROM QSYS2.JOURNAL_RECEIVER_INFO
                      WHERE JOURNAL_LIBRARY = ?
                        AND JOURNAL_NAME = ?
@@ -130,7 +134,11 @@ public final class ReadOnlyReceiverCatalog {
                            JOURNAL_RECEIVER_NAME,
                            STATUS,
                            FIRST_SEQUENCE_NUMBER,
-                           LAST_SEQUENCE_NUMBER
+                           LAST_SEQUENCE_NUMBER,
+                           PREVIOUS_JOURNAL_RECEIVER_LIBRARY,
+                           PREVIOUS_JOURNAL_RECEIVER,
+                           NEXT_JOURNAL_RECEIVER_LIBRARY,
+                           NEXT_JOURNAL_RECEIVER
                       FROM QSYS2.JOURNAL_RECEIVER_INFO
                      WHERE JOURNAL_LIBRARY = ?
                        AND JOURNAL_NAME = ?
@@ -167,7 +175,11 @@ public final class ReadOnlyReceiverCatalog {
                             required(result.getString("JOURNAL_RECEIVER_NAME")),
                             optional(result.getString("STATUS")),
                             optional(result.getBigDecimal("FIRST_SEQUENCE_NUMBER")),
-                            optional(result.getBigDecimal("LAST_SEQUENCE_NUMBER"))));
+                            optional(result.getBigDecimal("LAST_SEQUENCE_NUMBER")),
+                            optional(result.getString("PREVIOUS_JOURNAL_RECEIVER_LIBRARY")),
+                            optional(result.getString("PREVIOUS_JOURNAL_RECEIVER")),
+                            optional(result.getString("NEXT_JOURNAL_RECEIVER_LIBRARY")),
+                            optional(result.getString("NEXT_JOURNAL_RECEIVER"))));
                 }
             }
         }
@@ -175,12 +187,16 @@ public final class ReadOnlyReceiverCatalog {
         out.println(HEADER);
         for (int index = newestFirst.size() - 1; index >= 0; index--) {
             Receiver receiver = newestFirst.get(index);
-            out.printf("receiver\t%s\t%s\t%s\t%s\t%s%n",
+            out.printf("receiver\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s%n",
                     token(receiver.library()),
                     token(receiver.name()),
                     token(receiver.status()),
                     token(receiver.firstSequence()),
-                    token(receiver.lastSequence()));
+                    token(receiver.lastSequence()),
+                    token(receiver.previousLibrary()),
+                    token(receiver.previousName()),
+                    token(receiver.nextLibrary()),
+                    token(receiver.nextName()));
         }
     }
 
@@ -346,7 +362,11 @@ public final class ReadOnlyReceiverCatalog {
             String name,
             String status,
             String firstSequence,
-            String lastSequence) {
+            String lastSequence,
+            String previousLibrary,
+            String previousName,
+            String nextLibrary,
+            String nextName) {
     }
 
     private record Settings(

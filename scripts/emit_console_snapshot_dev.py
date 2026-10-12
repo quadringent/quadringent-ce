@@ -71,8 +71,12 @@ class SimulatedJournal:
         # Deux receivers contigus, sans trou de séquence : le franchissement
         # doit passer par un CAS sur le prédécesseur exact, comme en vrai.
         return [
-            ReceiverSnapshot("DEVLIB", FIRST_RECEIVER, 0, ROTATION_SEQUENCE),
-            ReceiverSnapshot("DEVLIB", SECOND_RECEIVER, ROTATION_SEQUENCE + 1, self.tail),
+            ReceiverSnapshot("DEVLIB", FIRST_RECEIVER, 0, ROTATION_SEQUENCE,
+                             next_receiver_library="DEVLIB", next_receiver=SECOND_RECEIVER,
+                             chain_links_observed=True),
+            ReceiverSnapshot("DEVLIB", SECOND_RECEIVER, ROTATION_SEQUENCE + 1, self.tail,
+                             previous_receiver_library="DEVLIB", previous_receiver=FIRST_RECEIVER,
+                             chain_links_observed=True),
         ]
 
     def capture(self, window) -> CapturedWindow:

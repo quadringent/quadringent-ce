@@ -303,13 +303,18 @@ retained_history_data_qualified=true never implies native_cdc_qualified=true.
 
 ## Receiver rotation oracle
 
-receiver-catalog retains original as400-receiver-catalog-v1 stdout, its SHA256,
+receiver-catalog retains original as400-receiver-catalog-v2 stdout, its SHA256,
 the actual JAR SHA and admitted reader UID/image bindings in
 ibmi-source-receiver-catalog. Preserve query order; invent no lexical/timestamp order.
 
 Coverage from an old copy boundary to a new receiver checkpoint requires observed
 contiguous bounds, first(next)=last(previous)+1, the exact initial receiver and
-last attached receiver, with at most eight receivers. A nine-result sentinel fails.
+last attached receiver, with at most eight receivers. The v2 catalog also requires
+reciprocal native previous/next receiver identities, including their libraries.
+Historical v1 catalogs remain readable without fabricating those links; current
+multi-receiver and rotation qualification refuses them. Original historical
+verdicts remain tied to their original source and artifacts.
+A nine-result sentinel fails.
 Read each segment separately under the aggregate 1,000-entry budget. Decoded images
 and independent ROWPOS must cover exactly the same positions. Retain/revalidate
 RAW/ROWPOS bytes, original catalog and bindings.
@@ -326,13 +331,16 @@ Pause/resume/crash still cover a same-receiver window, including after a prior r
 Sequence reset, missing bounds, omitted chain or foreign scope fails; a new copy
 must never hide loss.
 
-The continuous reader also refuses sequence resets: available sequence bounds
-and attach order cannot prove that no intermediate receiver was deleted.
-It retains the checkpoint and requires operator review; a new copy establishes
+The continuous reader requires reciprocal native links for every receiver
+transition. It accepts a sequence reset to 1 only when those links match;
+overlapping bounds, absent links or an omitted receiver stop checkpoint advancement.
+An old v1 catalog can support reads within a receiver, but cannot prove a transition.
+RESET remains outside the native rotation qualification above; synthetic tests
+do not qualify a live installation. A new copy establishes
 a new boundary and does not recover or certify the missing history. Preserve
 the original checkpoint and receiver backups before any recovery decision.
-This guard is a source correction after v0.3.5; the original v0.3.5 release
-artifacts do not contain it.
+These guards are source corrections after v0.3.5; the original v0.3.5 release
+artifacts do not contain them.
 
 ## SQL history mode
 

@@ -375,6 +375,22 @@ class PersistentJavaWorkerTests(unittest.TestCase):
         receivers = parse_catalog_output(CATALOG_OUTPUT)
         self.assertEqual(receivers[0].last_sequence, 110)
 
+    def test_worker_catalog_preserves_native_receiver_links(self) -> None:
+        output = (
+            "as400-receiver-catalog-v2\n"
+            "receiver\tQGPL\tR2\tONLINE\t100\t110\t-\t-\tQGPL\tR10\n"
+            "receiver\tQGPL\tR10\tATTACHED\t111\t140\tQGPL\tR2\t-\t-\n"
+        )
+        process = ScriptedProcess([
+            ["worker_ready\n"], output.splitlines(keepends=True) + ["catalog_done\n"],
+        ])
+        with patch("quadringent.java_worker.subprocess.Popen", return_value=process):
+            worker = _worker(self)
+            old, new = WorkerReceiverCatalog(worker).snapshot()
+        self.assertTrue(old.chain_links_observed and new.chain_links_observed)
+        self.assertEqual((old.next_receiver_library, old.next_receiver), ("QGPL", "R10"))
+        self.assertEqual((new.previous_receiver_library, new.previous_receiver), ("QGPL", "R2"))
+
     def test_blocked_window_times_out_without_window_done(self) -> None:
         """A worker that stops answering must raise inside the reader deadline.
 

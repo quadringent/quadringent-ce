@@ -137,8 +137,8 @@ def _fake_java(tmp_path: Path) -> Path:
     script = tmp_path / "fake-java.py"
     script.write_text(
         "#!/usr/bin/env python3\n"
-        "print('as400-receiver-catalog-v1')\n"
-        "print('receiver\\tQGPL\\tRCV0001\\tATTACHED\\t1\\t4200')\n",
+        "print('as400-receiver-catalog-v2')\n"
+        "print('receiver\\tQGPL\\tRCV0001\\tATTACHED\\t1\\t4200\\t-\\t-\\t-\\t-')\n",
         encoding="utf-8",
     )
     script.chmod(script.stat().st_mode | stat.S_IEXEC)

@@ -81,8 +81,10 @@ class FakeRunner:
 class ContinuousCaptureTests(unittest.TestCase):
     def test_planner_uses_explicit_receiver_order_for_rotation(self) -> None:
         receivers = [
-            ReceiverSnapshot("QGPL", "R2", 100, 110),
-            ReceiverSnapshot("QGPL", "R10", 111, 130),
+            ReceiverSnapshot("QGPL", "R2", 100, 110, next_receiver_library="QGPL",
+                             next_receiver="R10", chain_links_observed=True),
+            ReceiverSnapshot("QGPL", "R10", 111, 130, previous_receiver_library="QGPL",
+                             previous_receiver="R2", chain_links_observed=True),
         ]
 
         plan = plan_next_window(
@@ -114,7 +116,7 @@ class ContinuousCaptureTests(unittest.TestCase):
                     ReceiverSnapshot("QGPL", "R1", 100, 110),
                     ReceiverSnapshot("QGPL", "R2", first, 130),
                 ]
-                with self.assertRaisesRegex(ReceiverPlanningError, "reset.*continuity"):
+                with self.assertRaisesRegex(ReceiverPlanningError, "reset.*continuity|sequence overlap"):
                     plan_next_window(JournalPosition("R1", 110), receivers, max_entries=10)
 
     def test_missing_receiver_before_a_reset_does_not_advance_checkpoint(self) -> None:
@@ -281,9 +283,13 @@ class ContinuousCaptureTests(unittest.TestCase):
 
     def test_transition_into_attached_receiver_reads_its_last_sequence(self) -> None:
         receivers = [
-            ReceiverSnapshot("L", "R1", 1, 161, status="ONLINE"),
-            ReceiverSnapshot("L", "R2", 162, 168, status="ONLINE"),
-            ReceiverSnapshot("L", "R3", 169, 169, status="ATTACHED"),
+            ReceiverSnapshot("L", "R1", 1, 161, status="ONLINE", next_receiver_library="L",
+                             next_receiver="R2", chain_links_observed=True),
+            ReceiverSnapshot("L", "R2", 162, 168, status="ONLINE", previous_receiver_library="L",
+                             previous_receiver="R1", next_receiver_library="L", next_receiver="R3",
+                             chain_links_observed=True),
+            ReceiverSnapshot("L", "R3", 169, 169, status="ATTACHED", previous_receiver_library="L",
+                             previous_receiver="R2", chain_links_observed=True),
         ]
         plan = plan_next_window(JournalPosition("R2", 168), receivers, max_entries=50)
         self.assertIsNotNone(plan)
@@ -550,8 +556,10 @@ class ContinuousCaptureTests(unittest.TestCase):
             service = ContinuousCaptureService(
                 FakeCatalog(
                     [
-                        ReceiverSnapshot("QGPL", "R2", 100, 110),
-                        ReceiverSnapshot("QGPL", "R10", 111, 120),
+                        ReceiverSnapshot("QGPL", "R2", 100, 110, next_receiver_library="QGPL",
+                                         next_receiver="R10", chain_links_observed=True),
+                        ReceiverSnapshot("QGPL", "R10", 111, 120, previous_receiver_library="QGPL",
+                                         previous_receiver="R2", chain_links_observed=True),
                     ]
                 ),
                 runner,

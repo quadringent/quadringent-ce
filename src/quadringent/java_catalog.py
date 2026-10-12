@@ -10,7 +10,8 @@ from .continuous import ReceiverCatalog, ReceiverSnapshot
 from .java_worker import PersistentJavaWorker
 
 
-CATALOG_HEADER = "as400-receiver-catalog-v1"
+CATALOG_HEADER = "as400-receiver-catalog-v2"
+LEGACY_CATALOG_HEADER = "as400-receiver-catalog-v1"
 TAIL_LINE_PREFIX = "tail "
 
 
@@ -23,16 +24,18 @@ def parse_catalog_output(output: str) -> tuple[ReceiverSnapshot, ...]:
     """
 
     lines = [line for line in output.splitlines() if line.strip()]
-    if not lines or lines[0].strip() != CATALOG_HEADER:
+    if not lines or lines[0].strip() not in (CATALOG_HEADER, LEGACY_CATALOG_HEADER):
         raise ValueError("IBM i receiver catalog header is invalid")
+    links_observed = lines[0].strip() == CATALOG_HEADER
 
     result: list[ReceiverSnapshot] = []
     identities: set[tuple[str, str]] = set()
     for line in lines[1:]:
         fields = line.split("\t")
-        if len(fields) != 6 or fields[0] != "receiver":
+        if len(fields) != (10 if links_observed else 6) or fields[0] != "receiver":
             raise ValueError("IBM i receiver catalog row is malformed")
-        _, receiver_library, receiver, status, first, last = fields
+        _, receiver_library, receiver, status, first, last = fields[:6]
+        links = [None if value == "-" else value for value in fields[6:]]
         identity = (receiver_library, receiver)
         if identity in identities:
             raise ValueError("IBM i receiver catalog contains a duplicate")
@@ -44,6 +47,11 @@ def parse_catalog_output(output: str) -> tuple[ReceiverSnapshot, ...]:
                 status=None if status == "-" else status,
                 first_sequence=_optional_sequence(first),
                 last_sequence=_optional_sequence(last),
+                previous_receiver_library=links[0] if links_observed else None,
+                previous_receiver=links[1] if links_observed else None,
+                next_receiver_library=links[2] if links_observed else None,
+                next_receiver=links[3] if links_observed else None,
+                chain_links_observed=links_observed,
             )
         )
     return tuple(result)

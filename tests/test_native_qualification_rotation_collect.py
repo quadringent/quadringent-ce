@@ -11,7 +11,7 @@ def fixture():
     boundary={'receiver_name':'R1','receiver_library':'S','last_sequence':10}
     checkpoint={'receiver':'R2','sequence':15}
     catalog={'kind':'ibmi-source-receiver-catalog',**{k:getattr(args,k) for k in collect.SCOPE},'journal_library':'S','journal_name':'J',
-             'observed_utc':'2026-10-05T00:01:00Z','output':'as400-receiver-catalog-v1\nreceiver\tS\tR1\tONLINE\t1\t12\nreceiver\tS\tR2\tATTACHED\t13\t15\n'}
+             'observed_utc':'2026-10-05T00:01:00Z','output':'as400-receiver-catalog-v2\nreceiver\tS\tR1\tONLINE\t1\t12\t-\t-\tS\tR2\nreceiver\tS\tR2\tATTACHED\t13\t15\tS\tR1\t-\t-\n'}
     catalog.update(output_sha256=hashlib.sha256(catalog['output'].encode()).hexdigest(),jar_sha256='a'*64,reader={'uid':'deployment','pod_uid':'pod','image_binding':{'verified':True,'index':args.capture_digest,'observed_digest':args.capture_digest}})
     return args,boundary,checkpoint,catalog
 
@@ -37,7 +37,7 @@ def test_rotation_chain_refuses_ambiguous_or_incomplete_catalog(change):
     elif change=='budget':catalog['output']=catalog['output'].replace('15','1015');checkpoint['sequence']=1015
     elif change=='checkpoint':checkpoint['receiver']='unobserved'
     elif change=='detached':catalog['output']=catalog['output'].replace('ATTACHED','ONLINE')
-    else:catalog['output']=lines[0]+'\n'+''.join(f'receiver\tS\tR{i}\tONLINE\t{i*10}\t{i*10+9}\n' for i in range(1,10))
+    else:catalog['output']=lines[0]+'\n'+''.join(f'receiver\tS\tR{i}\tONLINE\t{i*10}\t{i*10+9}\t-\t-\t-\t-\n' for i in range(1,10))
     if change not in ('foreign','checkpoint'):catalog['output_sha256']=hashlib.sha256(catalog['output'].encode()).hexdigest()
     with pytest.raises(ValueError):collect.receiver_windows(boundary,checkpoint,catalog,args)
 

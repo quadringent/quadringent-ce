@@ -78,7 +78,10 @@ class ContinuousReceiptTests(unittest.TestCase):
                 checkpoint=JsonCheckpointStore(root/'checkpoint.json')
                 checkpoint.commit(JournalPosition('R1',9))
                 receiver='R2' if rotated else 'R1'
-                catalog=FakeCatalog([ReceiverSnapshot('QGPL','R1',1,9),ReceiverSnapshot('QGPL','R2',10,20)] if rotated else [ReceiverSnapshot('QGPL','R1',1,20)])
+                catalog=FakeCatalog([
+                    ReceiverSnapshot('QGPL','R1',1,9,next_receiver_library='QGPL',next_receiver='R2',chain_links_observed=True),
+                    ReceiverSnapshot('QGPL','R2',10,20,previous_receiver_library='QGPL',previous_receiver='R1',chain_links_observed=True),
+                ] if rotated else [ReceiverSnapshot('QGPL','R1',1,20)])
                 end=JournalPosition(receiver,19)
                 manifest,payload=(None,None) if empty else raw_bytes(root/'input',receiver=receiver,sequence=12,high_watermark=end)
                 stamp=datetime(2026,9,9,12,tzinfo=UTC)

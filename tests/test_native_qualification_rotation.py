@@ -29,8 +29,8 @@ def fixture():
     rotation = {**scope, 'journal_library':'S', 'journal_name':'J', 'kind': 'ibmi-journal-rotation-ack', 'attempts': 1, 'acknowledged': True, 'sequence_option': 'CONT',
                 'write_started_utc': '2026-09-30T10:00:01+00:00', 'write_ack_utc': '2026-09-30T10:00:02+00:00'}
     catalog = {**scope, 'kind': 'ibmi-source-receiver-catalog', 'journal_library': 'S', 'journal_name': 'J'}
-    cb = {**catalog, 'observed_utc': before['observed_utc'], 'output': 'as400-receiver-catalog-v1\nreceiver\tS\tR1\tATTACHED\t1\t10\n'}
-    ca = {**catalog, 'observed_utc': '2026-09-30T10:00:02+00:00', 'output': 'as400-receiver-catalog-v1\nreceiver\tS\tR1\tDETACHED\t1\t10\nreceiver\tS\tR2\tATTACHED\t11\t11\n'}
+    cb = {**catalog, 'observed_utc': before['observed_utc'], 'output': 'as400-receiver-catalog-v2\nreceiver\tS\tR1\tATTACHED\t1\t10\t-\t-\t-\t-\n'}
+    ca = {**catalog, 'observed_utc': '2026-09-30T10:00:02+00:00', 'output': 'as400-receiver-catalog-v2\nreceiver\tS\tR1\tDETACHED\t1\t10\t-\t-\tS\tR2\nreceiver\tS\tR2\tATTACHED\t11\t11\tS\tR1\t-\t-\n'}
     for catalog,snapshot in ((cb,before),(ca,after)):
         catalog.update(output_sha256=hashlib.sha256(catalog['output'].encode()).hexdigest(),jar_sha256='c'*64,reader=deepcopy(snapshot['reader']))
     return before, after, {'rotation': rotation, 'catalog_before': cb, 'catalog_after': ca,

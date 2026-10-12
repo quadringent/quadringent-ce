@@ -48,10 +48,25 @@ class ReceiverSnapshot:
     first_sequence: int | None
     last_sequence: int | None
     status: str | None = None
+    previous_receiver_library: str | None = None
+    previous_receiver: str | None = None
+    next_receiver_library: str | None = None
+    next_receiver: str | None = None
+    chain_links_observed: bool = False
 
     def __post_init__(self) -> None:
         if not self.receiver_library.strip() or not self.receiver.strip():
             raise ValueError("receiver identity must not be empty")
+        if type(self.chain_links_observed) is not bool:
+            raise ValueError("receiver link observation must be a boolean")
+        for library, receiver in (
+            (self.previous_receiver_library, self.previous_receiver),
+            (self.next_receiver_library, self.next_receiver),
+        ):
+            if (library is None) != (receiver is None):
+                raise ValueError("receiver link identity is incomplete")
+            if any(value is not None and not value.strip() for value in (library, receiver)):
+                raise ValueError("receiver link identity must not be empty")
         if self.first_sequence is not None and self.first_sequence < 0:
             raise ValueError("receiver first sequence must be non-negative")
         if self.last_sequence is not None and self.last_sequence < 0:
@@ -300,6 +315,19 @@ class WindowRunner(Protocol):
         """Read one bounded window without advancing the durable checkpoint."""
 
 
+def require_receiver_link(current: ReceiverSnapshot, following: ReceiverSnapshot) -> None:
+    """Require reciprocal native identities before crossing a receiver boundary."""
+    if not current.chain_links_observed or not following.chain_links_observed:
+        raise ReceiverPlanningError("native receiver links are missing; operator review required")
+    if (
+        (current.next_receiver_library, current.next_receiver)
+        != (following.receiver_library, following.receiver)
+        or (following.previous_receiver_library, following.previous_receiver)
+        != (current.receiver_library, current.receiver)
+    ):
+        raise ReceiverPlanningError("native receiver links do not match; operator review required")
+
+
 def plan_next_window(
     checkpoint: JournalPosition | None,
     receivers: Sequence[ReceiverSnapshot],
@@ -310,8 +338,8 @@ def plan_next_window(
     """Plan one bounded window from an explicit receiver chain.
 
     Receiver order is supplied by the IBM i metadata adapter. This function
-    never sorts receiver names and refuses a sequence gap before crossing a
-    receiver boundary. A missing current receiver is a hard stop rather than
+    never sorts receiver names and requires reciprocal native links before
+    crossing a receiver boundary. A missing current receiver is a hard stop rather than
     an invitation to silently skip data.
     """
 
@@ -375,9 +403,15 @@ def plan_next_window(
         # purged: those entries are unreachable and the hole is unrecoverable.
         # Stay fail-closed until an operator re-anchors the checkpoint.
         raise ReceiverPlanningError("receiver sequence gap requires operator review")
-    if following.first_sequence <= current.last_sequence:
-        # Sequence bounds cannot distinguish a reset from a missing intermediate receiver.
-        raise ReceiverPlanningError("receiver sequence reset has no proven continuity; operator review required")
+    sequence_reset = following.first_sequence <= current.last_sequence
+    if sequence_reset and following.first_sequence != 1:
+        raise ReceiverPlanningError("receiver sequence overlap is not a reset; operator review required")
+    try:
+        require_receiver_link(current, following)
+    except ReceiverPlanningError as error:
+        if sequence_reset:
+            raise ReceiverPlanningError("receiver sequence reset has no proven continuity; operator review required") from error
+        raise
     if following.last_sequence is None:
         return None
     return _window(
@@ -385,6 +419,7 @@ def plan_next_window(
         JournalPosition(following.receiver, following.first_sequence),
         max_entries=max_entries,
         rotated_from=checkpoint,
+        sequence_reset=sequence_reset,
     )
 
 

@@ -430,6 +430,7 @@ def validate_mutation_result(before_source,after_source,after_mirror,mutations,c
 
 def evaluate_rotation(before, after, operations):
     """Rotation bornée : catalogue JDBC réel et événements source indépendants."""
+    from ..continuous import require_receiver_link
     from ..java_catalog import parse_catalog_output
     scope=('pipeline','table','table_id','namespace','context')
     for snapshot in (before,after):
@@ -475,7 +476,11 @@ def evaluate_rotation(before, after, operations):
             raise ValueError("catalog outside the observed admitted reader")
         rows=parse_catalog_output(raw)
         if not 1<=len(rows)<9 or len({r.receiver for r in rows})!=len(rows):raise ValueError("Catalog is ambiguous")
+        if not rows[0].chain_links_observed:
+            raise ValueError("native receiver links required for rotation qualification")
         if any(r.first_sequence is None or r.last_sequence is None or r.first_sequence<0 or r.last_sequence<r.first_sequence for r in rows):raise ValueError("Catalog boundaries are missing")
+        for previous,following in zip(rows,rows[1:]):
+            require_receiver_link(previous,following)
         catalogs.append(rows)
     cb,ca=operations['catalog_before'],operations['catalog_after']
     if (cb['jar_sha256']!=ca['jar_sha256'] or not cb.get('journal_library') or not cb.get('journal_name') or any(cb.get(k)!=ca.get(k) for k in ('journal_library','journal_name'))

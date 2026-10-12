@@ -159,3 +159,14 @@ def test_help_documents_exit_codes_and_network_flags():
     help_text = _build_parser()._subparsers._group_actions[0].choices["doctor"].format_help()
     for fragment in ("0 ready", "1 blocked", "3 incomplete", "--check-ibmi", "--control-plane", "--tls"):
         assert fragment in help_text
+
+
+def test_control_plane_mode_without_the_api_extra_says_so(tmp_path, monkeypatch):
+    import importlib.util
+    real = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None if name == "httpx" else real(name, *a))
+    args = _build_parser().parse_args(["doctor", "--control-plane"])
+    out = io.StringIO()
+    code = run_doctor(args, RecordingRunner(available_tools=ALL_TOOLS), out,
+                      environ={"QUADRINGENT_URL": "http://127.0.0.1:9"}, config_path=tmp_path / "absent.json")
+    assert code == 2 and "quadringent[api]" in out.getvalue()

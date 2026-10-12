@@ -195,6 +195,11 @@ def run_doctor(args, runner: CommandRunner, stdout: TextIO, *, environ: Mapping[
             return EXIT_USAGE
     else:
         if args.control_plane and fetch is None:
+            import importlib.util
+            if importlib.util.find_spec("httpx") is None:
+                print("--control-plane needs the HTTP client from the api extra: pip install 'quadringent[api]'",
+                      file=stdout)
+                return EXIT_USAGE
             try:
                 config = load_config(env=dict(environ), config_path=config_path or DEFAULT_CONFIG_PATH)
             except ConfigError as error:

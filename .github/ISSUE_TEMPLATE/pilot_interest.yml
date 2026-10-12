@@ -1,10 +1,16 @@
-name: Pilot interest
-description: Discuss a scoped DEV/INT evaluation on your infrastructure.
+name: Pilot interest (public)
+description: Discuss a scoped DEV/INT pilot on your infrastructure. This issue is publicly visible.
 title: "Pilot interest: "
 body:
   - type: markdown
     attributes:
-      value: "This is a public interest request. Scope, scheduling and support are agreed separately; submitting does not create a service commitment. Do not include credentials, hostnames, account IDs or production data."
+      value: |
+        **This issue is publicly visible**, together with your GitHub account name.
+        To discuss privately, without a GitHub account, email [quadringent@proton.me](mailto:quadringent@proton.me?subject=DEV%2FINT%20pilot) instead.
+
+        Do not include credentials, access, hostnames, account IDs, customer names, business data or attachments.
+        A request is never accepted automatically and creates no service commitment. There is no response-time commitment.
+        Next steps, if both sides want to continue: a technical discovery exchange, a written scope, then a separate pilot decision.
   - type: dropdown
     id: target
     attributes:
@@ -16,13 +22,43 @@ body:
     id: objective
     attributes:
       label: Intended use and success criteria
-      description: "Describe volumes, types of changes and recovery expectations using anonymous examples."
+      description: "Describe the outcome you want, types of changes and recovery expectations using generic examples, without names or identifiers."
     validations:
       required: true
+  - type: dropdown
+    id: ibmi_release
+    attributes:
+      label: IBM i release (approximate, optional)
+      options: ["7.3 or earlier", "7.4", "7.5", "7.6", "Prefer not to say"]
+    validations:
+      required: false
+  - type: dropdown
+    id: snowflake
+    attributes:
+      label: Snowflake (optional)
+      options: ["Already in use", "Planned", "Not decided", "Prefer not to say"]
+    validations:
+      required: false
+  - type: dropdown
+    id: role
+    attributes:
+      label: Your role (optional)
+      options: ["IBM i operations", "Data engineering", "Architecture or IT management", "Integrator or consultant", "Other", "Prefer not to say"]
+    validations:
+      required: false
+  - type: dropdown
+    id: timeline
+    attributes:
+      label: Approximate timeline (optional)
+      options: ["Exploring", "Within 3 months", "3 to 6 months", "Later", "Prefer not to say"]
+    validations:
+      required: false
   - type: checkboxes
     id: scope
     attributes:
-      label: Evaluation scope
+      label: Before submitting
       options:
         - label: "The proposed first evaluation is in DEV/INT."
+          required: true
+        - label: "I understand this issue is public and contains no credentials, hostnames, customer data or attachments."
           required: true

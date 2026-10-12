@@ -35,15 +35,20 @@ proposed service is a **fixed-scope pilot: installation and validation on the
 customer's infrastructure**, with support agreed separately if needed.
 No paid offering, price or SLA is currently announced.
 
-Use the [positioning and pilot preparation guide](docs/product/positioning-and-offer.md)
-to define tables, access, infrastructure budget, acceptance criteria and
-deliverables. This guide does not submit a sales request or create a service
-commitment.
+### Discuss a DEV/INT pilot
 
-To discuss an evaluation, open a
-[pilot interest request](https://github.com/quadringent/quadringent-ce/issues/new?template=pilot_interest.yml)
-with an anonymous description of your objective. Scope and scheduling are
-agreed separately; include no credentials or private infrastructure identifiers.
+Email [quadringent@proton.me](mailto:quadringent@proton.me?subject=DEV%2FINT%20pilot)
+to talk privately, without a GitHub account. A
+[public pilot interest request](https://github.com/quadringent/quadringent-ce/issues/new?template=pilot_interest.yml)
+on GitHub is also possible; the issue and your account name are publicly visible.
+Send no credentials, access, private hostnames, customer data or attachments.
+
+What happens next is a technical discovery exchange, then a written scope, then
+a separate pilot decision. A request is never accepted automatically, and there
+is no response-time commitment. The
+[pilot preparation guide](docs/product/positioning-and-offer.md) lists the
+tables, access, infrastructure budget, acceptance criteria and deliverables to
+prepare.
 
 ## Try the cockpit locally
 

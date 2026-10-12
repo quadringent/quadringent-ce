@@ -115,3 +115,15 @@ python -m pytest -q tests/test_site_design_system.py tests/test_build_site.py
 Verify the rendered cockpit at 1440 px with keyboard and mouse, in both themes.
 Verify the site at 1440, 1024 and 390 px, build it with
 `scripts/build_site.py`, and check output links before publishing.
+
+## Presentation references
+
+The static page helps a reader understand IBM i → RAW and checkpoint →
+Snowflake, then install Community or discuss a DEV/INT pilot. Three hierarchy
+references informed the reading order:
+[Debezium](https://debezium.io/documentation/reference/stable/) introduces
+capture before connectors; [Temporal](https://docs.temporal.io/) proceeds from
+concept to getting started and deployment; [Airbyte](https://docs.airbyte.com/)
+separates replication from other paths. These references claim no equivalent
+capabilities or scope. The page includes no fictional prices, customer logos,
+simulated live states or availability claims.

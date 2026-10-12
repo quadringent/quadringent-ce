@@ -23,17 +23,37 @@ Later support could be agreed separately. Managed hosting would be considered
 only after a real need is confirmed.
 
 This offer is not available for purchase. No price, contractual lead time,
-reference customer or SLA is announced. This guide prepares a decision without
-a sales form, automatic outreach or a fictional sales contact.
+reference customer or SLA is announced.
 
-## Describe an anonymized scenario
+## Discuss a DEV/INT pilot
 
-Open a [pilot interest request](https://github.com/quadringent/quadringent-ce/issues/new?template=pilot_interest.yml)
-to describe your intended use and success criteria. GitHub sign-in is required.
-State whether IBM i, Snowflake and a DEV/INT environment are available, and
-which technical role would operate the evaluation. Include no credentials,
-private hostnames, customer names or business data. Interest is the first step;
-scope, scheduling and support still need a separate agreement.
+**Private, without a GitHub account:** email
+[quadringent@proton.me](mailto:quadringent@proton.me?subject=DEV%2FINT%20pilot).
+Messages are read by the Quadringent maintainers.
+
+**Public, with a GitHub account:** open a
+[pilot interest request](https://github.com/quadringent/quadringent-ce/issues/new?template=pilot_interest.yml).
+The issue and your GitHub account name are publicly visible.
+
+Your first message needs only your role, the outcome you are looking for,
+whether IBM i, Snowflake and a DEV/INT environment are available, and an
+approximate timeline. Do not send credentials, access, private hostnames,
+customer data, business data or attachments in a first request, by email or
+on GitHub.
+
+## What happens next
+
+1. **Technical discovery exchange.** A short technical conversation to check
+   whether your IBM i and Snowflake setup matches what has been tested.
+2. **Scope definition.** If both sides want to continue, the scope is written
+   down together using the worksheet below: tables, environment, access,
+   acceptance criteria and deliverables.
+3. **Separate pilot decision.** Each side then decides separately whether to
+   run the pilot. A request is never accepted automatically and creates no
+   service commitment.
+
+No response-time commitment: replies depend on maintainer availability, and
+no response time has been decided.
 
 ## Prepare the scope
 
@@ -72,21 +92,3 @@ runs in DEV/INT.
 A Ready pod, reachable API or accepted action is insufficient to accept
 replication. Acceptance concerns actual delivered data. One site's results
 do not become a universal guarantee.
-
-## Presentation direction
-
-The static page helps a reader understand IBM i → RAW and checkpoint →
-Snowflake, then install Community. Pilot preparation is the second path, with
-a concrete guide. Presentation follows the cockpit
-[design system](../design-system.md): IBM Plex, blue for activity, green for
-observed measurements, amber for limitations and demonstrations. Cockpit
-screenshots are labeled synthetic. Figures follow the product and remain
-bound to a version, targets and observation window.
-
-Three hierarchy references informed the presentation:
-[Debezium](https://debezium.io/documentation/reference/stable/) introduces
-capture before connectors; [Temporal](https://docs.temporal.io/) proceeds from
-concept to getting started and deployment; [Airbyte](https://docs.airbyte.com/)
-separates replication from other paths. These references inform reading order
-without claiming equivalent capabilities or scope. The page includes no
-fictional prices, customer logos, simulated live states or availability claims.

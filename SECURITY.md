@@ -118,13 +118,18 @@ Fail-safe. A source delete does not immediately erase raw data or backups.
 `helm uninstall` does not remove those copies. Erasure requires an inventory
 and owner authorization, with separate evidence for each storage system.
 
-## Reporting and release checks
+## Reporting a vulnerability
 
-The intended channel is GitHub private vulnerability reporting, to be enabled
-when the target repository opens:
-[report a vulnerability privately](https://github.com/quadringent/quadringent-ce/security/advisories/new).
-Do not file public issues containing data or secrets. No unestablished
-response deadline is promised.
+Private vulnerability reporting is enabled for this repository:
+[report a vulnerability privately](https://github.com/quadringent/quadringent-ce/security/advisories/new)
+(a GitHub account is required). Never describe a vulnerability, exploit,
+secret or data in a public issue, discussion or pilot request.
+
+If you cannot use GitHub, email quadringent@proton.me to ask for a private
+channel, without vulnerability details, exploit code, secrets or data in that
+first message. No response time is promised.
+
+## Release checks
 
 Source, history and release artifacts undergo Gitleaks and private-identity
 checks before public exposure. Private evidence and site credentials are not

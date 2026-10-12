@@ -60,10 +60,9 @@ def parse_catalog_output(output: str) -> tuple[ReceiverSnapshot, ...]:
 def parse_tail_output(output: str) -> ReceiverSnapshot | None:
     """Parse the one-row output of the cheap ATTACHED-receiver probe.
 
-    ``None`` means the probe found no attached receiver (journal detached),
-    which the caller treats the same as a probe failure: no update, no
-    invalidation. A single ``tail ...`` row is expected; anything else is a
-    protocol violation.
+    ``None`` means the probe found no attached receiver (journal detached).
+    A required resume must then refresh the catalog before using metadata.
+    A single ``tail ...`` row is expected; anything else is a protocol violation.
     """
 
     lines = [line for line in output.splitlines() if line.strip()]
@@ -281,8 +280,10 @@ class CachedReceiverCatalog:
             and now < self._expires_at
             and (required_receiver is None or _covers(self._cached, required_receiver))
         ):
-            if self.tail_probe is not None:
-                self._apply_tail_probe()
+            if required_receiver is not None or self.tail_probe is not None:
+                self._apply_tail_probe(required_receiver)
+                if required_receiver is not None and self._cached is not None:
+                    now = self.clock()
             # La sonde peut avoir invalidé le cache (rotation détectée) : le
             # hit n'est plus valable, on retombe sur la lecture complète.
             if (
@@ -296,17 +297,12 @@ class CachedReceiverCatalog:
         try:
             snapshot = tuple(self.inner.snapshot(required_receiver))
         except Exception:
-            # A metadata read can time out on a loaded IBM i while the journal
-            # itself is still readable. Ending the run there makes any long
-            # soak impossible, so a known snapshot is reused for a bounded
-            # number of polls; past that the failure is surfaced.
+            # Diagnostics may reuse bounded stale metadata. A required resume
+            # needs fresh status and bounds before authorizing a read.
             if (
-                self._cached is None
+                required_receiver is not None
+                or self._cached is None
                 or self.consecutive_stale >= self.max_stale_reuse
-                or (
-                    required_receiver is not None
-                    and not _covers(self._cached, required_receiver)
-                )
             ):
                 raise
             self.stale_count += 1
@@ -336,30 +332,43 @@ class CachedReceiverCatalog:
         if self.tail_probe is None:
             self.invalidate()
 
-    def _apply_tail_probe(self) -> None:
-        """Rafraichit ou invalide le cache selon la sonde bornee du tail.
-
-        Un echec de sonde (exception ou aucun receiver ATTACHED) laisse le
-        cache intact : la sonde n'a pas pu trancher, l'ancien comportement
-        (reutilisation jusqu'a expiration) prevaut. Un receiver ATTACHED
-        identique dont le last_sequence a progresse est mis a jour en place,
-        sans jamais reculer. Un receiver ATTACHED different declenche une
-        invalidation : la prochaine lecture refera un catalogue complet, seul
-        moyen sur de voir la rotation.
-        """
+    def _apply_tail_probe(self, required_receiver: str | None = None) -> None:
+        """Refresh bounds only when the tail attests the required receiver."""
 
         assert self._cached is not None
+        attached = _attached(self._cached)
+        if required_receiver is not None and (
+            self.tail_probe is None
+            or attached is None
+            or attached.receiver != required_receiver
+            or attached.first_sequence is None
+            or attached.last_sequence is None
+        ):
+            self.invalidate()
+            return
+        assert self.tail_probe is not None
         try:
             probed = self.tail_probe()
         except Exception:
+            if required_receiver is not None:
+                self.invalidate()
             return
         if probed is None:
+            if required_receiver is not None:
+                self.invalidate()
             return
-        attached = _attached(self._cached)
         if (
             attached is None
             or attached.receiver_library != probed.receiver_library
             or attached.receiver != probed.receiver
+        ):
+            self.invalidate()
+            return
+        if required_receiver is not None and (
+            probed.status != "ATTACHED"
+            or probed.first_sequence != attached.first_sequence
+            or probed.last_sequence is None
+            or probed.last_sequence < attached.last_sequence
         ):
             self.invalidate()
             return

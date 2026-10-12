@@ -34,7 +34,7 @@ class ContinuousReceiptTests(unittest.TestCase):
                     return CapturedWindow(plan.end)
             runner=Runner()
             def service():
-                return ContinuousCaptureService(FakeCatalog([ReceiverSnapshot('QGPL','R1',1,100)]),runner,RawFirstCaptureCoordinator(store,checkpoint),checkpoint,max_entries=10,receipted_scans=True,utc_now=lambda:clock[0],proof_window_id='w1')
+                return ContinuousCaptureService(FakeCatalog([ReceiverSnapshot('QGPL','R1',1,100, status="ONLINE")]),runner,RawFirstCaptureCoordinator(store,checkpoint),checkpoint,max_entries=10,receipted_scans=True,utc_now=lambda:clock[0],proof_window_id='w1')
             original=store.put_once
             def fail_closure(key,content):
                 if key.endswith('/closed.json'):raise OSError('closure unavailable')
@@ -79,9 +79,9 @@ class ContinuousReceiptTests(unittest.TestCase):
                 checkpoint.commit(JournalPosition('R1',9))
                 receiver='R2' if rotated else 'R1'
                 catalog=FakeCatalog([
-                    ReceiverSnapshot('QGPL','R1',1,9,next_receiver_library='QGPL',next_receiver='R2',chain_links_observed=True),
-                    ReceiverSnapshot('QGPL','R2',10,20,previous_receiver_library='QGPL',previous_receiver='R1',chain_links_observed=True),
-                ] if rotated else [ReceiverSnapshot('QGPL','R1',1,20)])
+                    ReceiverSnapshot('QGPL','R1',1,9,next_receiver_library='QGPL',next_receiver='R2',chain_links_observed=True, status="ONLINE"),
+                    ReceiverSnapshot('QGPL','R2',10,20,previous_receiver_library='QGPL',previous_receiver='R1',chain_links_observed=True, status="ONLINE"),
+                ] if rotated else [ReceiverSnapshot('QGPL','R1',1,20, status="ONLINE")])
                 end=JournalPosition(receiver,19)
                 manifest,payload=(None,None) if empty else raw_bytes(root/'input',receiver=receiver,sequence=12,high_watermark=end)
                 stamp=datetime(2026,9,9,12,tzinfo=UTC)
@@ -103,7 +103,7 @@ class ContinuousReceiptTests(unittest.TestCase):
             store=FileObjectStore(root/'objects')
             checkpoint=JsonCheckpointStore(root/'checkpoint.json')
             checkpoint.commit(JournalPosition('R1',9))
-            service=ContinuousCaptureService(FakeCatalog([ReceiverSnapshot('QGPL','R1',1,20)]),FakeRunner(CapturedWindow(JournalPosition('R1',19),None,None)),RawFirstCaptureCoordinator(store,checkpoint),checkpoint,max_entries=10,receipted_scans=True)
+            service=ContinuousCaptureService(FakeCatalog([ReceiverSnapshot('QGPL','R1',1,20, status="ONLINE")]),FakeRunner(CapturedWindow(JournalPosition('R1',19),None,None)),RawFirstCaptureCoordinator(store,checkpoint),checkpoint,max_entries=10,receipted_scans=True)
             with patch.object(store,'put_once',side_effect=OSError('storage unavailable')):
                 with self.assertRaises(OSError):service.run_once()
             self.assertEqual(checkpoint.load(),JournalPosition('R1',9))

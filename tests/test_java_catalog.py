@@ -307,7 +307,7 @@ class JavaReceiverCatalogTests(unittest.TestCase):
         class CountingCatalog:
             def __init__(self) -> None:
                 self.calls = 0
-                self.payload = (ReceiverSnapshot("QGPL", "R2", 100, 110),)
+                self.payload = (ReceiverSnapshot("QGPL", "R2", 100, 110, status="ONLINE"),)
 
             def snapshot(self, required_receiver=None) -> tuple[ReceiverSnapshot, ...]:
                 self.calls += 1
@@ -338,7 +338,7 @@ class JavaReceiverCatalogTests(unittest.TestCase):
         class CountingCatalog:
             def __init__(self) -> None:
                 self.calls = 0
-                self.payload = (ReceiverSnapshot("QGPL", "R2", 100, 110),)
+                self.payload = (ReceiverSnapshot("QGPL", "R2", 100, 110, status="ONLINE"),)
 
             def snapshot(self, required_receiver=None) -> tuple[ReceiverSnapshot, ...]:
                 self.calls += 1
@@ -364,7 +364,7 @@ class JavaReceiverCatalogTests(unittest.TestCase):
         class CountingCatalog:
             def __init__(self) -> None:
                 self.calls = 0
-                self.payload = (ReceiverSnapshot("QGPL", "R2", 100, 110),)
+                self.payload = (ReceiverSnapshot("QGPL", "R2", 100, 110, status="ONLINE"),)
 
             def snapshot(self, required_receiver=None) -> tuple[ReceiverSnapshot, ...]:
                 self.calls += 1
@@ -431,7 +431,7 @@ class CachedReceiverCatalogTailProbeTests(unittest.TestCase):
     def test_probe_advances_last_sequence_without_a_full_catalog_refetch(self) -> None:
         inner = self._catalog(
             (
-                ReceiverSnapshot("QGPL", "R2", 100, 110),
+                ReceiverSnapshot("QGPL", "R2", 100, 110, status="ONLINE"),
                 ReceiverSnapshot("QGPL", "R10", 111, 120, status="ATTACHED"),
             )
         )

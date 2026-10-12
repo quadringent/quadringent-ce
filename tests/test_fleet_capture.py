@@ -358,7 +358,7 @@ def test_the_capture_service_publishes_every_table_through_one_read(tmp_path: Pa
     end = JournalPosition(RECEIVER, 19)
     manifest, payload = window_batch([event("CNTR", 12), event("SALE", 15)], end=end)
     service = ContinuousCaptureService(
-        FakeCatalog([ReceiverSnapshot("QGPL", RECEIVER, 1, 20)]),
+        FakeCatalog([ReceiverSnapshot("QGPL", RECEIVER, 1, 20, status="ONLINE")]),
         FakeRunner(CapturedWindow(end, manifest, payload)),
         coordinator,
         journal_checkpoint,

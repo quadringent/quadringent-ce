@@ -457,7 +457,7 @@ def test_real_tail_poll_is_warm_readiness_without_new_raw(tmp_path):
     from quadringent.contract import JournalPosition
     tail = JournalPosition('RCV2', 1323)
     catalog = Mock()
-    catalog.snapshot.return_value = [ReceiverSnapshot('QUALTEST', 'RCV2', 1262, 1323)]
+    catalog.snapshot.return_value = [ReceiverSnapshot('QUALTEST', 'RCV2', 1262, 1323, status="ONLINE")]
     runner = Mock()
     from quadringent.object_store import FileObjectStore
     coordinator = SimpleNamespace(store=FileObjectStore(tmp_path / 'raw'), capture=Mock())

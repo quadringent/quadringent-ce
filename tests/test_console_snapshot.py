@@ -205,8 +205,8 @@ class CaptureMetricsReceiverWindowTests(unittest.TestCase):
             source_tail=JournalPosition("DEMOJRN3776", 900),
             lag_sequences=1,
             receivers=[
-                ReceiverSnapshot("SALES", "DEMOJRN3775", 1, 499),
-                ReceiverSnapshot("SALES", "DEMOJRN3776", 500, 900),
+                ReceiverSnapshot("SALES", "DEMOJRN3775", 1, 499, status="ONLINE"),
+                ReceiverSnapshot("SALES", "DEMOJRN3776", 500, 900, status="ONLINE"),
             ],
         )
 

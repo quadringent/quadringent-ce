@@ -314,6 +314,12 @@ reciprocal native previous/next receiver identities, including their libraries.
 Historical v1 catalogs remain readable without fabricating those links; current
 multi-receiver and rotation qualification refuses them. Original historical
 verdicts remain tied to their original source and artifacts.
+Current reads and qualification require `ATTACHED`, `ONLINE` or `SAVED` status.
+`PARTIAL`, `FREED`, `EMPTY` and missing/unknown statuses fail before a scan or idle
+success. The reader rechecks status, library and bounds after the scan, before
+RAW/receipts/checkpoint publication; required metadata never uses a stale fallback.
+These checks do not establish durable receiver-generation identity: replacement
+under the same name with identical bounds remains a separate, unqualified gap.
 A nine-result sentinel fails.
 Read each segment separately under the aggregate 1,000-entry budget. Decoded images
 and independent ROWPOS must cover exactly the same positions. Retain/revalidate

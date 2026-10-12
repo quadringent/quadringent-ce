@@ -30,7 +30,7 @@ def fixture():
                 'write_started_utc': '2026-09-30T10:00:01+00:00', 'write_ack_utc': '2026-09-30T10:00:02+00:00'}
     catalog = {**scope, 'kind': 'ibmi-source-receiver-catalog', 'journal_library': 'S', 'journal_name': 'J'}
     cb = {**catalog, 'observed_utc': before['observed_utc'], 'output': 'as400-receiver-catalog-v2\nreceiver\tS\tR1\tATTACHED\t1\t10\t-\t-\t-\t-\n'}
-    ca = {**catalog, 'observed_utc': '2026-09-30T10:00:02+00:00', 'output': 'as400-receiver-catalog-v2\nreceiver\tS\tR1\tDETACHED\t1\t10\t-\t-\tS\tR2\nreceiver\tS\tR2\tATTACHED\t11\t11\tS\tR1\t-\t-\n'}
+    ca = {**catalog, 'observed_utc': '2026-09-30T10:00:02+00:00', 'output': 'as400-receiver-catalog-v2\nreceiver\tS\tR1\tONLINE\t1\t10\t-\t-\tS\tR2\nreceiver\tS\tR2\tATTACHED\t11\t11\tS\tR1\t-\t-\n'}
     for catalog,snapshot in ((cb,before),(ca,after)):
         catalog.update(output_sha256=hashlib.sha256(catalog['output'].encode()).hexdigest(),jar_sha256='c'*64,reader=deepcopy(snapshot['reader']))
     return before, after, {'rotation': rotation, 'catalog_before': cb, 'catalog_after': ca,
@@ -49,7 +49,7 @@ def test_rotation_retains_history_and_runtime():
     lambda b, a, o: o['rotation'].update(attempts=2),
     lambda b, a, o: o['rotation'].update(sequence_option='RESET'),
     lambda b, a, o: o['catalog_after'].update(output=o['catalog_after']['output'].replace('R2\tATTACHED\t11\t11', 'R2\tATTACHED\t1\t11')),
-    lambda b, a, o: o['catalog_after'].update(output=o['catalog_after']['output'].replace('DETACHED', '-')),
+    lambda b, a, o: o['catalog_after'].update(output=o['catalog_after']['output'].replace('ONLINE', '-')),
     lambda b, a, o: o['rotation'].update(acknowledged=False),
     lambda b, a, o: o['rotation'].update(table_id='foreign'),
     lambda b, a, o: o['catalog_after'].update(output=o['catalog_before']['output']),
@@ -78,7 +78,7 @@ def test_rotation_rejects_incomplete_or_altered_evidence(change):
 
 
 @pytest.mark.parametrize('change', [
-    lambda c: c.update(output=c['output'].replace('DETACHED', 'ONLINE')),
+    lambda c: c.update(output=c['output'].replace('ONLINE', 'SAVED')),
     lambda c: c.update(output_sha256='0'*64),
     lambda c: c.update(jar_sha256='d'*64),
     lambda c: c.update(jar_sha256=None),

@@ -82,9 +82,9 @@ class ContinuousCaptureTests(unittest.TestCase):
     def test_planner_uses_explicit_receiver_order_for_rotation(self) -> None:
         receivers = [
             ReceiverSnapshot("QGPL", "R2", 100, 110, next_receiver_library="QGPL",
-                             next_receiver="R10", chain_links_observed=True),
+                             next_receiver="R10", chain_links_observed=True, status="ONLINE"),
             ReceiverSnapshot("QGPL", "R10", 111, 130, previous_receiver_library="QGPL",
-                             previous_receiver="R2", chain_links_observed=True),
+                             previous_receiver="R2", chain_links_observed=True, status="ONLINE"),
         ]
 
         plan = plan_next_window(
@@ -102,8 +102,8 @@ class ContinuousCaptureTests(unittest.TestCase):
 
     def test_planner_rejects_a_receiver_sequence_gap(self) -> None:
         receivers = [
-            ReceiverSnapshot("QGPL", "R2", 100, 110),
-            ReceiverSnapshot("QGPL", "R10", 113, 130),
+            ReceiverSnapshot("QGPL", "R2", 100, 110, status="ONLINE"),
+            ReceiverSnapshot("QGPL", "R10", 113, 130, status="ONLINE"),
         ]
 
         with self.assertRaises(ReceiverPlanningError):
@@ -113,8 +113,8 @@ class ContinuousCaptureTests(unittest.TestCase):
         for first in (1, 100, 110):
             with self.subTest(first=first):
                 receivers = [
-                    ReceiverSnapshot("QGPL", "R1", 100, 110),
-                    ReceiverSnapshot("QGPL", "R2", first, 130),
+                    ReceiverSnapshot("QGPL", "R1", 100, 110, status="ONLINE"),
+                    ReceiverSnapshot("QGPL", "R2", first, 130, status="ONLINE"),
                 ]
                 with self.assertRaisesRegex(ReceiverPlanningError, "reset.*continuity|sequence overlap"):
                     plan_next_window(JournalPosition("R1", 110), receivers, max_entries=10)
@@ -130,8 +130,8 @@ class ContinuousCaptureTests(unittest.TestCase):
             runner = FakeRunner(CapturedWindow(scanned_to=JournalPosition("R3", 10)))
             # R2 was removed before R3 reset numbering; sequence bounds alone cannot prove continuity.
             catalog = FakeCatalog([
-                ReceiverSnapshot("QGPL", "R1", 100, 110),
-                ReceiverSnapshot("QGPL", "R3", 1, 20),
+                ReceiverSnapshot("QGPL", "R1", 100, 110, status="ONLINE"),
+                ReceiverSnapshot("QGPL", "R3", 1, 20, status="ONLINE"),
             ])
             service = ContinuousCaptureService(
                 catalog, runner, RawFirstCaptureCoordinator(store, checkpoint), checkpoint,
@@ -324,7 +324,7 @@ class ContinuousCaptureTests(unittest.TestCase):
             coordinator = RawFirstCaptureCoordinator(
                 FileObjectStore(Path(directory) / "raw"), checkpoint
             )
-            receivers = [ReceiverSnapshot("DEMOLIB", "DEMOJRN3760", 163410000, 163416209)]
+            receivers = [ReceiverSnapshot("DEMOLIB", "DEMOJRN3760", 163410000, 163416209, status="ONLINE")]
             bootstrap = finite_tail_bootstrap(receivers, max_entries=2000)
             runner = FakeRunner(CapturedWindow(scanned_to=JournalPosition(bootstrap.receiver, bootstrap.sequence + 1999)))
             # scanned_to must match planned end
@@ -361,8 +361,8 @@ class ContinuousCaptureTests(unittest.TestCase):
             )
             checkpoint.commit(JournalPosition("DEMOJRN4115", 355013677))
             receivers = [
-                ReceiverSnapshot("DEMOLIB", "DEMOJRN4115", 349833721, 355014589),
-                ReceiverSnapshot("DEMOLIB", "DEMOJRN4116", 355014590, 355020000),
+                ReceiverSnapshot("DEMOLIB", "DEMOJRN4115", 349833721, 355014589, status="ONLINE"),
+                ReceiverSnapshot("DEMOLIB", "DEMOJRN4116", 355014590, 355020000, status="ONLINE"),
             ]
             catalog = FakeCatalog(receivers)
             service = ContinuousCaptureService(
@@ -374,7 +374,7 @@ class ContinuousCaptureTests(unittest.TestCase):
                 sleep=lambda _: None,
             )
             result = service.run_once()
-            self.assertEqual(catalog.required, ["DEMOJRN4115"])
+            self.assertEqual(catalog.required, ["DEMOJRN4115", "DEMOJRN4115"])
             self.assertNotEqual(result.status, "failed")
 
     def test_run_once_reports_a_purged_checkpoint_receiver_explicitly(self) -> None:
@@ -420,7 +420,7 @@ class ContinuousCaptureTests(unittest.TestCase):
                 sleep=lambda _: None,
             )
             service.run_once()
-            self.assertEqual(catalog.required, [None])
+            self.assertEqual(catalog.required, ["R2", "R2"])
 
     def test_empty_scan_advances_cursor_without_creating_raw(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -430,7 +430,7 @@ class ContinuousCaptureTests(unittest.TestCase):
                 CapturedWindow(scanned_to=JournalPosition("R2", 110))
             )
             service = ContinuousCaptureService(
-                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 110)]),
+                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 110, status="ONLINE")]),
                 runner,
                 coordinator,
                 checkpoint,
@@ -466,7 +466,7 @@ class ContinuousCaptureTests(unittest.TestCase):
                 )
             )
             service = ContinuousCaptureService(
-                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 110)]),
+                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 110, status="ONLINE")]),
                 runner,
                 coordinator,
                 checkpoint,
@@ -495,7 +495,7 @@ class ContinuousCaptureTests(unittest.TestCase):
                 high_watermark=JournalPosition("R2", 110),
             )
             service = ContinuousCaptureService(
-                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 110)]),
+                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 110, status="ONLINE")]),
                 FakeRunner(
                     CapturedWindow(
                         scanned_to=JournalPosition("R2", 110),
@@ -557,9 +557,9 @@ class ContinuousCaptureTests(unittest.TestCase):
                 FakeCatalog(
                     [
                         ReceiverSnapshot("QGPL", "R2", 100, 110, next_receiver_library="QGPL",
-                                         next_receiver="R10", chain_links_observed=True),
+                                         next_receiver="R10", chain_links_observed=True, status="ONLINE"),
                         ReceiverSnapshot("QGPL", "R10", 111, 120, previous_receiver_library="QGPL",
-                                         previous_receiver="R2", chain_links_observed=True),
+                                         previous_receiver="R2", chain_links_observed=True, status="ONLINE"),
                     ]
                 ),
                 runner,
@@ -585,7 +585,7 @@ class ContinuousCaptureTests(unittest.TestCase):
             )
             runner = FakeRunner(CapturedWindow(scanned_to=JournalPosition("R2", 150)))
             service = ContinuousCaptureService(
-                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 200)]),
+                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 200, status="ONLINE")]),
                 runner,
                 coordinator,
                 checkpoint,
@@ -614,7 +614,7 @@ class ContinuousCaptureTests(unittest.TestCase):
                 )
             )
             service = ContinuousCaptureService(
-                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 110)]),
+                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 110, status="ONLINE")]),
                 runner,
                 coordinator,
                 checkpoint,
@@ -641,7 +641,7 @@ class ContinuousCaptureTests(unittest.TestCase):
                     return CapturedWindow(scanned_to=window.end)
 
             service = ContinuousCaptureService(
-                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 130)]),
+                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 130, status="ONLINE")]),
                 EmptyRunner(),
                 coordinator,
                 checkpoint,
@@ -672,7 +672,7 @@ class ContinuousCaptureTests(unittest.TestCase):
             )
             sleeps: list[float] = []
             service = ContinuousCaptureService(
-                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 110)]),
+                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 110, status="ONLINE")]),
                 FakeRunner(
                     CapturedWindow(
                         scanned_to=JournalPosition("R2", 110),
@@ -704,7 +704,7 @@ class ContinuousCaptureTests(unittest.TestCase):
             )
             sleeps: list[float] = []
             service = ContinuousCaptureService(
-                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 110)]),
+                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 110, status="ONLINE")]),
                 FakeRunner(CapturedWindow(scanned_to=JournalPosition("R2", 110))),
                 coordinator,
                 checkpoint,
@@ -748,7 +748,7 @@ class ContinuousCaptureTests(unittest.TestCase):
 
             sleeps: list[float] = []
             service = ContinuousCaptureService(
-                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 110)]),
+                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 110, status="ONLINE")]),
                 OnceThenIdleRunner(),
                 coordinator,
                 checkpoint,
@@ -780,7 +780,7 @@ class ContinuousCaptureTests(unittest.TestCase):
 
                 def snapshot(self, required_receiver=None):
                     self.snapshots += 1
-                    return [ReceiverSnapshot("QGPL", "R2", 100, 110)]
+                    return [ReceiverSnapshot("QGPL", "R2", 100, 110, status="ONLINE")]
 
                 def invalidate(self) -> None:
                     self.invalidations += 1
@@ -857,7 +857,7 @@ class ContinuousCaptureTests(unittest.TestCase):
                     self.invalidations = 0
 
                 def snapshot(self, required_receiver=None):
-                    return [ReceiverSnapshot("QGPL", "R2", 100, 130)]
+                    return [ReceiverSnapshot("QGPL", "R2", 100, 130, status="ONLINE")]
 
                 def invalidate(self) -> None:
                     self.invalidations += 1
@@ -907,7 +907,7 @@ class ContinuousCaptureTests(unittest.TestCase):
                     raise RuntimeError("SQLNonTransientConnectionException User ID is disabled.:CDCUSER")
 
             service = ContinuousCaptureService(
-                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 130)]),
+                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 130, status="ONLINE")]),
                 DisabledRunner(),
                 coordinator,
                 checkpoint,
@@ -967,7 +967,7 @@ class ContinuousCaptureTests(unittest.TestCase):
                     )
 
             service = ContinuousCaptureService(
-                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 130)]),
+                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 130, status="ONLINE")]),
                 DisabledRunner(),
                 coordinator,
                 checkpoint,
@@ -997,7 +997,7 @@ class ContinuousCaptureTests(unittest.TestCase):
                     raise RuntimeError("bounded IBM i reader timed out")
 
             service = ContinuousCaptureService(
-                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 130)]),
+                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 130, status="ONLINE")]),
                 BrokenRunner(),
                 coordinator,
                 checkpoint,
@@ -1036,7 +1036,7 @@ class ContinuousCaptureTests(unittest.TestCase):
                     return CapturedWindow(scanned_to=window.end)
 
             service = ContinuousCaptureService(
-                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 200)]),
+                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 200, status="ONLINE")]),
                 IntermittentRunner(),
                 coordinator,
                 checkpoint,
@@ -1062,7 +1062,7 @@ class SourcePauseTests(unittest.TestCase):
         coordinator = RawFirstCaptureCoordinator(FileObjectStore(root / "raw"), checkpoint)
         return (
             ContinuousCaptureService(
-                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 200)]),
+                FakeCatalog([ReceiverSnapshot("QGPL", "R2", 100, 200, status="ONLINE")]),
                 runner,
                 coordinator,
                 checkpoint,

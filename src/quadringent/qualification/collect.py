@@ -100,7 +100,7 @@ def history_row(record,columns,library,table):
 
 def receiver_windows(boundary,checkpoint,catalog,args):
     """Conserve l’ordre SQL source ; aucune chaîne déduite des noms ou de l’horloge."""
-    from quadringent.continuous import require_receiver_link
+    from quadringent.continuous import require_readable_receiver, require_receiver_link
     from quadringent.java_catalog import parse_catalog_output
     if (not isinstance(catalog,dict) or catalog.get('kind')!='ibmi-source-receiver-catalog' or
         catalog.get('journal_library')!=args.journal_library or catalog.get('journal_name')!=args.journal_name or
@@ -123,6 +123,7 @@ def receiver_windows(boundary,checkpoint,catalog,args):
     if type(boundary.get('last_sequence'))is not int or boundary['last_sequence']<0:raise ValueError("initial boundary absent")
     names=set();previous=None;windows=[];budget=0
     for index,row in enumerate(rows):
+        require_readable_receiver(row)
         name=row.receiver;library=row.receiver_library;first=row.first_sequence;last=row.last_sequence
         if (re.fullmatch(r'[A-Z0-9_$#@]{1,10}',name) is None or name in names or
             re.fullmatch(r'[A-Z0-9_$#@]{1,10}',library) is None or

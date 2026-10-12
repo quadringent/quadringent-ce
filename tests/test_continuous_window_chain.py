@@ -36,7 +36,7 @@ class ContinuousWindowChainTests(unittest.TestCase):
 
     def service(self, count=3, root='first'):
         return ContinuousCaptureService(
-            FakeCatalog([ReceiverSnapshot('QGPL', 'R1', 1, 1000)]), self.runner,
+            FakeCatalog([ReceiverSnapshot('QGPL', 'R1', 1, 1000, status="ONLINE")]), self.runner,
             RawFirstCaptureCoordinator(self.store, self.checkpoint), self.checkpoint,
             max_entries=10, receipted_scans=True, utc_now=lambda: self.clock,
             proof_window_id=root, proof_window_count=count)

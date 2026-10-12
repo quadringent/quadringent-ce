@@ -243,6 +243,7 @@ def finite_tail_bootstrap(
     if not receivers:
         raise ReceiverPlanningError("receiver metadata is empty")
     tail = receivers[-1]
+    require_readable_receiver(tail)
     if tail.first_sequence is None or tail.last_sequence is None:
         raise ReceiverPlanningError("tail receiver has incomplete sequence bounds")
     start = max(tail.first_sequence, tail.last_sequence - max_entries + 1)
@@ -307,12 +308,19 @@ class ReceiverCatalog(Protocol):
         ``required_receiver`` demands coverage of that receiver (typically the
         durable checkpoint's): implementations may page or anchor deeper than
         the newest window rather than declare it absent from a bounded view.
+        Required receiver status must be freshly observed, never a stale fallback.
         """
 
 
 class WindowRunner(Protocol):
     def capture(self, window: CaptureWindow) -> CapturedWindow:
         """Read one bounded window without advancing the durable checkpoint."""
+
+
+def require_readable_receiver(receiver: ReceiverSnapshot) -> None:
+    """Reject metadata that cannot certify accessible, complete journal storage."""
+    if not isinstance(receiver.status, str) or receiver.status not in {"ATTACHED", "ONLINE", "SAVED"}:
+        raise ReceiverPlanningError("receiver status is not readable; operator review required")
 
 
 def require_receiver_link(current: ReceiverSnapshot, following: ReceiverSnapshot) -> None:
@@ -326,6 +334,39 @@ def require_receiver_link(current: ReceiverSnapshot, following: ReceiverSnapshot
         != (current.receiver_library, current.receiver)
     ):
         raise ReceiverPlanningError("native receiver links do not match; operator review required")
+
+
+def verify_captured_receivers(
+    window: CaptureWindow,
+    before: Sequence[ReceiverSnapshot],
+    after: Sequence[ReceiverSnapshot],
+) -> None:
+    """Revalidate accessible bounds before publishing a completed source scan."""
+    observed = {row.receiver: row for row in after}
+    if len(observed) != len(after):
+        raise ReceiverPlanningError("receiver metadata is ambiguous after capture")
+    names = [window.end.receiver]
+    if window.rotated_from is not None:
+        names.insert(0, window.rotated_from.receiver)
+    for name in names:
+        original = next((row for row in before if row.receiver == name), None)
+        current = observed.get(name)
+        if original is None or current is None:
+            raise ReceiverPlanningError("receiver disappeared during capture; operator review required")
+        require_readable_receiver(current)
+        if (
+            current.receiver_library != original.receiver_library
+            or current.first_sequence != original.first_sequence
+            or current.last_sequence is None
+            or original.last_sequence is None
+            or current.last_sequence < original.last_sequence
+        ):
+            raise ReceiverPlanningError("receiver metadata changed during capture; operator review required")
+    if window.rotated_from is not None:
+        predecessor = observed[window.rotated_from.receiver]
+        if predecessor.last_sequence != window.rotated_from.sequence or predecessor.status == "ATTACHED":
+            raise ReceiverPlanningError("receiver predecessor changed during capture; operator review required")
+        require_receiver_link(observed[window.rotated_from.receiver], observed[window.end.receiver])
 
 
 def plan_next_window(
@@ -359,6 +400,7 @@ def plan_next_window(
         if index is None:
             raise ReceiverPlanningError("bootstrap receiver is not in metadata")
         current = receivers[index]
+        require_readable_receiver(current)
         start = bootstrap
         if current.last_sequence is None:
             return None
@@ -377,6 +419,7 @@ def plan_next_window(
     if index is None:
         raise ReceiverPlanningError("checkpoint receiver is missing from metadata")
     current = receivers[index]
+    require_readable_receiver(current)
     if current.first_sequence is None or current.last_sequence is None:
         raise ReceiverPlanningError("checkpoint receiver has incomplete sequence bounds")
 
@@ -396,6 +439,7 @@ def plan_next_window(
         return None
 
     following = receivers[index + 1]
+    require_readable_receiver(following)
     if following.first_sequence is None:
         return None
     if following.first_sequence > current.last_sequence + 1:
@@ -574,7 +618,9 @@ class ContinuousCaptureService:
             checkpoint = self.checkpoint_store.load()
             catalog_started = time.perf_counter()
             receivers = self.catalog.snapshot(
-                required_receiver=checkpoint.receiver if checkpoint is not None else None
+                required_receiver=checkpoint.receiver if checkpoint is not None else (
+                    self.bootstrap.receiver if self.bootstrap is not None else None
+                )
             )
             if not receivers and checkpoint is not None:
                 # Catalogue ancré vide = le receiver du checkpoint n'est plus
@@ -636,6 +682,12 @@ class ContinuousCaptureService:
             capture_ms = (time.perf_counter() - started) * 1000
             if captured.scanned_to != plan.end:
                 raise ValueError("source runner did not reach the planned window end")
+            validation_started = time.perf_counter()
+            verified_receivers = self.catalog.snapshot(
+                required_receiver=plan.rotated_from.receiver if plan.rotated_from else plan.end.receiver,
+            )
+            verify_captured_receivers(plan, receivers, verified_receivers)
+            catalog_ms += (time.perf_counter() - validation_started) * 1000
 
             if captured.manifest is None:
                 checkpoint_started = time.perf_counter()

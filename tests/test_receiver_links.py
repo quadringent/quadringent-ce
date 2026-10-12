@@ -26,9 +26,9 @@ V2 = (
 def chain(first=111, last=130):
     return [
         ReceiverSnapshot("QGPL", "R1", 100, 110, next_receiver_library="QGPL",
-                         next_receiver="R2", chain_links_observed=True),
+                         next_receiver="R2", chain_links_observed=True, status="ONLINE"),
         ReceiverSnapshot("QGPL", "R2", first, last, previous_receiver_library="QGPL",
-                         previous_receiver="R1", chain_links_observed=True),
+                         previous_receiver="R1", chain_links_observed=True, status="ONLINE"),
     ]
 
 
@@ -87,7 +87,7 @@ def test_rotation_requires_both_native_link_identities(change):
     elif change == "following-unobserved": new = replace(new, chain_links_observed=False)
     elif change == "missing-next": old = replace(old, next_receiver_library=None, next_receiver=None)
     elif change == "missing-previous": new = replace(new, previous_receiver_library=None, previous_receiver=None)
-    else: old = ReceiverSnapshot("QGPL", "R1", 100, 110)
+    else: old = ReceiverSnapshot("QGPL", "R1", 100, 110, status="ONLINE")
     with pytest.raises(ReceiverPlanningError, match="receiver.*link|receiver.*match"):
         plan_next_window(JournalPosition("R1", 110), [old, new], max_entries=10)
 

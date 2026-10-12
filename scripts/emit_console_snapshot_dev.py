@@ -73,10 +73,10 @@ class SimulatedJournal:
         return [
             ReceiverSnapshot("DEVLIB", FIRST_RECEIVER, 0, ROTATION_SEQUENCE,
                              next_receiver_library="DEVLIB", next_receiver=SECOND_RECEIVER,
-                             chain_links_observed=True),
+                             chain_links_observed=True, status="ONLINE"),
             ReceiverSnapshot("DEVLIB", SECOND_RECEIVER, ROTATION_SEQUENCE + 1, self.tail,
                              previous_receiver_library="DEVLIB", previous_receiver=FIRST_RECEIVER,
-                             chain_links_observed=True),
+                             chain_links_observed=True, status="ONLINE"),
         ]
 
     def capture(self, window) -> CapturedWindow:

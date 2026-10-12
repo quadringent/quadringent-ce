@@ -96,7 +96,7 @@ class RequiredReceiverTests(unittest.TestCase):
         catalog.snapshot(required_receiver="DEMOJRN4115")
         self.assertEqual(inner.calls, 2)
 
-    def test_a_covering_cache_is_still_served(self) -> None:
+    def test_a_covering_cache_without_a_fresh_tail_is_refetched(self) -> None:
         clock = iter([0.0, 1.0])
         inner = _Flaky(_snap(10))
         catalog = CachedReceiverCatalog(
@@ -104,7 +104,7 @@ class RequiredReceiverTests(unittest.TestCase):
         )
         catalog.snapshot()
         catalog.snapshot(required_receiver="DEMOJRN3775")
-        self.assertEqual(inner.calls, 1)
+        self.assertEqual(inner.calls, 2)
 
     def test_stale_fallback_never_hides_the_required_receiver(self) -> None:
         clock = iter([0.0, 1.0])

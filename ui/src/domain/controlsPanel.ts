@@ -46,6 +46,8 @@ export interface ControlsPanelState {
   readonly confirmationState: 'pending' | 'approved' | 'rejected' | null;
   readonly error: string | null;
   readonly failure: ControlFailure | null;
+  /** What the read-back confirmed (for example the declared state); `null` until then. */
+  readonly confirmed: string | null;
 }
 
 export type ControlsPanelEvent =
@@ -61,7 +63,7 @@ export type ControlsPanelEvent =
   | { readonly type: 'check_state' }
   | { readonly type: 'confirmation_approved' }
   | { readonly type: 'confirmation_rejected' }
-  | { readonly type: 'verified' }
+  | { readonly type: 'verified'; readonly confirmed?: string | null }
   | { readonly type: 'verify_failed'; readonly error: string }
   | { readonly type: 'reset' };
 
@@ -73,6 +75,7 @@ export const INITIAL_CONTROLS_PANEL_STATE: ControlsPanelState = {
   confirmationState: null,
   error: null,
   failure: null,
+  confirmed: null,
 };
 
 export function controlsPanelReducer(state: ControlsPanelState, event: ControlsPanelEvent): ControlsPanelState {
@@ -133,7 +136,7 @@ export function controlsPanelReducer(state: ControlsPanelState, event: ControlsP
 
     case 'verified':
       if (state.phase !== 'verifying') return state;
-      return { ...state, phase: 'succeeded' };
+      return { ...state, phase: 'succeeded', confirmed: event.confirmed ?? null };
 
     case 'verify_failed':
       if (state.phase !== 'verifying') return state;
@@ -186,13 +189,10 @@ function asErrorLike(error: unknown): ErrorLike {
   return typeof error === 'object' && error !== null ? error as ErrorLike : {};
 }
 
-function serviceNote(error: ErrorLike): string {
-  const message = typeof error.message === 'string' ? error.message.trim() : '';
-  return message ? ` Service message: ${message}` : '';
-}
-
 /** Explains a failed mutation request. Anything that leaves the outcome
- *  uncertain (timeout, transport failure, server error) is `unknown_result`. */
+ *  uncertain (timeout, transport failure, server error, an answer that cannot
+ *  be read) is `unknown_result`. A refusal is worded from fixed copy: the
+ *  service text may name internal events and is never repeated. */
 export function describeActionError(error: unknown): { readonly failure: 'refused' | 'unknown_result' | 'error'; readonly message: string } {
   const like = asErrorLike(error);
   const copy = CONTROLS_PANEL_COPY;
@@ -205,10 +205,10 @@ export function describeActionError(error: unknown): { readonly failure: 'refuse
   }
   if (status === 0) return { failure: 'unknown_result', message: `${copy.resultUnknownTitle} ${copy.transportUnknown}` };
   if (status >= 500) return { failure: 'unknown_result', message: `${copy.resultUnknownTitle} ${copy.serverUnknown}` };
-  const refused = (explanation: string, withNote = false) => ({
-    failure: 'refused' as const,
-    message: `${copy.refusedTitle} ${explanation}${withNote ? serviceNote(like) : ''}`,
-  });
+  if ((status >= 200 && status < 300) || like.code === 'invalid_response') {
+    return { failure: 'unknown_result', message: `${copy.resultUnknownTitle} ${copy.answerUnreadable}` };
+  }
+  const refused = (explanation: string) => ({ failure: 'refused' as const, message: `${copy.refusedTitle} ${explanation}` });
   if (status === 401) return refused(copy.refusedSession);
   if (status === 403) return refused(copy.refusedForbidden);
   if (status === 404) return refused(copy.refusedNotFound);
@@ -219,9 +219,9 @@ export function describeActionError(error: unknown): { readonly failure: 'refuse
   if (status === 409) {
     if (like.code === 'action_in_progress') return refused(copy.refusedInProgress);
     if (like.code === 'wrong_confirmation') return refused(copy.refusedConfirmation);
-    return refused(copy.refusedNotAvailable, true);
+    return refused(copy.refusedNotAvailable);
   }
-  return refused(copy.refusedGeneric, true);
+  return refused(copy.refusedGeneric);
 }
 
 /** Explains a read-back that did not confirm the effect. */
@@ -253,17 +253,52 @@ export interface ScopeExpectation {
   readonly declaredState: string;
 }
 
-/** Per-table states reported by a source/destination/fleet action
- *  (`after.pipelines.applied[]`); `null` when the service did not report them. */
-export function scopeExpectations(accepted: unknown): readonly ScopeExpectation[] | null {
-  const applied = recordAt(recordAt(accepted, 'pipelines'), 'applied');
-  if (!Array.isArray(applied)) return null;
-  const result: ScopeExpectation[] = [];
+export interface ScopeResult {
+  /** Tables the service reports as changed, with the state it reports for each. */
+  readonly applied: readonly ScopeExpectation[];
+  /** Tables left untouched; an entry without an id reads as an empty string. */
+  readonly skippedIds: readonly string[];
+}
+
+/** What a source/destination/fleet action reports (`after.pipelines`);
+ *  `null` when the service did not report both lists. */
+export function scopeResult(accepted: unknown): ScopeResult | null {
+  const pipelines = recordAt(accepted, 'pipelines');
+  const applied = recordAt(pipelines, 'applied');
+  const skipped = recordAt(pipelines, 'skipped');
+  if (!Array.isArray(applied) || !Array.isArray(skipped)) return null;
+  const changed: ScopeExpectation[] = [];
   for (const item of applied) {
     const pipelineId = recordAt(item, 'pipeline_id');
     const declaredState = recordAt(recordAt(item, 'after'), 'declared_state');
     if (typeof pipelineId !== 'string' || typeof declaredState !== 'string') return null;
-    result.push({ pipelineId, declaredState });
+    changed.push({ pipelineId, declaredState });
   }
-  return result;
+  return {
+    applied: changed,
+    skippedIds: skipped.map((item) => {
+      const id = recordAt(item, 'pipeline_id');
+      return typeof id === 'string' ? id : '';
+    }),
+  };
+}
+
+/**
+ * Actions the declared-state machine allows on a table, in display order.
+ * `pause` follows copying or live, `resume` follows paused or attention,
+ * restart and remove follow any running state, and nothing follows `stopped`
+ * or `not_started`. A replay is not a transition: it is offered wherever there
+ * is replicated data to replay.
+ */
+export function availableTableActions(declaredState: string): readonly ControlActionKind[] {
+  switch (declaredState) {
+    case 'live':
+    case 'copying':
+      return ['pause', 'restart_initial_copy', 'remove', 'replay'];
+    case 'paused':
+    case 'attention':
+      return ['resume', 'restart_initial_copy', 'remove', 'replay'];
+    default:
+      return [];
+  }
 }

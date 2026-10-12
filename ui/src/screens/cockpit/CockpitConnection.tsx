@@ -164,6 +164,7 @@ function ScopedControls({
       {effectiveScope === 'connection' ? (
         <ControlsPanel
           level="connection"
+          targetId={connection.id}
           targetLabel={connection.label}
           availableActions={['pause', 'resume'] as readonly ControlActionKind[]}
           {...scopeControls({ level: 'connection', id: connection.id }, { getClient: getCockpitClient, onSettled })}
@@ -173,6 +174,7 @@ function ScopedControls({
       {effectiveScope === 'destination' && connection.destinationId ? (
         <ControlsPanel
           level="destination"
+          targetId={connection.destinationId}
           targetLabel={`Destination of ${connection.label}`}
           availableActions={['pause', 'resume'] as readonly ControlActionKind[]}
           {...scopeControls({ level: 'destination', id: connection.destinationId }, { getClient: getCockpitClient, onSettled })}
@@ -182,6 +184,7 @@ function ScopedControls({
       {effectiveScope === 'fleet' ? (
         <ControlsPanel
           level="fleet"
+          targetId="fleet"
           targetLabel="All connections"
           availableActions={['pause', 'resume'] as readonly ControlActionKind[]}
           {...scopeControls({ level: 'fleet' }, { getClient: getCockpitClient, onSettled })}

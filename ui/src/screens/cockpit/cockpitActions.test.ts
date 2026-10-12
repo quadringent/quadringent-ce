@@ -61,7 +61,8 @@ test('table verify confirms only when a fresh read shows the accepted state', as
   const settled: string[] = [];
   const service = fakeService({ states: { pl_1: 'paused' } });
   const controls = tableControls('pl_1', { getClient: service.getClient, onSettled: () => settled.push('settled') });
-  await controls.verify({ action: 'pause', accepted: { id: 'pl_1', declaredState: 'paused' }, preview: null, signal });
+  const confirmed = await controls.verify({ action: 'pause', accepted: { id: 'pl_1', declaredState: 'paused' }, preview: null, signal });
+  assert.equal(confirmed, 'paused', 'the confirmed state is handed back for the success message');
   assert.deepEqual(service.log.map((entry) => `${entry.method} ${entry.path}`), ['GET /pipelines/pl_1']);
   assert.deepEqual(settled, ['settled']);
 });
@@ -170,4 +171,71 @@ test('a scope level cannot run a sensitive table action', async () => {
   const controls = scopeControls({ level: 'connection', id: 'src_1' }, { getClient: service.getClient, onSettled() {} });
   await assert.rejects(() => controls.execute('remove', undefined, signal), /not supported at connection level/);
   assert.equal(service.log.length, 0);
+});
+
+test('an action whose expected state equals the state before it is never verified by that state', async () => {
+  const service = fakeService({ states: { pl_1: 'copying' } });
+  const controls = tableControls('pl_1', { getClient: service.getClient, onSettled() {} });
+  const preview = { dryRun: { would_transition: { from: 'copying', to: 'copying' } } };
+  await assert.rejects(
+    () => controls.verify({ action: 'restart_initial_copy', accepted: { declaredState: 'copying' }, preview, signal }),
+    (error: unknown) => error instanceof EffectNotConfirmedError && /already "copying" before the action/.test(error.message),
+  );
+  // The same restart from another state is a visible change and is confirmed.
+  const moved = tableControls('pl_1', { getClient: fakeService({ states: { pl_1: 'copying' } }).getClient, onSettled() {} });
+  const from = { dryRun: { would_transition: { from: 'paused', to: 'copying' } } };
+  assert.equal(await moved.verify({ action: 'restart_initial_copy', accepted: { declaredState: 'copying' }, preview: from, signal }), 'copying');
+});
+
+const scopeAnswer = (applied: readonly [string, string][], skipped: readonly string[]) => (): Response => new Response(JSON.stringify({
+  before: null,
+  after: { pipelines: {
+    applied: applied.map(([id, state]) => ({ pipeline_id: id, before: { declared_state: 'live' }, after: { declared_state: state } })),
+    skipped: skipped.map((id) => ({ pipeline_id: id, reason: "transition interdite : 'attention' --pause--> ?" })),
+  } },
+  verify: null, dry_run: null,
+}), { status: 200, headers: { 'Content-Type': 'application/json' } });
+
+test('a scope action that applied nothing is never verified, and no table is read', async () => {
+  for (const skipped of [[], ['pl_a', 'pl_b']]) {
+    const service = fakeService({ states: {}, onAction: scopeAnswer([], skipped) });
+    const controls = scopeControls({ level: 'connection', id: 'src_1' }, { getClient: service.getClient, onSettled() {} });
+    const result = await controls.execute('pause', undefined, signal);
+    await assert.rejects(
+      () => controls.verify({ action: 'pause', accepted: result.accepted, preview: null, signal }),
+      (error: unknown) => {
+        assert.ok(error instanceof EffectNotConfirmedError);
+        assert.match(error.message, skipped.length === 0 ? /applied the action to no table/ : /2 tables skipped: pl_a, pl_b/);
+        assert.doesNotMatch(error.message, /transition interdite|--pause--/);
+        return true;
+      },
+    );
+    assert.equal(service.log.filter((entry) => entry.method === 'GET').length, 0);
+  }
+});
+
+test('a partly skipped scope action confirms nothing as a whole and names both counts', async () => {
+  const service = fakeService({ states: { pl_1: 'paused' }, onAction: scopeAnswer([['pl_1', 'paused']], ['pl_2']) });
+  const controls = scopeControls({ level: 'destination', id: 'dst_1' }, { getClient: service.getClient, onSettled() {} });
+  const result = await controls.execute('pause', undefined, signal);
+  await assert.rejects(
+    () => controls.verify({ action: 'pause', accepted: result.accepted, preview: null, signal }),
+    (error: unknown) => error instanceof EffectNotConfirmedError
+      && /1 table confirmed in the reported state\./.test(error.message) && /1 table skipped: pl_2/.test(error.message),
+  );
+});
+
+test('a long list of skipped tables is shortened', async () => {
+  const ids = Array.from({ length: 9 }, (_, index) => `pl_${index}`);
+  const service = fakeService({ states: {}, onAction: scopeAnswer([], ids) });
+  const controls = scopeControls({ level: 'fleet' }, { getClient: service.getClient, onSettled() {} });
+  const result = await controls.execute('pause', undefined, signal);
+  await assert.rejects(() => controls.verify({ action: 'pause', accepted: result.accepted, preview: null, signal }), /9 tables skipped: pl_0, pl_1, pl_2, pl_3, pl_4 and 4 more/);
+});
+
+test('a fully applied scope action is confirmed with its table count', async () => {
+  const service = fakeService({ states: { pl_1: 'paused', pl_2: 'paused' }, onAction: scopeAnswer([['pl_1', 'paused'], ['pl_2', 'paused']], []) });
+  const controls = scopeControls({ level: 'connection', id: 'src_1' }, { getClient: service.getClient, onSettled() {} });
+  const result = await controls.execute('pause', undefined, signal);
+  assert.equal(await controls.verify({ action: 'pause', accepted: result.accepted, preview: null, signal }), '2 tables');
 });

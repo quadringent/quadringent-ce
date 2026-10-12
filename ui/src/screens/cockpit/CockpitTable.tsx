@@ -19,7 +19,7 @@ import { ControlsPanel } from '../../components/ControlsPanel.tsx';
 import { declaredStateToStatusWord } from '../../domain/cockpit.ts';
 import { getCockpitClient, useCockpitTable, type CockpitTableState } from '../../data/useCockpit.ts';
 import { href, type CockpitTableTab } from '../../router.ts';
-import type { ControlActionKind } from '../../domain/controlsPanel.ts';
+import { availableTableActions } from '../../domain/controlsPanel.ts';
 import type { LogLevel } from '../../data/controlPlaneV2Client.ts';
 import { tableControls } from './cockpitActions.ts';
 import { focusPrimaryControls, navigateBack } from './cockpitFunctionKeys.ts';
@@ -142,8 +142,9 @@ export function CockpitTableView({
         <div id="cockpit-primary-controls">
           <ControlsPanel
             level="table"
+            targetId={pipelineId}
             targetLabel={pipelineId}
-            availableActions={['pause', 'resume', 'restart_initial_copy', 'remove', 'replay'] as readonly ControlActionKind[]}
+            availableActions={availableTableActions(state.data.pipeline.declaredState)}
             {...tableControls(pipelineId, { getClient: getCockpitClient, onSettled: onSettled ?? onRefresh })}
           />
         </div>

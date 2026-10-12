@@ -68,6 +68,7 @@ export function CockpitHomeView({ state, onRefresh, onSettled }: { readonly stat
           <div id="cockpit-primary-controls">
             <ControlsPanel
               level="fleet"
+              targetId="fleet"
               targetLabel="All connections"
               availableActions={['pause', 'resume'] as readonly ControlActionKind[]}
               {...scopeControls({ level: 'fleet' }, { getClient: getCockpitClient, onSettled: onSettled ?? onRefresh })}

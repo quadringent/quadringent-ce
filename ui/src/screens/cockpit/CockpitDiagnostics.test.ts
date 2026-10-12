@@ -269,3 +269,76 @@ test('theme and focus: the diagnostics styles use only tokens and never remove t
   const base = readFileSync(new URL('../../styles/base.css', import.meta.url), 'utf8');
   assert.match(base, /:focus-visible\s*{[^}]*outline:\s*2px solid var\(--focus-ring\)/);
 });
+
+const recordPass = (overrides: Partial<DiagnosticResult> = {}) => result({
+  code: 'destination.verification', layer: 'destination', status: 'passed', provenance: 'control-plane:destination-record',
+  subject: { kind: 'destination', ref: 'dst_1', label: null }, evidence: {}, evidenceKind: null,
+  limits: 'Recorded verification state; this diagnostic does not connect to Snowflake.', ...overrides,
+});
+
+test('a passed record read shows its limit in plain sight and is labelled "Read at"', () => {
+  const markup = render(ready(report([recordPass()], { overall: { status: 'ready', passed: 1, failed: 0, unknown: 0, skipped: 0, summary: '' } })));
+  const layers = markup.slice(markup.indexOf('All checks by layer'));
+  const beforeDetails = layers.slice(0, layers.indexOf('<details'));
+  assert.match(beforeDetails, /Recorded state/);
+  assert.match(beforeDetails, /Recorded verification state; this diagnostic does not connect to Snowflake\./);
+  assert.match(layers, /<dt>Read at<\/dt>/);
+  assert.doesNotMatch(layers, /<dt>Observed at<\/dt>/);
+  assert.doesNotMatch(markup, /diagnostic-status--ok/);
+});
+
+test('an observed result keeps "Observed at" and does not repeat its limits outside the disclosure', () => {
+  const markup = render(ready(report([result({ status: 'passed', provenance: 'control-plane:source-probe', evidenceKind: null, evidence: {} })])));
+  const layers = markup.slice(markup.indexOf('All checks by layer'));
+  assert.match(layers, /<dt>Observed at<\/dt>/);
+  assert.doesNotMatch(layers.slice(0, layers.indexOf('<details')), /Collected by the loader log/);
+});
+
+test('a synthetic pass reads incomplete in the overview, never ready', () => {
+  const markup = render(ready(report([result({ status: 'passed', evidenceKind: 'simulation' })], { overall: { status: 'ready', passed: 1, failed: 0, unknown: 0, skipped: 0, summary: '' } })));
+  assert.match(markup, /Incomplete: a required check passed on synthetic or historical evidence/);
+  assert.doesNotMatch(markup, /No required check failed or lacks an answer/);
+});
+
+test('a pipeline count is labelled "Pipelines" in the evidence', () => {
+  const truncated = result({ code: 'control_plane.report_truncated', layer: 'control_plane', status: 'unknown', subject: null, evidence: { pipeline_count: 120 }, evidenceKind: null });
+  const markup = render(ready(report([truncated], { overall: { status: 'incomplete', passed: 0, failed: 0, unknown: 1, skipped: 0, summary: '' } })));
+  assert.match(markup, /<span>Pipelines<\/span> <span class="mono">120<\/span>/);
+  assert.doesNotMatch(markup, /Pipeline count/);
+});
+
+function bundleWith(results: number): DiagnosticExport {
+  const exported = exportPayload();
+  return { ...exported, files: { 'report.json': JSON.stringify({ results: Array.from({ length: results }, () => ({})) }) } };
+}
+
+test('the export preview says it covers the whole organization and how many results it holds', () => {
+  const markup = render(ready(report([result()])), { exportState: { status: 'ready', exported: bundleWith(42), integrity: { problems: [], verified: true } } });
+  assert.match(markup, /covers the whole organization: 42 results\./);
+  assert.doesNotMatch(markup, /filtered to pipeline[^<]*the export is not/);
+});
+
+test('when the screen is filtered to one pipeline the preview says the export is not', () => {
+  const markup = render(ready(report([result()]), 'pl_123'), {
+    pipelineId: 'pl_123',
+    exportState: { status: 'ready', exported: bundleWith(1), integrity: { problems: [], verified: true } },
+  });
+  assert.match(markup, /covers the whole organization: 1 result\./);
+  assert.match(markup, /This screen is filtered to pipeline pl_123; the export is not\./);
+});
+
+test('an export whose size cannot be read still states its scope without inventing a count', () => {
+  const markup = render(ready(report([result()])), { exportState: { status: 'ready', exported: exportPayload(), integrity: { problems: [], verified: true } } });
+  assert.match(markup, /covers the whole organization\./);
+  assert.doesNotMatch(markup, /organization: \d/);
+});
+
+test('the preview introduction describes what the preview shows, not the file content', () => {
+  const markup = render(ready(report([result()])), { exportState: { status: 'ready', exported: exportPayload(), integrity: { problems: [], verified: true } } });
+  assert.match(markup, /The preview lists file names, sizes, SHA-256 digests, omitted fields and limits\./);
+  assert.doesNotMatch(markup, /Review what the file contains/);
+});
+
+test('the scope label comes from operator copy', () => {
+  assert.match(render(ready(report([result()]))), /<dt>Scope<\/dt>/);
+});

@@ -14,7 +14,7 @@ import {
   EffectNotConfirmedError,
   expectedDeclaredState,
   requiresConfirmation,
-  scopeExpectations,
+  scopeResult,
   type ControlActionKind,
 } from '../../domain/controlsPanel.ts';
 import { CONTROLS_PANEL_COPY } from '../../domain/operator.ts';
@@ -60,15 +60,21 @@ export function tableControls(pipelineId: string, wiring: ActionWiring): PanelWi
           current = await client.getPipeline(pipelineId, signal);
         } catch (error) {
           // A removed table is expected to disappear from the service.
-          if (action === 'remove' && error instanceof ControlPlaneV2Error && error.status === 404) return;
+          if (action === 'remove' && error instanceof ControlPlaneV2Error && error.status === 404) return 'removed';
           throw error;
         }
         if (action === 'replay') throw new EffectNotConfirmedError(CONTROLS_PANEL_COPY.notConfirmedReplay);
         const expected = expectedDeclaredState(accepted, preview);
         if (!expected) throw new EffectNotConfirmedError(CONTROLS_PANEL_COPY.notConfirmedNoReference);
+        // A state equal to the one before the action proves nothing about it.
+        const before = announcedStateBefore(preview);
+        if (before !== null && before === expected) {
+          throw new EffectNotConfirmedError(CONTROLS_PANEL_COPY.notConfirmedUnchanged(before));
+        }
         if (current.declaredState !== expected) {
           throw new EffectNotConfirmedError(CONTROLS_PANEL_COPY.notConfirmedMismatch(current.declaredState, expected));
         }
+        return current.declaredState;
       } finally {
         wiring.onSettled();
       }
@@ -106,9 +112,14 @@ export function scopeControls(target: ScopeTarget, wiring: ActionWiring): PanelW
     verify: async ({ accepted, signal }) => {
       const client = await wiring.getClient();
       try {
-        const expectations = scopeExpectations(accepted);
-        if (!expectations) throw new EffectNotConfirmedError(CONTROLS_PANEL_COPY.notConfirmedNoReference);
-        const reads = await Promise.all(expectations.map(async (expectation) => ({
+        const result = scopeResult(accepted);
+        if (!result) throw new EffectNotConfirmedError(CONTROLS_PANEL_COPY.notConfirmedNoReference);
+        if (result.applied.length === 0) {
+          throw new EffectNotConfirmedError(result.skippedIds.length > 0
+            ? skippedText(result.skippedIds)
+            : CONTROLS_PANEL_COPY.scopeNothingChanged);
+        }
+        const reads = await Promise.all(result.applied.map(async (expectation) => ({
           expectation,
           current: await client.getPipeline(expectation.pipelineId, signal),
         })));
@@ -116,10 +127,33 @@ export function scopeControls(target: ScopeTarget, wiring: ActionWiring): PanelW
         if (mismatched > 0) {
           throw new EffectNotConfirmedError(CONTROLS_PANEL_COPY.notConfirmedScopeMismatch(mismatched, reads.length));
         }
+        if (result.skippedIds.length > 0) {
+          throw new EffectNotConfirmedError(`${CONTROLS_PANEL_COPY.scopePartial(reads.length)} ${skippedText(result.skippedIds)}`);
+        }
+        return `${reads.length} ${reads.length === 1 ? 'table' : 'tables'}`;
       } finally {
         wiring.onSettled();
       }
     },
     ...decisions(wiring),
   };
+}
+
+const SKIPPED_SHOWN = 5;
+
+/** Names the skipped tables by id: the service's own reasons can quote internal events. */
+function skippedText(ids: readonly string[]): string {
+  const shown = ids.filter(Boolean).slice(0, SKIPPED_SHOWN).join(', ') || 'unnamed';
+  return CONTROLS_PANEL_COPY.scopeSkipped(ids.length, shown, Math.max(0, ids.length - SKIPPED_SHOWN));
+}
+
+/** The state the preview announced the table to be in before the action. */
+function announcedStateBefore(preview: unknown): string | null {
+  const transition = recordField(recordField(preview, 'dryRun'), 'would_transition');
+  const from = recordField(transition, 'from');
+  return typeof from === 'string' && from ? from : null;
+}
+
+function recordField(value: unknown, key: string): unknown {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>)[key] : undefined;
 }

@@ -265,3 +265,17 @@ test('runWithTimeout resolves with the value, rejects on time-out and aborts its
   );
   assert.equal((signal as AbortSignal | null)?.aborted, true);
 });
+
+test('what the read-back confirmed is kept for the success message, and nothing is invented without it', async () => {
+  const withDetail = harness({ verify: async () => 'paused' });
+  await readyToConfirm(withDetail);
+  withDetail.flow.confirm();
+  await tick();
+  assert.equal(withDetail.last().phase, 'succeeded');
+  assert.equal(withDetail.last().confirmed, 'paused');
+  const bare = harness();
+  await readyToConfirm(bare);
+  bare.flow.confirm();
+  await tick();
+  assert.equal(bare.last().confirmed, null);
+});

@@ -459,7 +459,7 @@ test('logout never throws, even on a non-2xx response', async () => {
   await client.logout();
 });
 
-test('getPipeline parses the declared state and rejects an unknown one to a safe default', async () => {
+test('getPipeline parses the declared state', async () => {
   const client = new ControlPlaneV2Client({
     fetchFn: fakeFetch(() => jsonResponse(200, { id: 'pl_1', declared_state: 'live' })),
   });
@@ -772,4 +772,32 @@ test('une sonde réussie exige aussi la relecture vérifiée du même ID', async
     else assert.equal((await client.verifyDestination('dst_one')).verified, expected);
     assert.ok(requests.every((url) => url.includes('/destinations/dst_one')));
   }
+});
+
+test('an unknown or missing declared state is an unreadable answer, never not_started', async () => {
+  for (const body of [{ id: 'pl_1', declared_state: 'migrating' }, { id: 'pl_1' }, { id: 'pl_1', declared_state: null }]) {
+    const client = new ControlPlaneV2Client({ fetchFn: fakeFetch(() => jsonResponse(200, body)) });
+    await assert.rejects(() => client.getPipeline('pl_1'), (error: unknown) => {
+      assert.ok(error instanceof ControlPlaneV2Error);
+      assert.equal(error.kind, 'invalid_response');
+      return true;
+    });
+  }
+  const list = new ControlPlaneV2Client({ fetchFn: fakeFetch(() => jsonResponse(200, { items: [{ id: 'pl_1', declared_state: 'live' }, { id: 'pl_2', declared_state: 'weird' }] })) });
+  await assert.rejects(() => list.listPipelines(), (error: unknown) => (error as ControlPlaneV2Error).kind === 'invalid_response');
+});
+
+test('an accepted mutation whose answer cannot be used reports an unreadable answer on a 2xx status', async () => {
+  const garbled = new ControlPlaneV2Client({ fetchFn: fakeFetch(() => new Response('<html>proxy truncated', { status: 200 })) });
+  await assert.rejects(() => garbled.runPipelineAction('pl_1', 'pause'), (error: unknown) => {
+    assert.ok(error instanceof ControlPlaneV2Error);
+    assert.equal(error.status, 200);
+    assert.equal(error.kind, 'invalid_response');
+    return true;
+  });
+  const unknownState = new ControlPlaneV2Client({ fetchFn: fakeFetch(() => jsonResponse(200, { before: null, after: { id: 'pl_1', declared_state: 'migrating' }, verify: null, dry_run: null })) });
+  await assert.rejects(() => unknownState.runPipelineAction('pl_1', 'pause'), (error: unknown) => (error as ControlPlaneV2Error).kind === 'invalid_response');
+  // An unreadable error body keeps its failure status and is not an unreadable *success*.
+  const failing = new ControlPlaneV2Client({ fetchFn: fakeFetch(() => new Response('oops', { status: 502 })) });
+  await assert.rejects(() => failing.runPipelineAction('pl_1', 'pause'), (error: unknown) => (error as ControlPlaneV2Error).kind === 'unavailable');
 });

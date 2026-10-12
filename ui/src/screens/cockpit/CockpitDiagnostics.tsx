@@ -18,7 +18,7 @@ import {
   type DiagnosticResultView,
   type DiagnosticsFailure,
 } from '../../domain/diagnostics.ts';
-import { browserDownloadEnv, downloadExport, type ExportIntegrity } from '../../domain/diagnosticsExport.ts';
+import { browserDownloadEnv, downloadExport, exportResultCount, type ExportIntegrity } from '../../domain/diagnosticsExport.ts';
 import { DIAGNOSTICS_COPY } from '../../domain/operator.ts';
 import { href } from '../../router.ts';
 import { navigateBack } from './cockpitFunctionKeys.ts';
@@ -114,6 +114,7 @@ export function CockpitDiagnosticsView({
 
       {state.status === 'ready' ? (
         <ExportPanel
+          pipelineId={pipelineId}
           state={exportState}
           onPrepare={onPrepareExport}
           onDiscard={onDiscardExport}
@@ -155,7 +156,7 @@ function ReportView({ state }: { readonly state: Extract<DiagnosticsState, { sta
         </ul>
         {view.countsConsistent ? null : <p className="cockpit-diagnostics__note">{DIAGNOSTICS_COPY.countsMismatch}</p>}
         <dl className="cockpit-diagnostics__facts">
-          <div><dt>Scope</dt><dd>{DIAGNOSTICS_COPY.scope[report.scope]}</dd></div>
+          <div><dt>{DIAGNOSTICS_COPY.scopeLabel}</dt><dd>{DIAGNOSTICS_COPY.scope[report.scope]}</dd></div>
           <div><dt>{DIAGNOSTICS_COPY.generatedAt}</dt><dd><time dateTime={report.generatedAt}>{utcText(report.generatedAt)}</time></dd></div>
           <div><dt>{DIAGNOSTICS_COPY.software}</dt><dd className="mono">{[report.software.product, report.software.version].filter(Boolean).join(' ') || '—'}{report.software.distribution ? ` · ${report.software.distribution}` : ''}</dd></div>
         </dl>
@@ -232,7 +233,7 @@ function ResultCard({ item, compact = false }: { readonly item: DiagnosticResult
         <div><dt>{DIAGNOSTICS_COPY.since}</dt><dd><time dateTime={result.since}>{item.sinceText}</time></dd></div>
       ) : null}
       <div>
-        <dt>{DIAGNOSTICS_COPY.observedAt}</dt>
+        <dt>{item.observedLabel}</dt>
         <dd>{result.observedAt && item.observedText ? <time dateTime={result.observedAt}>{item.observedText}</time> : DIAGNOSTICS_COPY.notObserved}</dd>
       </div>
       <div><dt>{DIAGNOSTICS_COPY.provenance}</dt><dd className="mono">{result.provenance}</dd></div>
@@ -262,6 +263,7 @@ function ResultCard({ item, compact = false }: { readonly item: DiagnosticResult
         <span className="diagnostic-result__required">{result.required ? DIAGNOSTICS_COPY.required : DIAGNOSTICS_COPY.optional}</span>
       </header>
       <p className="diagnostic-result__summary">{result.summary}</p>
+      {compact && item.recordRead ? <p className="diagnostic-result__limits">{result.limits ?? DIAGNOSTICS_COPY.limitsNone}</p> : null}
       {compact ? (
         <details className="diagnostic-result__details">
           <summary>{DIAGNOSTICS_COPY.detailsSummary}</summary>
@@ -273,12 +275,14 @@ function ResultCard({ item, compact = false }: { readonly item: DiagnosticResult
 }
 
 function ExportPanel({
+  pipelineId,
   state,
   onPrepare,
   onDiscard,
   onDownload,
   downloaded,
 }: {
+  readonly pipelineId: string | null;
   readonly state: DiagnosticsExportState;
   readonly onPrepare: () => void;
   readonly onDiscard: () => void;
@@ -299,6 +303,7 @@ function ExportPanel({
         <p role="status">{copy.preparing}</p>
       ) : (
         <ExportPreview
+          pipelineId={pipelineId}
           exported={state.exported}
           integrity={state.integrity}
           onDownload={onDownload}
@@ -311,12 +316,14 @@ function ExportPanel({
 }
 
 function ExportPreview({
+  pipelineId,
   exported,
   integrity,
   onDownload,
   onDiscard,
   downloaded,
 }: {
+  readonly pipelineId: string | null;
   readonly exported: DiagnosticExport;
   readonly integrity: ExportIntegrity;
   readonly onDownload: () => void;
@@ -329,7 +336,11 @@ function ExportPreview({
   return (
     <div className="cockpit-diagnostics__preview">
       <h3>{copy.previewTitle}</h3>
-      <p className="cockpit-diagnostics__note">{copy.intro}</p>
+      <p className="cockpit-diagnostics__note">{copy.previewIntro}</p>
+      <p className="cockpit-diagnostics__coverage">
+        {copy.coverage(exportResultCount(exported))}
+        {pipelineId ? <> {copy.filteredNotice(pipelineId)}</> : null}
+      </p>
       {blocked ? (
         <div role="alert" className="cockpit-diagnostics__integrity">
           <p><strong>{copy.integrityTitle}</strong></p>

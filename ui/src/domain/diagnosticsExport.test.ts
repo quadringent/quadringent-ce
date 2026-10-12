@@ -7,6 +7,7 @@ import {
   downloadExport,
   exportBundleText,
   exportFileName,
+  exportResultCount,
   type BlobDownloadEnv,
 } from './diagnosticsExport.ts';
 
@@ -108,4 +109,13 @@ test('no persistent browser storage is touched by the export module', async () =
   const { readFileSync } = await import('node:fs');
   const source = readFileSync(new URL('./diagnosticsExport.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /localStorage|sessionStorage|indexedDB|document\.cookie/);
+});
+
+test('the number of results covered by the export is read from report.json, or unknown', () => {
+  const report = JSON.stringify({ results: [{}, {}, {}] });
+  assert.equal(exportResultCount(exportFor({ 'report.json': report })), 3);
+  assert.equal(exportResultCount(exportFor({ 'report.json': '{"results": []}' })), 0);
+  assert.equal(exportResultCount(exportFor({ 'report.json': 'not json' })), null);
+  assert.equal(exportResultCount(exportFor({ 'report.json': '{"results": "x"}' })), null);
+  assert.equal(exportResultCount(exportFor({ 'README.txt': 'no report' })), null);
 });

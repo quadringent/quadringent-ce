@@ -25,6 +25,9 @@ export type DiagnosticTone = 'ok' | 'incident' | 'neutral' | 'limit';
 
 export interface DiagnosticResultView {
   readonly result: DiagnosticResult;
+  /** True when the result was read from a stored record, not observed. */
+  readonly recordRead: boolean;
+  readonly observedLabel: string;
   readonly tone: DiagnosticTone;
   readonly statusWord: string;
   readonly qualifier: string | null;
@@ -79,10 +82,24 @@ export function limitQualifier(result: DiagnosticResult, reportSynthetic: boolea
   return null;
 }
 
+/** A result whose provenance ends in `-record` was read from a stored record
+ *  (source, destination or pipeline record), not observed on the system. */
+export function isRecordRead(result: DiagnosticResult): boolean {
+  return result.provenance.endsWith('-record');
+}
+
+const DECLARED_STATE_CODE = 'pipeline.state';
+
 export function diagnosticTone(result: DiagnosticResult, report: Pick<DiagnosticReport, 'synthetic'>): DiagnosticTone {
   if (result.status === 'failed') return 'incident';
   const limited = limitQualifier(result, report.synthetic) !== null;
-  if (result.status === 'passed') return limited ? 'limit' : 'ok';
+  if (result.status === 'passed') {
+    if (limited) return 'limit';
+    // A stored record is not a fresh observation; the declared state is no
+    // proof of capture at all, so it is not coloured as a pass.
+    if (isRecordRead(result)) return result.code === DECLARED_STATE_CODE ? 'neutral' : 'limit';
+    return 'ok';
+  }
   return limited ? 'limit' : 'neutral';
 }
 
@@ -96,7 +113,7 @@ export function subjectRoute(subject: DiagnosticSubject | null): Route | null {
 export function evidenceRows(result: DiagnosticResult): readonly EvidenceRow[] {
   return Object.entries(result.evidence)
     .filter(([key]) => key !== 'evidence_kind')
-    .map(([key, value]) => ({ key, label: humanize(key), value: scalarText(value) }));
+    .map(([key, value]) => ({ key, label: DIAGNOSTICS_COPY.evidenceLabels[key] ?? humanize(key), value: scalarText(value) }));
 }
 
 function humanize(key: string): string {
@@ -120,11 +137,15 @@ function toView(result: DiagnosticResult, report: DiagnosticReport): DiagnosticR
     ? 'problem'
     : required && (result.status === 'unknown' || result.status === 'skipped') ? 'gap' : null;
   const kindLabel = result.subject ? DIAGNOSTICS_COPY.subjectKinds[result.subject.kind] : null;
+  const recordRead = isRecordRead(result);
   return {
     result,
+    recordRead,
+    observedLabel: recordRead ? DIAGNOSTICS_COPY.readAt : DIAGNOSTICS_COPY.observedAt,
     tone: diagnosticTone(result, report),
     statusWord: DIAGNOSTICS_COPY.status[result.status],
-    qualifier: limitQualifier(result, report.synthetic),
+    qualifier: limitQualifier(result, report.synthetic)
+      ?? (recordRead && result.status === 'passed' ? DIAGNOSTICS_COPY.qualifier.recorded : null),
     established,
     subjectText: result.subject ? `${kindLabel}: ${result.subject.label ?? result.subject.ref}` : null,
     subjectRoute: subjectRoute(result.subject),
@@ -146,20 +167,22 @@ function countResults(results: readonly DiagnosticResult[]): DiagnosticCounts {
 }
 
 /** Derived from the listed results, with the contract's rule; the service's
- *  own status is kept only when it is more severe. */
-function overallStatus(report: DiagnosticReport, counts: DiagnosticCounts): DiagnosticOverallStatus {
+ *  own status is kept only when it is more severe. A required pass that rests
+ *  on synthetic or historical evidence proves nothing about the current state,
+ *  so it can never leave the report "ready". */
+function overallStatus(report: DiagnosticReport, counts: DiagnosticCounts): { readonly status: DiagnosticOverallStatus; readonly limited: boolean } {
   const requiredGap = report.results.some((item) => item.required && (item.status === 'unknown' || item.status === 'skipped'));
-  const derived: DiagnosticOverallStatus = counts.failed > 0 ? 'blocked' : requiredGap ? 'incomplete' : 'ready';
-  return OVERALL_RANK[report.overall.status] > OVERALL_RANK[derived] ? report.overall.status : derived;
+  const limited = report.results.some((item) => item.required && item.status === 'passed' && limitQualifier(item, report.synthetic) !== null);
+  const derived: DiagnosticOverallStatus = counts.failed > 0 ? 'blocked' : requiredGap || limited ? 'incomplete' : 'ready';
+  const status = OVERALL_RANK[report.overall.status] > OVERALL_RANK[derived] ? report.overall.status : derived;
+  return { status, limited: limited && !requiredGap };
 }
 
 export function buildDiagnosticsView(report: DiagnosticReport): DiagnosticsView {
   const views = report.results.map((result) => toView(result, report)).sort(compareViews);
   const counts = countResults(report.results);
-  const status = overallStatus(report, counts);
-  const text = status === 'ready' && report.synthetic
-    ? DIAGNOSTICS_COPY.overall.readySynthetic
-    : DIAGNOSTICS_COPY.overall[status];
+  const { status, limited } = overallStatus(report, counts);
+  const text = status === 'incomplete' && limited ? DIAGNOSTICS_COPY.overall.incompleteLimited : DIAGNOSTICS_COPY.overall[status];
   const groups: DiagnosticLayerGroup[] = [];
   for (const layer of DIAGNOSTIC_LAYERS) {
     const inLayer = views.filter((item) => item.result.layer === layer);

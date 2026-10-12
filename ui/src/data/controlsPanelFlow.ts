@@ -39,8 +39,9 @@ export interface FlowDeps {
     confirmationToken: string | undefined,
     signal: AbortSignal,
   ) => Promise<{ readonly pendingConfirmationId: string | null; readonly accepted?: unknown }>;
-  /** Reads the state again; throws when the effect is not confirmed. */
-  readonly verify: (context: VerifyContext) => Promise<void>;
+  /** Reads the state again; throws when the effect is not confirmed, and may
+   *  return a short description of what it confirmed (for example the state). */
+  readonly verify: (context: VerifyContext) => Promise<string | void>;
   readonly approveConfirmation?: (confirmationId: string) => Promise<void>;
   readonly rejectConfirmation?: (confirmationId: string) => Promise<void>;
 }
@@ -98,7 +99,7 @@ export function createControlsFlow(getDeps: () => FlowDeps, onState: (state: Con
     const deps = getDeps();
     runWithTimeout((signal) => deps.verify({ action, accepted: acceptedValue, preview, signal }), deps.timeoutMs)
       .then(
-        () => { if (live(id)) send({ type: 'verified' }); },
+        (confirmed) => { if (live(id)) send({ type: 'verified', confirmed: typeof confirmed === 'string' ? confirmed : null }); },
         (error: unknown) => { if (live(id)) send({ type: 'verify_failed', error: describeVerifyError(error) }); },
       );
   };

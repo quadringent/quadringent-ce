@@ -869,8 +869,10 @@ export class ControlPlaneV2Client {
     try {
       payload = await response.json();
     } catch {
+      // An unreadable answer to an accepted request is not a refusal: its
+      // status is a success, so it is reported as an unreadable answer.
       throw new ControlPlaneV2Error(
-        response.status, 'internal_error', `Unreadable response (${path})`, "Try again later.", true,
+        response.status, response.ok ? 'invalid_response' : 'internal_error', `Unreadable response (${path})`, "Try again later.", true,
         parseRetryAfter(response.headers?.get?.('Retry-After') ?? null),
       );
     }
@@ -1036,9 +1038,14 @@ const LOG_LEVELS = new Set<LogLevel>(['info', 'warning', 'error']);
 function parsePipelineRecord(value: unknown): PipelineRecordV2 {
   const record = typeof value === 'object' && value !== null ? value as Record<string, unknown> : {};
   const declaredState = record.declared_state;
+  if (!PIPELINE_DECLARED_STATES.has(declaredState as PipelineDeclaredState)) {
+    // Never fall back to a state: a pipeline whose state is not understood is
+    // not "not started".
+    throw new ControlPlaneV2Error(200, 'invalid_response', "The service sent a pipeline state this console does not recognize.", "Update the console or the service so their versions match.", false);
+  }
   return {
     id: String(record.id ?? ''),
-    declaredState: PIPELINE_DECLARED_STATES.has(declaredState as PipelineDeclaredState) ? declaredState as PipelineDeclaredState : 'not_started',
+    declaredState: declaredState as PipelineDeclaredState,
     ...(typeof record.attention_reason === 'string' && record.attention_reason.length > 0 ? { attentionReason: record.attention_reason } : {}),
   };
 }

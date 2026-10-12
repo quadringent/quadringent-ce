@@ -148,6 +148,7 @@ test('the overall verdict never reads healthy and a service that understates a p
     synthetic: true,
     overall: { status: 'ready', passed: 1, failed: 0, unknown: 0, skipped: 0, summary: '' },
   }));
+  assert.equal(synthetic.overall.status, 'incomplete', 'synthetic data never reads as ready');
   assert.match(synthetic.overall.text, /synthetic/i);
 });
 
@@ -244,4 +245,68 @@ test('an unexpected error reads as an unavailable service, never as an empty or 
 test('the service message is surfaced for an unreadable report, not for a plain outage', () => {
   assert.equal(describeDiagnosticsError({ kind: 'invalid_response', message: 'bad layer' }).serviceMessage, 'bad layer');
   assert.equal(describeDiagnosticsError({ kind: 'unavailable', message: 'internal detail' }).serviceMessage, null);
+});
+
+const recordRead = (overrides: Partial<DiagnosticResult> = {}) => result({
+  code: 'destination.verification', layer: 'destination', provenance: 'control-plane:destination-record',
+  subject: { kind: 'destination', ref: 'dst_1', label: null }, ...overrides,
+});
+
+test('a passed result read from a record is not a fresh observation: amber, labelled, never green', () => {
+  for (const provenance of ['control-plane:source-record', 'control-plane:destination-record', 'control-plane:pipeline-record']) {
+    const item = buildDiagnosticsView(report([recordRead({ provenance, code: 'x.record', status: 'passed' })])).groups[0]!.views[0]!;
+    assert.equal(item.tone, 'limit', provenance);
+    assert.equal(item.qualifier, 'Recorded state', provenance);
+    assert.equal(item.recordRead, true);
+    assert.equal(item.observedLabel, 'Read at');
+  }
+  const probe = buildDiagnosticsView(report([recordRead({ provenance: 'control-plane:source-probe', status: 'passed' })])).groups[0]!.views[0]!;
+  assert.equal(probe.tone, 'ok');
+  assert.equal(probe.recordRead, false);
+  assert.equal(probe.observedLabel, 'Observed at');
+});
+
+test('a failed or unknown record result keeps its own tone but is still labelled as a read', () => {
+  const failed = buildDiagnosticsView(report([recordRead({ status: 'failed' })])).problems[0]!;
+  assert.equal(failed.tone, 'incident');
+  assert.equal(failed.observedLabel, 'Read at');
+  const unknown = buildDiagnosticsView(report([recordRead({ status: 'unknown' })])).gaps[0]!;
+  assert.equal(unknown.tone, 'neutral');
+});
+
+test('the declared pipeline state is neutral, not green, even when it passes', () => {
+  const item = buildDiagnosticsView(report([recordRead({
+    code: 'pipeline.state', layer: 'capture', provenance: 'control-plane:pipeline-record', required: false, status: 'passed',
+    subject: { kind: 'pipeline', ref: 'pl_1', label: null },
+  })])).groups[0]!.views[0]!;
+  assert.equal(item.tone, 'neutral');
+  assert.equal(item.qualifier, 'Recorded state');
+});
+
+test('ready becomes incomplete when a required pass rests on synthetic or historical evidence', () => {
+  const serverReady = { status: 'ready' as const, passed: 1, failed: 0, unknown: 0, skipped: 0, summary: '' };
+  for (const evidenceKind of ['simulation', 'historical'] as const) {
+    const view = buildDiagnosticsView(report([result({ status: 'passed', required: true, evidenceKind })], { overall: serverReady }));
+    assert.equal(view.overall.status, 'incomplete', evidenceKind);
+    assert.match(view.overall.text, /passed on synthetic or historical evidence/);
+  }
+  const optional = buildDiagnosticsView(report([result({ status: 'passed', required: false, evidenceKind: 'simulation' })], { overall: serverReady }));
+  assert.equal(optional.overall.status, 'ready', 'an optional synthetic pass does not weaken a verdict');
+  const live = buildDiagnosticsView(report([result({ status: 'passed', required: true, evidenceKind: 'live' })], { overall: serverReady }));
+  assert.equal(live.overall.status, 'ready');
+  const recorded = buildDiagnosticsView(report([recordRead({ status: 'passed' })], { overall: serverReady }));
+  assert.equal(recorded.overall.status, 'ready', 'a recorded state is limited but stays a pass of what it states');
+});
+
+test('a failed result still reads blocked when a synthetic pass sits next to it', () => {
+  const view = buildDiagnosticsView(report([
+    result({ status: 'passed', required: true, evidenceKind: 'simulation' }),
+    result({ code: 'f', status: 'failed' }),
+  ]));
+  assert.equal(view.overall.status, 'blocked');
+});
+
+test('evidence labels use operator wording for the pipeline count', () => {
+  const rows = evidenceRows(result({ evidence: { pipeline_count: 120, event_count: 3 } }));
+  assert.deepEqual(rows.map((row) => [row.label, row.value]), [['Pipelines', '120'], ['Event count', '3']]);
 });

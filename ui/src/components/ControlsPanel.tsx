@@ -37,6 +37,9 @@ const DESTRUCTIVE_ACTIONS: ReadonlySet<ControlActionKind> = new Set(['remove', '
  */
 export interface ControlsPanelProps {
   readonly level: ControlLevel;
+  /** Identity of the target (pipeline, source or destination id). Two targets can
+   *  share a label, never an id: the panel resets when this changes. */
+  readonly targetId: string;
   readonly targetLabel: string;
   /** Actions proposées à ce niveau — le service ne déclare jamais toutes les
    *  actions partout (ex. `remove`/`replay` n'existent qu'au niveau table). */
@@ -49,7 +52,7 @@ export interface ControlsPanelProps {
     signal?: AbortSignal,
   ) => Promise<{ readonly pendingConfirmationId: string | null; readonly accepted?: unknown }>;
   /** Reads the state again and throws when the effect is not confirmed. */
-  readonly verify: (context: VerifyContext) => Promise<void>;
+  readonly verify: (context: VerifyContext) => Promise<string | void>;
   readonly approveConfirmation?: (confirmationId: string) => Promise<void>;
   readonly rejectConfirmation?: (confirmationId: string) => Promise<void>;
   /** Time allowed to each round trip before the result is declared unknown. */
@@ -57,12 +60,13 @@ export interface ControlsPanelProps {
 }
 
 /**
- * The panel is keyed by level and target: when the selection changes (another
- * table, another connection) the previous confirmation dialog and its pending
- * action are discarded instead of being executed against the new target.
+ * The panel is keyed by level and target id: when the selection changes
+ * (another table, another connection, even one with the same display name) the
+ * previous confirmation dialog and its pending action are discarded instead of
+ * being executed against the new target.
  */
 export function ControlsPanel(props: ControlsPanelProps) {
-  return <ControlsPanelBody key={`${props.level}|${props.targetLabel}`} {...props} />;
+  return <ControlsPanelBody key={`${props.level}|${props.targetId}`} {...props} />;
 }
 
 function ControlsPanelBody(props: ControlsPanelProps) {
@@ -144,7 +148,9 @@ function ControlsPanelBody(props: ControlsPanelProps) {
               </details>
             ) : null}
           </div>
-        ) : null}
+        ) : (
+          <p className="controls-panel__none">{CONTROLS_PANEL_COPY.noActionsAvailable}</p>
+        )}
       </div>
 
       {state.phase === 'previewing' ? <p role="status">{CONTROLS_PANEL_COPY.previewing}</p> : null}
@@ -187,7 +193,7 @@ function ControlsPanelBody(props: ControlsPanelProps) {
 
       {state.phase === 'succeeded' ? (
         <p className="controls-panel__outcome controls-panel__outcome--succeeded" role="status">
-          {CONTROLS_PANEL_COPY.succeeded}
+          {CONTROLS_PANEL_COPY.succeeded(state.confirmed)}
         </p>
       ) : null}
 

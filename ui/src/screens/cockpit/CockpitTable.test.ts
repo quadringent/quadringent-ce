@@ -122,11 +122,26 @@ test('loading and failed states never render tab content or the controls panel',
   assert.match(failed, /panne v2/);
 });
 
-test('the table controls panel offers all five contract actions', () => {
-  const markup = render({ tab: 'metrics' });
-  for (const label of ["Suspend", "Resume", "Restart the initial copy", "Remove", "Replay a range"]) {
+test('a live table offers pause, restart, remove and replay, and never resume', () => {
+  const markup = render({ tab: 'metrics', state: { status: 'ready', data: tableData({ pipeline: { id: 'pl_sales_order_lines', declaredState: 'live' } }) } });
+  for (const label of ["Suspend", "Restart the initial copy", "Remove", "Replay a range"]) {
     assert.match(markup, new RegExp(`>${label}<`));
   }
+  assert.doesNotMatch(markup, />Resume</);
+});
+
+test('a paused or attention table offers resume and never suspend', () => {
+  for (const declaredState of ['paused', 'attention'] as const) {
+    const markup = render({ tab: 'metrics', state: { status: 'ready', data: tableData({ pipeline: { id: 'pl_sales_order_lines', declaredState } }) } });
+    assert.match(markup, />Resume</, declaredState);
+    assert.doesNotMatch(markup, />Suspend</, declaredState);
+  }
+});
+
+test('a stopped table offers no action and says so', () => {
+  const markup = render({ tab: 'metrics', state: { status: 'ready', data: tableData({ pipeline: { id: 'pl_sales_order_lines', declaredState: 'stopped' } }) } });
+  assert.match(markup, /No action is available in the current state\./);
+  assert.doesNotMatch(markup, />Suspend<|>Resume<|>Remove</);
 });
 
 test('the function key bar is present and F12 jumps to the logs tab hash', () => {

@@ -45,6 +45,18 @@ export async function checkExportIntegrity(
   return { problems, verified: sha256 !== null };
 }
 
+/** How many results `report.json` holds, or `null` when it cannot be read. */
+export function exportResultCount(exported: DiagnosticExport): number | null {
+  const text = exported.files['report.json'];
+  if (text === undefined) return null;
+  try {
+    const results = (JSON.parse(text) as { results?: unknown }).results;
+    return Array.isArray(results) ? results.length : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Only the digits of the UTC generation time reach the file name. */
 export function exportFileName(generatedAt: string): string {
   const compact = new Date(generatedAt).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');

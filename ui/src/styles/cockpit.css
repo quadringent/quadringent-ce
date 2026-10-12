@@ -109,6 +109,8 @@
   gap: var(--space-4);
 }
 
+.controls-panel__none { margin: 0; font-size: var(--t-small); color: var(--ink-3); }
+
 .controls-panel__scope {
   display: flex;
   align-items: baseline;
@@ -617,6 +619,9 @@
 .diagnostic-status--neutral { color: var(--ink-3); }
 .diagnostic-status--neutral::before { background: transparent; border: 1px solid currentColor; }
 .diagnostic-status__qualifier { font-weight: 400; }
+
+.diagnostic-result__limits { margin: 0 0 var(--space-2); font-size: var(--t-small); color: var(--ink-2); }
+.cockpit-diagnostics__coverage { margin: 0 0 var(--space-3); font-size: var(--t-small); color: var(--ink-1); font-weight: var(--w-medium); }
 
 .diagnostic-result__facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-2) var(--space-5); margin: var(--space-2) 0 0; font-size: var(--t-small); }
 .diagnostic-result__facts > div { display: contents; }

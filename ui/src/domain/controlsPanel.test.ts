@@ -6,7 +6,8 @@ import {
   describeVerifyError,
   EffectNotConfirmedError,
   expectedDeclaredState,
-  scopeExpectations,
+  scopeResult,
+  availableTableActions,
   controlsPanelReducer,
   INITIAL_CONTROLS_PANEL_STATE,
   requiresConfirmation,
@@ -180,13 +181,59 @@ test('errors are explained by kind: refused statuses, unknown outcomes and unexp
   const status = (value: number, extra: Record<string, unknown> = {}) => describeActionError(Object.assign(new Error('service text'), { status: value, ...extra }));
   assert.equal(status(403).failure, 'refused');
   assert.match(status(403).message, /Action refused\..*role does not allow/);
-  assert.match(status(409, { code: 'capability_unavailable' }).message, /not possible in the current state.*Service message: service text/);
+  assert.match(status(409, { code: 'capability_unavailable' }).message, /not possible in the current state/);
   assert.match(status(409, { code: 'action_in_progress' }).message, /already in progress/);
   assert.match(status(409, { code: 'wrong_confirmation' }).message, /confirmation is missing, expired or not approved/);
   assert.match(status(404).message, /no longer exists/);
   assert.match(status(401).message, /session has ended/);
   assert.match(status(429, { retryAfterSeconds: 7 }).message, /Too many requests.*Retry in 7 s\./);
   assert.equal(status(400).failure, 'refused');
+});
+
+test('a refusal never repeats the service text, which may name an internal event or transition', () => {
+  const raw = "transition interdite : 'live' --resume_live--> ?";
+  for (const code of ['capability_unavailable', 'invalid_request', 'internal_error']) {
+    for (const status of [400, 409]) {
+      const described = describeActionError(Object.assign(new Error(raw), { status, code }));
+      assert.equal(described.failure, 'refused');
+      assert.doesNotMatch(described.message, /resume_live|transition interdite|--/);
+    }
+  }
+});
+
+test('a 2xx answer that cannot be used is an unknown result, never "refused, nothing was changed"', () => {
+  for (const error of [
+    Object.assign(new Error('Unreadable response'), { status: 200, code: 'internal_error' }),
+    Object.assign(new Error('bad'), { status: 200, code: 'invalid_response' }),
+    Object.assign(new Error('bad'), { status: 204, code: 'invalid_response' }),
+  ]) {
+    const described = describeActionError(error);
+    assert.equal(described.failure, 'unknown_result');
+    assert.match(described.message, /Result unknown\./);
+    assert.match(described.message, /may have been applied/);
+    assert.doesNotMatch(described.message, /nothing was changed|refused/i);
+  }
+});
+
+test('only the actions the declared-state machine allows are offered for a table', () => {
+  assert.deepEqual(availableTableActions('live'), ['pause', 'restart_initial_copy', 'remove', 'replay']);
+  assert.deepEqual(availableTableActions('copying'), ['pause', 'restart_initial_copy', 'remove', 'replay']);
+  assert.deepEqual(availableTableActions('paused'), ['resume', 'restart_initial_copy', 'remove', 'replay']);
+  assert.deepEqual(availableTableActions('attention'), ['resume', 'restart_initial_copy', 'remove', 'replay']);
+  assert.deepEqual(availableTableActions('stopped'), []);
+  assert.deepEqual(availableTableActions('not_started'), []);
+  assert.ok(!availableTableActions('live').includes('resume'), 'resume only follows a pause or an attention');
+  assert.ok(!availableTableActions('paused').includes('pause'));
+  assert.deepEqual(availableTableActions('unexpected' as never), []);
+});
+
+test('verification success records what was confirmed, and an unchanged state is never a verification', () => {
+  const verifying = controlsPanelReducer(RUNNING, { type: 'run_succeeded' });
+  const done = controlsPanelReducer(verifying, { type: 'verified', confirmed: 'paused' });
+  assert.equal(done.phase, 'succeeded');
+  assert.equal(done.confirmed, 'paused');
+  assert.equal(controlsPanelReducer(verifying, { type: 'verified' }).confirmed, null);
+  assert.equal(controlsPanelReducer(done, { type: 'request', action: 'resume' }).confirmed, null);
 });
 
 test('a timeout, a transport failure and a server error are unknown results, not failures to retry', () => {
@@ -218,17 +265,26 @@ test('the expected state comes from the accepted request first, then from the pr
   assert.equal(expectedDeclaredState(null, null), null);
 });
 
-test('scope expectations read the per-table states the service reported, and nothing else', () => {
+test('a scope answer is read as the tables changed with their states and the tables skipped', () => {
   const accepted = { pipelines: { applied: [
     { pipeline_id: 'pl_1', before: { declared_state: 'live' }, after: { declared_state: 'paused' } },
     { pipeline_id: 'pl_2', before: { declared_state: 'copying' }, after: { declared_state: 'paused' } },
-  ], skipped: [] } };
-  assert.deepEqual(scopeExpectations(accepted), [
-    { pipelineId: 'pl_1', declaredState: 'paused' },
-    { pipelineId: 'pl_2', declaredState: 'paused' },
-  ]);
-  assert.deepEqual(scopeExpectations({ pipelines: { applied: [], skipped: [] } }), []);
-  assert.equal(scopeExpectations({ affected: ['pl_1'] }), null);
-  assert.equal(scopeExpectations({ pipelines: { applied: [{ pipeline_id: 'pl_1' }] } }), null);
-  assert.equal(scopeExpectations(null), null);
+  ], skipped: [{ pipeline_id: 'pl_3', reason: "transition interdite : 'attention' --pause--> ?" }] } };
+  assert.deepEqual(scopeResult(accepted), {
+    applied: [{ pipelineId: 'pl_1', declaredState: 'paused' }, { pipelineId: 'pl_2', declaredState: 'paused' }],
+    skippedIds: ['pl_3'],
+  });
+});
+
+test('a scope answer that applied nothing is reported as such, not as an empty success', () => {
+  assert.deepEqual(scopeResult({ pipelines: { applied: [], skipped: [] } }), { applied: [], skippedIds: [] });
+  assert.deepEqual(scopeResult({ pipelines: { applied: [], skipped: [{ pipeline_id: 'pl_a', reason: 'x' }, { reason: 'no id' }] } }),
+    { applied: [], skippedIds: ['pl_a', ''] });
+});
+
+test('a scope answer without the per-table report cannot be interpreted', () => {
+  assert.equal(scopeResult({ affected: ['pl_1'] }), null);
+  assert.equal(scopeResult({ pipelines: { applied: [{ pipeline_id: 'pl_1' }] } }), null);
+  assert.equal(scopeResult({ pipelines: { applied: [] } }), null, 'skipped must be reported too');
+  assert.equal(scopeResult(null), null);
 });

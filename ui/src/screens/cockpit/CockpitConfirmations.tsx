@@ -27,7 +27,7 @@ export function CockpitConfirmationsScreen() {
   const reload = () => setNonce((value) => value + 1);
 
   useEffect(() => {
-    document.title = 'Quadringent · Confirmations';
+    document.title = CONFIRMATIONS_COPY.documentTitle;
     let current = true;
     setState({ status: 'loading' });
     getCockpitClient()
@@ -71,12 +71,12 @@ export function CockpitConfirmationsScreen() {
     if (chosen.decision === 'execute') {
       const action = fresh.actionRef === 'pipeline.remove' ? 'remove'
         : fresh.actionRef === 'pipeline.restart_initial_copy' ? 'restart_initial_copy' : null;
-      if (!action || fresh.resourceType !== 'pipeline') throw new Error("This action cannot be executed from this screen.");
+      if (!action || fresh.resourceType !== 'pipeline') throw new Error(CONFIRMATIONS_COPY.cannotExecuteHere);
       const result = await client.runPipelineAction(fresh.resourceId, action, { confirmationToken: fresh.id });
       const targetState = action === 'remove' ? 'stopped' : 'copying';
-      if (result.after?.declaredState !== targetState) throw new EffectNotConfirmedError("The service did not confirm the expected effect.");
+      if (result.after?.declaredState !== targetState) throw new EffectNotConfirmedError(CONFIRMATIONS_COPY.notConfirmedEffect);
       const verified = await client.getConfirmation(fresh.id);
-      if (verified.state !== 'used') throw new EffectNotConfirmedError("The service did not confirm execution.");
+      if (verified.state !== 'used') throw new EffectNotConfirmedError(CONFIRMATIONS_COPY.notConfirmedExecution);
       const pipeline = await client.getPipeline(fresh.resourceId);
       setFeedback(pipeline.attentionReason ?? result.after?.attentionReason ?? CONFIRMATIONS_COPY.executed);
       return;
@@ -85,7 +85,7 @@ export function CockpitConfirmationsScreen() {
     else await client.rejectConfirmation(fresh.id);
     const verified = await client.getConfirmation(fresh.id);
     const expected = chosen.decision === 'approve' ? 'approved' : 'rejected';
-    if (verified.state !== expected) throw new EffectNotConfirmedError("The service did not confirm the decision.");
+    if (verified.state !== expected) throw new EffectNotConfirmedError(CONFIRMATIONS_COPY.notConfirmedDecision);
     setFeedback(chosen.decision === 'approve' ? CONFIRMATIONS_COPY.approved : CONFIRMATIONS_COPY.rejected);
   };
 
@@ -117,35 +117,35 @@ export function CockpitConfirmationsView({
   return <div className="board cockpit-confirmations">
     <header className="board__head">
       <div>
-        <p className="board__kicker"><a href={href({ name: 'cockpit' })}>Cockpit</a> / Decisions</p>
+        <p className="board__kicker"><a href={href({ name: 'cockpit' })}>{CONFIRMATIONS_COPY.cockpit}</a> / {CONFIRMATIONS_COPY.breadcrumb}</p>
         <h1 className="board__title">{CONFIRMATIONS_COPY.title}</h1>
         <p className="board__summary">{CONFIRMATIONS_COPY.summary}</p>
       </div>
-      <button type="button" className="board__refresh" onClick={onRefresh}>Refresh</button>
+      <button type="button" className="board__refresh" onClick={onRefresh}>{CONFIRMATIONS_COPY.refresh}</button>
     </header>
 
     {feedback ? <p className="cockpit-confirmations__feedback" role="status">{feedback}</p> : null}
     {state.status === 'loading' ? (
-      <section className="board__empty"><h2>Reading</h2><p>Quadringent is querying the service.</p></section>
+      <section className="board__empty"><h2>{CONFIRMATIONS_COPY.reading}</h2><p>{CONFIRMATIONS_COPY.querying}</p></section>
     ) : state.status === 'failed' ? (
-      <section className="board__empty" role="alert"><h2>Service unavailable</h2><p>{state.message}</p></section>
+      <section className="board__empty" role="alert"><h2>{CONFIRMATIONS_COPY.unavailableTitle}</h2><p>{state.message}</p></section>
     ) : state.items.length === 0 ? (
       <section className="board__empty"><h2>{CONFIRMATIONS_COPY.empty}</h2><p>{CONFIRMATIONS_COPY.emptyDetail}</p></section>
     ) : (
-      <ul className="cockpit-confirmations__list" aria-label="Confirmations to review">
+      <ul className="cockpit-confirmations__list" aria-label={CONFIRMATIONS_COPY.listLabel}>
         {state.items.map((record) => <li className="cockpit-confirmations__item" key={record.id}>
           <div className="cockpit-confirmations__main">
-            <p className="cockpit-confirmations__eyebrow">{record.state === 'approved' ? "Approved" : "Pending request"}</p>
+            <p className="cockpit-confirmations__eyebrow">{record.state === 'approved' ? CONFIRMATIONS_COPY.stateApproved : CONFIRMATIONS_COPY.statePending}</p>
             <h2>{confirmationActionLabel(record.actionRef)}</h2>
             <p className="cockpit-confirmations__reason">{record.reason}</p>
             <p className="cockpit-confirmations__meta">
               {record.resourceType === 'pipeline'
-                ? <a href={href({ name: 'cockpit-table', id: record.resourceId })}>Table {record.resourceId}</a>
+                ? <a href={href({ name: 'cockpit-table', id: record.resourceId })}>{CONFIRMATIONS_COPY.tableLink(record.resourceId)}</a>
                 : <span>{record.resourceType} {record.resourceId}</span>}
-              <span>Requested by {requester(record)}</span>
-              {record.expiresAt ? <span>Expires on {formatDate(record.expiresAt)}</span> : null}
+              <span>{CONFIRMATIONS_COPY.requestedBy(requester(record))}</span>
+              {record.expiresAt ? <span>{CONFIRMATIONS_COPY.expiresOn(formatDate(record.expiresAt))}</span> : null}
             </p>
-            {record.riskEstimate ? <p className="cockpit-confirmations__risk">Reported risk: {record.riskEstimate}</p> : null}
+            {record.riskEstimate ? <p className="cockpit-confirmations__risk">{CONFIRMATIONS_COPY.reportedRisk(record.riskEstimate)}</p> : null}
             {record.state === 'approved' && !record.available.execute
               ? <p className="cockpit-confirmations__risk">{CONFIRMATIONS_COPY.executionUnavailable}</p> : null}
           </div>
@@ -164,7 +164,7 @@ export function CockpitConfirmationsView({
     {selection ? <div className="cockpit-confirmations__overlay">
       <div className="cockpit-confirmations__dialog" role="dialog" aria-modal="true" aria-labelledby="confirmation-decision-title"
         onKeyDown={(event) => { if (event.key === 'Escape' && !busy) onCancel(); }}>
-        <p className="cockpit-confirmations__eyebrow">Operator decision</p>
+        <p className="cockpit-confirmations__eyebrow">{CONFIRMATIONS_COPY.operatorDecision}</p>
         <h2 id="confirmation-decision-title">{selection.decision === 'approve' ? CONFIRMATIONS_COPY.approveQuestion
           : selection.decision === 'reject' ? CONFIRMATIONS_COPY.rejectQuestion : CONFIRMATIONS_COPY.executeQuestion}</h2>
         <p>{confirmationActionLabel(selection.record.actionRef)} · {selection.record.resourceId}</p>
@@ -173,7 +173,7 @@ export function CockpitConfirmationsView({
           <button type="button" className="controls-panel__cancel" onClick={onCancel} disabled={busy} autoFocus>{CONFIRMATIONS_COPY.cancel}</button>
           <button type="button" className={`controls-panel__action ${selection.decision === 'reject' ? 'controls-panel__action--destructive' : 'controls-panel__action--primary'}`}
             onClick={onDecide} disabled={busy}>
-            {busy ? "Verification in progress…" : selection.decision === 'approve' ? CONFIRMATIONS_COPY.approveFinal
+            {busy ? CONFIRMATIONS_COPY.verifying : selection.decision === 'approve' ? CONFIRMATIONS_COPY.approveFinal
               : selection.decision === 'reject' ? CONFIRMATIONS_COPY.rejectFinal : CONFIRMATIONS_COPY.executeFinal}
           </button>
         </div>
@@ -192,12 +192,12 @@ function decisionFailureMessage(error: unknown): string {
 }
 
 function requester(record: ConfirmationRecord): string {
-  const kind = record.requestedByKind === 'agent' ? "the agent" : "an operator";
+  const kind = record.requestedByKind === 'agent' ? CONFIRMATIONS_COPY.anAgent : CONFIRMATIONS_COPY.anOperator;
   return record.requestedById ? `${kind} ${record.requestedById}` : kind;
 }
 
 function formatDate(value: string): string {
   const date = new Date(value);
-  if (!Number.isFinite(date.getTime())) return 'date inconnue';
+  if (!Number.isFinite(date.getTime())) return CONFIRMATIONS_COPY.unknownDate;
   return new Intl.DateTimeFormat("en-US", { hourCycle: 'h23', dateStyle: 'medium', timeStyle: 'short' }).format(date);
 }

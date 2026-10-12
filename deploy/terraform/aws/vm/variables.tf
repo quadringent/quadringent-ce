@@ -29,7 +29,7 @@ variable "instance_role_name" {
 }
 
 variable "architecture" {
-  description = "Architecture du processeur : arm64 (Graviton, recommandé) ou x86_64."
+  description = "Initial AMI architecture: arm64 or x86_64. Changing it after state registration replaces the VM and its root disk."
   type        = string
   default     = "x86_64"
 

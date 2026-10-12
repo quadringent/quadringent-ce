@@ -75,6 +75,10 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+resource "terraform_data" "vm_architecture" {
+  input = var.architecture
+}
+
 resource "aws_instance" "vm" {
   depends_on                  = [aws_iam_role_policy_attachment.ssm]
   ami                         = data.aws_ssm_parameter.al2023.value
@@ -85,6 +89,12 @@ resource "aws_instance" "vm" {
   key_name                    = var.ssh_key_name != "" ? var.ssh_key_name : null
   user_data                   = data.cloudinit_config.this.rendered
   user_data_replace_on_change = true
+
+  lifecycle {
+    # Keep the installed OS when AWS rolls latest; architecture changes are explicit replacements.
+    ignore_changes       = [ami]
+    replace_triggered_by = [terraform_data.vm_architecture]
+  }
 
   metadata_options {
     http_tokens = "required"

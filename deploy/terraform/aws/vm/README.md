@@ -13,9 +13,13 @@ k3s channel stable and no SSH key. arm64 requires compatible instance/images.
 SSH/UI CIDR lists are empty by default: there is no public administrative ingress.
 Outbound registry, Snowflake, IBM i and SSM access remains necessary.
 
-A newer resolved AMI may propose replacement. Review the plan and preserve
-k3s/control-plane state before authorizing destruction; the installer refuses
-destructive changes by default.
+New installations use the current AMI. Existing VMs retain their installed AMI
+when the public parameter changes; application upgrades do not refresh the OS.
+On the first upgrade from an older module, retain the original architecture to
+register it in state. Subsequent architecture changes propose VM replacement.
+Refresh the base OS separately with an explicit `-replace=aws_instance.vm` plan.
+Preserve k3s/control-plane state before authorizing destruction; the installer
+continues to refuse destructive changes without `--allow-destroy`.
 
 ## Access
 

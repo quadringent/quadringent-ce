@@ -12,6 +12,7 @@ from test_installer_apply import MANIFEST
 
 LIST = ('helm', 'list', '--namespace', 'quadringent', '--filter', '^demo-int$', '--all', '--output', 'json')
 GET = ('helm', 'get', 'values', 'demo-int', '--namespace', 'quadringent', '--all', '--output', 'json')
+LIST_V4 = tuple(value for value in LIST if value != '--all')
 
 
 def deploy(tmp_path, scripted):
@@ -48,6 +49,37 @@ def test_unknown_existing_release_state_refuses_upgrade(tmp_path, response):
 def test_existing_release_missing_mode_refuses_implicit_migration(tmp_path):
     code, runner = deploy(tmp_path, {LIST: CommandResult(LIST, 0, '[{"name":"demo-int"}]'),
                                     GET: CommandResult(GET, 0, '{"controlPlane":{"v2":{}}}')})
+    assert code == 1
+    assert not any(call.argv[:2] == ('helm', 'upgrade') for call in runner.calls)
+
+
+def test_helm4_list_preserves_existing_profile(tmp_path):
+    profile = {'loaderHistoryMode': 'sql', 'readerPollSeconds': 2,
+               'loaderPollSeconds': 3, 'loaderFlushEachBatch': False}
+    code, runner = deploy(tmp_path, {
+        LIST: CommandResult(LIST, 1, '', 'Error: unknown flag: --all\n'),
+        LIST_V4: CommandResult(LIST_V4, 0, '[{"name":"demo-int"}]'),
+        GET: CommandResult(GET, 0, json.dumps({'controlPlane': {'v2': profile}})),
+    })
+    assert code == 0
+    values = yaml.safe_load((tmp_path/'chart-values.generated.yaml').read_text())
+    assert {key: values['controlPlane']['v2'][key] for key in profile} == profile
+    assert [call.argv for call in runner.calls][:2] == [LIST, LIST_V4]
+
+
+@pytest.mark.parametrize('message', ['forbidden', 'connection refused', 'unknown flag: --filter'])
+def test_release_read_failures_do_not_trigger_helm4_retry(tmp_path, message):
+    code, runner = deploy(tmp_path, {LIST: CommandResult(LIST, 1, '', message)})
+    assert code == 1
+    assert LIST_V4 not in [call.argv for call in runner.calls]
+
+
+def test_helm4_missing_profile_still_refuses_upgrade(tmp_path):
+    code, runner = deploy(tmp_path, {
+        LIST: CommandResult(LIST, 1, '', 'Error: unknown flag: --all\n'),
+        LIST_V4: CommandResult(LIST_V4, 0, '[{"name":"demo-int"}]'),
+        GET: CommandResult(GET, 0, '{"controlPlane":{"v2":{}}}'),
+    })
     assert code == 1
     assert not any(call.argv[:2] == ('helm', 'upgrade') for call in runner.calls)
 

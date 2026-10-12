@@ -324,8 +324,12 @@ def _preserve_existing_loader_profile(
     inputs: InstallInputs, values: dict, runner: CommandRunner, env: Mapping[str, str] | None,
 ) -> None:
     """Relire les defaults de la release installée avant de générer son upgrade."""
-    listed = runner.run(("helm", "list", "--namespace", inputs.namespace, "--filter", f"^{inputs.name}$",
-                         "--all", "--output", "json"), env=env)
+    list_command = ("helm", "list", "--namespace", inputs.namespace, "--filter", f"^{inputs.name}$",
+                    "--all", "--output", "json")
+    listed = runner.run(list_command, env=env)
+    if not listed.ok and "unknown flag: --all" in listed.stderr:
+        # Helm 4 includes every status by default and removed --all.
+        listed = runner.run(tuple(value for value in list_command if value != "--all"), env=env)
     if not listed.ok:
         raise ValueError("Cannot read Helm releases")
     try:

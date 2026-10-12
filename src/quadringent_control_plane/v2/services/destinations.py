@@ -365,22 +365,21 @@ CREATE SCHEMA IF NOT EXISTS {database}.{history_schema};
 CREATE SCHEMA IF NOT EXISTS {database}.{mirror_schema};
 
 GRANT USAGE ON DATABASE {database} TO ROLE {role_name};
-GRANT USAGE, CREATE TABLE ON SCHEMA {database}.{history_schema} TO ROLE {role_name};
-GRANT USAGE ON SCHEMA {database}.{mirror_schema} TO ROLE {role_name};
 """
+    # In every mode the loader creates the history table and the mirror table
+    # (ensure_tables_exist) and owns them, and the verifier proves CREATE TABLE
+    # on each declared schema. One grant per distinct schema: history and
+    # mirror share a schema when an output schema is declared.
+    script += "-- The service role creates and owns its history and mirror tables.\n"
+    for schema in dict.fromkeys((history_schema, mirror_schema)):
+        script += f"GRANT USAGE, CREATE TABLE ON SCHEMA {database}.{schema} TO ROLE {role_name};\n"
     if destination_mode == "streaming":
-        # Snowpipe Streaming (SDK haute performance, pas d'objet PIPE) écrit
-        # directement dans la table d'historique ; le rôle qui ouvre le
-        # canal doit pouvoir la créer et y écrire. Le miroir vit dans
-        # QUADRINGENT.CURATED, qui n'a jusqu'ici que USAGE : il lui faut
-        # CREATE TABLE pour que le chargeur matérialise le miroir par le
-        # MERGE loader-driven (option B, docs/decisions/2026-09-23-miroir-
-        # snowflake.md). Le rôle est propriétaire des tables qu'il crée :
-        # aucun GRANT INSERT/SELECT/UPDATE/DELETE distinct n'est requis.
-        script += f"""
+        # Snowpipe Streaming (high-performance SDK, no PIPE object) writes the
+        # history table the role already owns; the mirror stays a loader-driven
+        # MERGE (option B, docs/decisions/2026-09-23-snowflake-mirror.md).
+        script += """
 -- Snowpipe Streaming (history) + loader-driven mirror MERGE (option B):
--- the role creates and owns the history and mirror in {database}.{mirror_schema}.
-GRANT CREATE TABLE ON SCHEMA {database}.{mirror_schema} TO ROLE {role_name};
+-- no privilege beyond the CREATE TABLE grants above.
 """
         if mirror_option == "task_driven":
             script += f"""

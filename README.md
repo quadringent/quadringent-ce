@@ -19,8 +19,9 @@ The engine, API and local cockpit are open source under [Apache-2.0](LICENSE),
 with no license key or commercial table limit. Operators pay their own
 infrastructure costs. No production qualification is claimed.
 
-The current preview is **0.3.4**. Its observed DEV/INT scope and outstanding
-checks are recorded in the [dated qualification summary](site/qualification-0.3.4.json).
+The current preview is **0.3.5**; its qualification summary is not published yet.
+The latest published qualification covers **0.3.4**: its observed DEV/INT scope
+and outstanding checks are recorded in the [dated qualification summary](site/qualification-0.3.4.json).
 Historical measurements apply only to their original artifacts and scopes.
 
 Contributions use the same license. Separate services or advanced extensions
@@ -108,7 +109,8 @@ complete site reconstruction still require repetition on 0.3.4.
 
 ## Historical measurements from October 5–6, 2026
 
-These results cover isolated personal DEV/INT installations. They do not
+These results predate this public repository; their artifacts and evidence are
+not published here. They cover isolated personal DEV/INT installations. They do not
 guarantee ten seconds for every workload, startup or configuration and do not
 qualify production.
 

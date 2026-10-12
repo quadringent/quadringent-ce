@@ -9,16 +9,17 @@ cluster. The [expert guide](install-client.md) covers sites managing their own
 Helm values. See [backup and restore](backup-restore.md) before upgrading or
 rebuilding a site.
 
-Version **0.3.4 is a published DEV/INT preview**. Its wheel, sdist, chart and
-three signed images refer to the same admitted source commit. Read the
-[observed qualification scope](../../site/qualification-0.3.4.json); a ready
+Version **0.3.5 is a published DEV/INT preview**. Its wheel, sdist, chart and
+three signed images refer to the same admitted source commit. Its qualification
+summary is not published yet; the latest published one is the
+[0.3.4 observed qualification scope](../../site/qualification-0.3.4.json). A ready
 pod or accessible API does not prove IBM i → Snowflake delivery, CDC continuity,
 a maximum latency of 10 seconds, or production readiness.
 
 Historical 0.2.5 control plane exercises covered GKE, EKS, AWS VM and GCP VM:
 installation, 0.2.3 → 0.2.5 → 0.2.3, isolated backup/key export, complete removal
 of the original site, fresh reconstruction and restore. Login, synthetic data
-parity and decryption were checked. These bounded results do not qualify 0.3.4
+parity and decryption were checked. These bounded results do not qualify 0.3.5
 or every configuration; AWS VM PostgreSQL/PVC UIDs were not measured directly,
 and image-child selection was sometimes inferred from the sealed manifest.
 
@@ -32,12 +33,12 @@ or a draft is not an available release.
 
 ```sh
 python3 -m venv /private/path/quadringent-venv
-/private/path/quadringent-venv/bin/python -m pip install quadringent-0.3.4-py3-none-any.whl
-tar -xzf quadringent-0.3.4.tar.gz -C /private/path
+/private/path/quadringent-venv/bin/python -m pip install quadringent-0.3.5-py3-none-any.whl
+tar -xzf quadringent-0.3.5.tar.gz -C /private/path
 /private/path/quadringent-venv/bin/quadringent install \
   --cloud gcp --target cluster --region europe-west1 --project my-project \
   --name my-site --release-manifest /private/path/release-manifest.json \
-  --assets-dir /private/path/quadringent-0.3.4 --dry-run
+  --assets-dir /private/path/quadringent-0.3.5 --dry-run
 ```
 
 Review the plan, cloud identity and kubectl context before removing

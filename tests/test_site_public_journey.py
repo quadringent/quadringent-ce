@@ -174,6 +174,16 @@ def current_summary() -> dict:
     return json.loads(files[-1].read_text())
 
 
+def version_tuple(value: str) -> tuple[int, ...]:
+    return tuple(int(x) for x in value.split("."))
+
+
+def release_version() -> str:
+    """The published release named in the hero; its qualification may not be published yet."""
+    facts = re.search(r'<dl class="release-facts".*?</dl>', read("site/index.html"), re.S)[0]
+    return re.search(r'<dt>Version</dt><dd><span class="mono">([0-9.]+)</span>', facts)[1]
+
+
 def homepage_section(html: str, section_id: str) -> str:
     match = re.search(rf'<section[^>]*id="{section_id}".*?</section>\s*(?=<section|</main>)', html, re.S)
     assert match, section_id
@@ -186,13 +196,20 @@ def text_of(html: str) -> str:
 
 def test_hero_states_the_published_version_and_the_gate_result():
     summary = current_summary()
-    facts = re.search(r'<dl class="release-facts".*?</dl>', read("site/index.html"), re.S)[0]
-    assert f'<span class="mono">{summary["version"]}</span>' in facts
+    release = release_version()
+    facts = text_of(re.search(r'<dl class="release-facts".*?</dl>', read("site/index.html"), re.S)[0])
+    assert version_tuple(release) >= version_tuple(summary["version"])
+    if release != summary["version"]:
+        assert f"Qualification of {release} not published yet" in facts
+        assert f"Latest published qualification ({summary['version']})" in facts
     latency = summary["cold_warehouse_latency"]
-    failed = [t for t, v in latency["targets"].items() if not v["SQL_and_ACK_threshold_passed"]]
+    targets = latency["targets"]
+    failed = [t for t, v in targets.items() if not v["SQL_and_ACK_threshold_passed"]]
+    assert "incomplete" not in facts
     if failed:
-        assert "incomplete" not in facts
-        assert f'{latency["threshold_seconds"]} s gate failed on {len(failed)} of {len(latency["targets"])} targets' in text_of(facts)
+        assert f'{latency["threshold_seconds"]} s gate failed on {len(failed)} of {len(targets)} targets' in facts
+    else:
+        assert f'{latency["threshold_seconds"]} s gate passed on all {len(targets)} targets' in facts
 
 
 def test_current_release_results_come_first_and_match_the_summary():
@@ -203,11 +220,16 @@ def test_current_release_results_come_first_and_match_the_summary():
     assert section.index(current[0]) < section.index("0.3.3")
     text = text_of(current[0])
     assert summary["version"] in text and summary["date_utc"] in current[0]
+    cdc = summary["typed_cdc_readback"]
+    assert f'{cdc["history_images_per_site"]} history images' in text
+    assert f'{cdc["mirror_rows_per_site"]} mirror rows' in text
+    assert f'{cdc["duplicate_event_ids"]} duplicate event IDs' in text
     for target, values in summary["cold_warehouse_latency"]["targets"].items():
         row = re.search(rf'<tr data-target="{target}">.*?</tr>', current[0], re.S)
         assert row, target
-        assert f'{values["maximum_SQL_start_seconds"]:.3f}' in row[0]
-        assert f'{values["maximum_ACK_seconds"]:.3f}' in row[0]
+        cells = re.findall(r'<td class="mono">([0-9.]+)</td>', row[0])
+        assert cells == [f'{values["maximum_SQL_start_seconds"]:.3f}', f'{values["maximum_ACK_seconds"]:.3f}',
+                         f'{values["maximum_source_client_launch_seconds"]:.3f}'], target
         word = "Passed" if values["SQL_and_ACK_threshold_passed"] else "Above threshold"
         assert word in text_of(row[0])
 
@@ -242,8 +264,11 @@ def test_limits_name_every_gap_of_the_current_version():
 
 def test_readme_matches_the_published_status_and_avoids_overclaims():
     summary = current_summary()
+    release = release_version()
     readme = flat(read("README.md"))
-    assert f'The current preview is **{summary["version"]}**' in readme
+    assert f"The current preview is **{release}**" in readme
+    if release != summary["version"]:
+        assert f"latest published qualification covers **{summary['version']}**" in readme
     assert "Targets qualified by batch" not in readme
     assert "independently observed" not in readme
     for values in summary["cold_warehouse_latency"]["targets"].values():
@@ -337,10 +362,13 @@ def test_internal_links_resolve_and_sitemap_lists_every_page(site):
         for link in scan.links:
             if link.startswith(("http:", "https:", "mailto:", "#", "data:")):
                 continue
-            target = (page.parent / link.split("#")[0]).resolve()
-            if link.endswith("/") or target.is_dir():
+            path, _, fragment = link.partition("#")
+            target = (page.parent / path).resolve()
+            if path.endswith("/") or target.is_dir():
                 target = target / "index.html"
             assert target.is_file(), (page, link)
+            if fragment and target.suffix == ".html":
+                assert f'id="{fragment}"' in target.read_text(), (page, link)
     listed = set(re.findall(r"<loc>([^<]+)</loc>", (site / "sitemap.xml").read_text()))
     pages = {base + str(p.relative_to(site).parent).replace(".", "").strip("/") for p in built_pages(site)}
     assert {u.rstrip("/") for u in listed} == {u.rstrip("/") for u in pages}
@@ -351,9 +379,8 @@ def test_subpath_site_does_not_publish_an_ineffective_robots_file(site):
 
 
 def test_cloud_command_names_the_assets_of_the_published_release():
-    summary = current_summary()
     install = homepage_section(read("site/index.html"), "install")
-    assert f"--assets-dir ./quadringent-{summary['version']}" in install
+    assert f"--assets-dir ./quadringent-{release_version()}" in install
 
 
 def test_links_to_repository_files_point_to_existing_files(site):
@@ -400,6 +427,9 @@ def test_retention_is_a_formula_with_a_labelled_hypothetical_example():
 
 
 def test_snowflake_prerequisites_split_provisioning_from_runtime_and_by_mode():
+    script = read("src/quadringent_control_plane/v2/services/destinations.py")
+    for setting in ("XSMALL", "AUTO_SUSPEND = 60", "AUTO_RESUME = TRUE", "INITIALLY_SUSPENDED = TRUE"):
+        assert setting in script, setting
     text = flat(section(read(COMPAT), "Snowflake prerequisites"))
     for phrase in ("Provisioning administrator", "Runtime service role", "AUTO_SUSPEND = 60",
                    "AUTO_RESUME = TRUE", "no stage, pipe or storage integration", "Snowpipe Streaming",
@@ -409,7 +439,11 @@ def test_snowflake_prerequisites_split_provisioning_from_runtime_and_by_mode():
 
 def test_cost_section_uses_code_defaults_and_marks_credits_not_measured():
     text = flat(section(read(COMPAT), "Default resources and cost"))
-    assert "t3.medium" in text and "e2-medium" in text and "40 GB" in text
+    aws = read("deploy/terraform/aws/vm/variables.tf")
+    gcp = read("deploy/terraform/gcp/vm/variables.tf")
+    assert re.search(r'default\s*=\s*"t3\.medium"', aws) and "t3.medium" in text
+    assert re.search(r'default\s*=\s*"e2-medium"', gcp) and "e2-medium" in text
+    assert re.search(r'default\s*=\s*40\b', aws) and re.search(r'default\s*=\s*40\b', gcp) and "40 GB" in text
     assert "Not measured" in text
     assert "deploy/terraform/aws/vm/variables.tf" in text
 
@@ -423,8 +457,9 @@ def test_compatibility_is_one_click_from_home_install_and_getting_started(site):
 
 def test_getting_started_points_to_the_default_installer_first(site):
     page = (site / "docs/getting-started/index.html").read_text()
-    assert page.index('href="../installation/"') < page.index('href="../helm-installation/"') if 'href="../helm-installation/"' in page else True
     assert 'href="../installation/"' in page
+    helm = page.find('href="../helm-installation/"')
+    assert helm == -1 or page.index('href="../installation/"') < helm
 
 
 def test_journal_example_respects_the_ibm_threshold_rule():

@@ -19,18 +19,18 @@ production qualification.
 
 | Item | Status | Detail and source |
 |---|---|---|
-| IBM i 7.5 | Tested | A shared IBM i 7.5 qualification server is recorded for historical measurements (`docs/decisions/2026-09-23-attached-receiver-tail.md`). The 0.3.4 summary does not name the IBM i release. |
+| IBM i 7.5 | Tested (historical, not tied to 0.3.4 or 0.3.5) | A shared IBM i 7.5 qualification server is recorded for a historical measurement on one table (`docs/decisions/2026-09-23-attached-receiver-tail.md`). The published qualification summaries do not name the IBM i release. |
 | IBM i 7.4 and 7.6 | Not tested | Suggested CL syntax was checked on 7.4/7.5 (`src/quadringent/table_discovery.py`); no replication test. On 7.4, IBM lists `JOURNAL_RECEIVER_INFO` from DB2 PTF group SF99704 level 20 and `JOURNALED_OBJECTS` from level 10 ([IBM i Services](https://www.ibm.com/support/pages/node/1119123)). |
 | IBM i 7.3 and earlier | Not tested | The same views need SF99703 levels 28 and 22 on 7.3. |
 | Journaled tables, `*BOTH` images | Required | Discovery marks a table `ready` only when it is journaled with before and after images (`docs/product/install-client.md`). With `*AFTER` only, updates and deletes are not replicated correctly. |
 | Primary key or unique constraint | Required | A primary key or unique constraint is needed. Discovery reads `PRIMARY KEY` and `UNIQUE` constraints (`TableDiscovery.java`). A unique index without a constraint is not detected: Not tested. |
 | Tables without a key (RRN) | Not tested | Allowed only with an explicit acknowledgement; any `RGZPFM` or `CLRPFM` then needs a resynchronization. |
 | One journal per reader | Required | Tables from different journals need separate readers; one reader per journal, at most 32 tables per capture session (`JournalSession.java`). |
-| Column types: integer, varchar, char, decimal(11,2), date, timestamp(6) | Tested | The seven business columns of the qualification table, with nulls, empty and accented text, padded CHAR and signed decimals (`docs/qualification.md`). |
+| Column types: integer, varchar, char, decimal(11,2), date, timestamp(6) | Tested | All seven business columns of the qualification table matched in the 0.3.4 readback (`site/qualification-0.3.4.json`); the column types are listed in `docs/qualification.md`, whose generator also produces nulls, empty and accented text, padded CHAR and signed decimals. |
 | Other types: SMALLINT, BIGINT, TIME, GRAPHIC, BINARY, LOB, DECFLOAT, XML | Not tested | Mapped or rejected by the loader (`docs/product/snowflake-destination.md`); an unmapped type stops with `UnsupportedColumnTypeError`. |
 | CCSID 65535 columns | Required | Must be reclassified as binary at discovery, otherwise the column is rejected. Other CCSIDs than the test server's: Not tested. |
 | Writes under commitment control | Not tested | Measurements used isolated writes without commitment control. Rollback entries stop the window without advancing the checkpoint (`JournalSession.java`); uncommitted changes are not filtered by commit cycle. |
-| `RGZPFM`, `CLRPFM` | Required | Each needs a resynchronization of the table. The journal-entry reader stops on file-level entries instead of advancing. |
+| `RGZPFM`, `CLRPFM` | Not tested | Plan a manual resynchronization of the table after either command. The backlog reader stops on file-level journal entries, but the tail reader only reads row entries (`JOURNAL_CODES => 'R'` in `JournalSession.java`), so detection is not guaranteed. |
 | `CHGPF`, `ALTER TABLE`, `DROP TABLE` | Not tested | No specific handling is documented; plan a resynchronization. |
 | Receiver rotation (`CHGJRN`) | Not tested | The reader follows receivers in attach order and stops on a sequence gap. Rotation was not qualified (`rotation_qualified=false` in the native qualification). |
 | TLS host servers 9471, 9475, 9476 | Required | Database, remote command and sign-on servers over TLS; plaintext is refused. The site supplies its CA. `quadringent install --check-ibmi <host>` tests TCP reachability of these ports. |
@@ -47,14 +47,16 @@ runtime with a minimal profile**; validate it on a DEV/INT system.
 
 | Operation (code) | Documented authority | IBM source |
 |---|---|---|
-| `QSYS2.DISPLAY_JOURNAL`, tail reads (`JournalSession.java`) | `*USE` on the journal and `*EXECUTE` on its library; `*USE` on each receiver read and `*EXECUTE` on its library; `*OBJEXIST` on the journal when no object is named or the object no longer exists | [DISPLAY_JOURNAL](https://www.ibm.com/docs/en/i/7.5?topic=services-display-journal-table-function) |
+| `QSYS2.DISPLAY_JOURNAL`, tail reads (`JournalSession.java`) | `*USE` on the journal and `*EXECUTE` on its library; `*USE` on each receiver read and `*EXECUTE` on its library; `*OBJEXIST` on the journal when no object is named or the object no longer exists. Authority on the named file is not stated on this page; the related API requires `*USE` on it | [DISPLAY_JOURNAL](https://www.ibm.com/docs/en/i/7.5?topic=services-display-journal-table-function) |
 | `QjoRetrieveJournalEntries`, backlog reads (journal parsing library) | Journal, receivers and journaled file: `*USE`; their libraries: `*EXECUTE`; `*OBJEXIST` on the journal in the cases IBM lists | [QjoRetrieveJournalEntries](https://www.ibm.com/docs/en/i/7.5?topic=ssw_ibm_i_75/apis/QJORJRNE.htm) |
-| `QjoRetrieveJournalInformation`, `QjoRtvJrnReceiverInformation` | `*OBJOPR` plus a data authority on the journal and receivers; `*EXECUTE` on their libraries | [QJORRCVI](https://www.ibm.com/docs/en/i/7.5?topic=ssw_ibm_i_75/apis/QJORRCVI.htm) |
+| `QjoRetrieveJournalInformation` (journal parsing library) | `*OBJOPR` plus a data authority other than `*EXECUTE` on the journal; `*EXECUTE` on its library | [QJORJRNI (7.4)](https://www.ibm.com/docs/ssw_ibm_i_74/apis/QJORJRNI.htm) |
+| `QjoRtvJrnReceiverInformation` (journal parsing library) | `*OBJOPR` plus a data authority other than `*EXECUTE` on the receiver and `*EXECUTE` on its library; `*OBJOPR` on the journal and `*EXECUTE` on its library | [QJORRCVI](https://www.ibm.com/docs/en/i/7.5?topic=ssw_ibm_i_75/apis/QJORRCVI.htm) |
 | `QDBRTVFD` (file description) | `*OBJOPR` on the file, `*EXECUTE` on its library | [QDBRTVFD](https://www.ibm.com/docs/en/i/7.5?topic=ssw_ibm_i_75/apis/qdbrtvfd.htm) |
 | `QSYS2.JOURNAL_RECEIVER_INFO` (`ReadOnlyReceiverCatalog.java`) | `*OBJOPR` plus a data authority on the receiver and `*EXECUTE` on its library; `*OBJOPR` on the journal and `*EXECUTE` on its library | [JOURNAL_RECEIVER_INFO](https://www.ibm.com/docs/en/i/7.5?topic=services-journal-receiver-info-view) |
 | `QSYS2.JOURNALED_OBJECTS` (`TableDiscovery.java`) | `*OBJOPR` plus a data authority on the journal, `*EXECUTE` on its library | [JOURNALED_OBJECTS](https://www.ibm.com/docs/en/i/7.5?topic=services-journaled-objects-view) |
 | `SELECT` on each table for the initial copy (`ReadOnlyTableSnapshot.java`) | Read access to the table and `*EXECUTE` on its library (`*USE` covers both) | Not verified on an IBM page in this review |
-| Catalog views (`QSYS2.SYSTABLES`, `SYSCOLUMNS`, `SYSCST`, `SYSKEYCST`) and `SYSIBMADM.ENV_SYS_INFO` | No specific authority found in IBM documentation | Not verified |
+| Catalog views (`QSYS2.SYSTABLES`, `SYSCOLUMNS`, `SYSCST`, `SYSKEYCST`, `SYSTABLESTAT`, `SYSINDEXES`, `SYSKEYS`) and `SYSIBMADM.ENV_SYS_INFO` (`TableDiscovery.java`, `FleetCatalogProbe.java`, `SourceInfo.java`) | No specific authority found in IBM documentation | Not verified |
+| `QSYS.QADBKATR` and `QSYS2.SYSTABLES`, read by the journal parsing library to decode row images | No authority found in IBM documentation | Not verified |
 | `QSYS2.SYSTEM_VALUE_INFO` for `QTIMZON` | No special authority; only audit system values need `*ALLOBJ` or `*AUDIT` | [SYSTEM_VALUE_INFO](https://www.ibm.com/docs/en/i/7.5?topic=services-system-value-info-view) |
 
 From these pages, *ALLOBJ is not required for the documented operations, and
@@ -94,7 +96,7 @@ first.
 | Runtime service role | `QDT_ROLE_*`, key-pair authentication, no password. It owns the history and mirror tables it creates and runs `MERGE`. | Also writes through named channels; no extra objects created by the product |
 | Warehouse | `XSMALL`, `AUTO_SUSPEND = 60`, `AUTO_RESUME = TRUE`, `INITIALLY_SUSPENDED = TRUE` (`src/quadringent_control_plane/v2/services/destinations.py`) | Same warehouse for the mirror `MERGE` |
 | Stage, pipe, integration | Not used: no stage, pipe or storage integration; the loader reads raw batches from S3 or GCS and runs `MERGE` | No stage or integration |
-| Status | Required (script) / Not tested (minimal split roles) | Not tested in the published 0.3.4 summary |
+| Status | Required (script) / Not tested (minimal split roles) | Not tested in the published qualification summaries |
 
 Statement privileges: [CREATE ROLE](https://docs.snowflake.com/en/sql-reference/sql/create-role),
 [CREATE USER](https://docs.snowflake.com/en/sql-reference/sql/create-user),

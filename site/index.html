@@ -51,8 +51,8 @@
     </div>
     <dl class="release-facts" aria-label="Release status">
       <div><dt>License</dt><dd>Apache-2.0, with no activation key or commercial table limit</dd></div>
-      <div><dt>Version</dt><dd><span class="mono">0.3.4</span> DEV/INT preview</dd></div>
-      <div><dt>Observed scope</dt><dd>Typed CDC readback on four cloud targets; 10 s gate failed on 3 of 4 targets in one cold-warehouse trial</dd></div>
+      <div><dt>Version</dt><dd><span class="mono">0.3.5</span> DEV/INT preview</dd></div>
+      <div><dt>Observed scope</dt><dd>Qualification of 0.3.5 not published yet. Latest published qualification (0.3.4): typed CDC readback on four cloud targets; 10 s gate failed on 3 of 4 targets in one cold-warehouse trial</dd></div>
       <div><dt>Production</dt><dd>Not qualified, no SLA</dd></div>
     </dl>
   </section>
@@ -185,7 +185,7 @@ node ui/scripts/build-demo.mjs --serve</code></pre>
 quadringent install --cloud gcp --target cluster \
   --region europe-west1 --project my-project \
   --name my-site --release-manifest release-manifest.json \
-  --assets-dir ./quadringent-0.3.4 --dry-run</code></pre>
+  --assets-dir ./quadringent-0.3.5 --dry-run</code></pre>
         <p>The CLI comes from the wheel, the chart and Terraform modules from the extracted sdist (<code>--assets-dir</code>), and the three images from the manifest, pinned by digest. Remove <code>--dry-run</code> after reviewing the plan. Alternatives: <code>--cloud aws</code>, <code>--target vm</code>.</p>
         <p class="provenance-note"><strong>DEV/INT preview</strong> Verify the release, its checksums and its scope before installing.</p>
         <div class="actions">
@@ -202,8 +202,9 @@ quadringent install --cloud gcp --target cluster \
       <h2 id="qualification-title">What was measured, where, and when.</h2>
       <p>Each result stays bound to its version, targets and observation window: DEV/INT tests on isolated installations using synthetic tables. The harness threshold is <span class="mono">10 s</span> per write, and each result names where its clock starts. These operator-observed results do not qualify production.</p>
     </div>
+    <p class="release-status"><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not published</span></span><span><strong><span class="mono">0.3.5</span>, published 2026-10-12.</strong> Its qualification summary is not published yet; the results below belong to 0.3.4 and do not establish 0.3.5. See the <a href="https://github.com/quadringent/quadringent-ce/releases/tag/v0.3.5">v0.3.5 release notes</a>.</span></p>
     <div class="current-release" aria-labelledby="current-release-title">
-      <h3 id="current-release-title"><span class="mono">0.3.4</span> · published DEV/INT preview · observed <time datetime="2026-10-12">2026-10-12</time></h3>
+      <h3 id="current-release-title"><span class="mono">0.3.4</span> · latest published qualification · observed <time datetime="2026-10-12">2026-10-12</time></h3>
       <ul class="result-list">
         <li><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Observed</span></span><span><strong>Typed CDC readback.</strong> INSERT, UPDATE and DELETE on four targets: 136 history images and 110 mirror rows per site, all seven business columns matched, 0 duplicate event IDs.</span></li>
         <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Above threshold</span></span><span><strong>Cold-warehouse latency.</strong> 1 trial, 6 source writes, warehouses suspended before the first write: the 10 s gate passed on 1 of 4 targets.</span></li>
@@ -254,7 +255,7 @@ quadringent install --cloud gcp --target cluster \
     </div>
     <details class="history">
       <summary>Earlier 0.2.x results: historical, artifacts not published</summary>
-      <p>These versions predate the public repository; their artifacts and evidence are not published. Their latency clock starts at the IBM i acknowledgement with warehouses already running, so it is not comparable to the 0.3.4 cold-warehouse clock, which starts at the SQL statement with suspended warehouses.</p>
+      <p>These versions predate this public repository; their artifacts and evidence are not published here. Their latency clock starts at the IBM i acknowledgement with warehouses already running, so it is not comparable to the 0.3.4 cold-warehouse clock, which starts at the SQL statement with suspended warehouses.</p>
       <div class="table-scroll" tabindex="0" role="region" aria-label="Historical 0.2.x results">
         <table class="banded-table">
           <caption class="sr-only">Historical 0.2.x results, artifacts not published</caption>
@@ -285,6 +286,7 @@ quadringent install --cloud gcp --target cluster \
     </div>
     <ul class="limits">
       <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">To repeat</span></span><span><strong>Reader failure on 0.3.4.</strong> Real reader outages passed on 0.3.2; the current release still needs its own outage and source-write readback.</span></li>
+      <li><span class="status-word status-word--neutral"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not published</span></span><span><strong>Qualification of 0.3.5.</strong> Not published yet; the 0.3.4 results do not establish 0.3.5.</span></li>
       <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">To repeat</span></span><span><strong>Fresh installation and initial copy on 0.3.4.</strong> Observed on 0.3.2; the current release still needs its own fresh installation and initial copy.</span></li>
       <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">To demonstrate</span></span><span><strong>Complete site reconstruction.</strong> Repeat loss, reconstruction and renewed CDC with the exact current release. Historical rebuilds apply only to their original versions.</span></li>
       <li><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Above threshold</span></span><span><strong>Cold-warehouse latency.</strong> The first 0.3.4 trial exceeded 10 s on three targets from SQL start. All four exceeded 10 s when source-client startup was included.</span></li>

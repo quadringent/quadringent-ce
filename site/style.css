@@ -724,6 +724,18 @@ h3 { color: var(--text-strong); font-size: var(--t-lead); font-weight: 560; lett
 .limits strong { color: var(--text-strong); font-weight: var(--w-medium); }
 
 /* Current published release, then earlier versions; 0.2.x history folded. */
+.release-status {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0;
+  color: var(--text-main);
+  font-size: var(--t-small);
+}
+
+.release-status strong { color: var(--text-strong); font-weight: var(--w-medium); }
+
 .current-release {
   display: grid;
   gap: var(--space-4);
@@ -824,7 +836,7 @@ h3 { color: var(--text-strong); font-size: var(--t-lead); font-weight: 560; lett
 }
 
 @media (max-width: 760px) {
-  .result-list li { grid-template-columns: minmax(0, 1fr); }
+  .result-list li, .release-status { grid-template-columns: minmax(0, 1fr); }
   .current-release { padding: var(--space-4); }
   :root { --site-gutter: 16px; --t-display: 38px; --t-section: 26px; --section-gap: 64px; }
   .hero { padding-block: 48px 32px; }

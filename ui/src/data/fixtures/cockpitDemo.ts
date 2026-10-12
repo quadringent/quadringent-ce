@@ -152,7 +152,8 @@ export function createCockpitDemoFetch(): (input: string, init?: RequestInit) =>
     const metricsMatch = /^\/pipelines\/([^/]+)\/metrics$/.exec(path);
     if (method === 'GET' && metricsMatch) {
       const window = query.get('window') === '24h' ? '24h' : '1h';
-      return json(200, { points: demoMetricsPoints(metricsMatch[1], window) });
+      const paused = pipelines.find((item) => item.id === metricsMatch[1])?.declaredState === 'paused';
+      return json(200, { points: demoMetricsPoints(metricsMatch[1], window, paused) });
     }
 
     const logsMatch = /^\/pipelines\/([^/]+)\/logs$/.exec(path);
@@ -309,13 +310,12 @@ function sourceIdForDestination(destinationId: string): string {
 /** Série déterministe : un point toutes les 5 min sur 1 h (12 points), toutes
  *  les heures sur 24 h (24 points). Le retard oscille légèrement autour d'une
  *  valeur propre à chaque pipeline (dérivée de son id) — jamais aléatoire. */
-function demoMetricsPoints(pipelineId: string, window: '1h' | '24h'): readonly Record<string, unknown>[] {
+function demoMetricsPoints(pipelineId: string, window: '1h' | '24h', paused: boolean): readonly Record<string, unknown>[] {
   const pipeline = DEMO_PIPELINES.find((item) => item.id === pipelineId);
   const baseLag = pipeline ? (pipeline.name.length * 7) % 90 : 30;
   const baseThroughput = pipeline ? (pipeline.name.length * 3) % 40 + 5 : 10;
   const count = window === '1h' ? 12 : 24;
   const stepSeconds = window === '1h' ? 300 : 3600;
-  const paused = pipeline?.declaredState === 'paused';
   return Array.from({ length: count }, (_, index) => {
     const atSeconds = index * stepSeconds;
     const wobble = Math.sin(index / 2) * 5;

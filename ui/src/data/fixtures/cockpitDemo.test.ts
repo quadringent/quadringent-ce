@@ -171,3 +171,13 @@ test('table evidence varies by table: stale after an incident, absent during cop
     assert.notEqual(body.evidence_kind, 'live');
   }
 });
+
+test('a table paused in the demo stops reporting lag and throughput', async () => {
+  const fetch = createCockpitDemoFetch();
+  const before = await (await fetch('/v2/pipelines/pl_sales_orders/metrics?window=1h')).json();
+  assert.ok(before.points.every((point: { lag_seconds: number | null }) => point.lag_seconds !== null));
+  await fetch('/v2/pipelines/pl_sales_orders/actions/pause', { method: 'POST', body: JSON.stringify({}) });
+  const after = await (await fetch('/v2/pipelines/pl_sales_orders/metrics?window=1h')).json();
+  assert.ok(after.points.every((point: { lag_seconds: number | null; throughput_rows_per_second: number | null }) =>
+    point.lag_seconds === null && point.throughput_rows_per_second === null));
+});

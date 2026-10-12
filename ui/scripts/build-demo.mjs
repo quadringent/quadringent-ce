@@ -9,15 +9,16 @@
 // --serve then serves the result on http://127.0.0.1:8870/#/cockpit.
 // Output: <repo>/build/quadringent-demo-<version>/ and, unless --no-archive,
 // <repo>/build/quadringent-demo-<version>.tar.gz with a .sha256 file.
-import { copyFileSync, createReadStream, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, createReadStream, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { build } from 'vite';
-import { DEMO_CSP, assertSafeDemoOutDir, demoProvenance, verifyDemoOutput } from './demo-artifact.mjs';
+import { DEMO_CSP, assertNoSymbolicLinks, assertSafeDemoOutDir, demoProvenance, verifyDemoOutput, writeDemoArchive } from './demo-artifact.mjs';
 import { createDemoServer } from './serve-demo.mjs';
+import { buildNotices } from './third-party-notices.mjs';
 
 const uiDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoDir = resolve(uiDir, '..');
@@ -56,6 +57,8 @@ await build({
 
 writeFileSync(join(outDir, 'PROVENANCE.json'), `${JSON.stringify(provenance, null, 2)}\n`);
 copyFileSync(join(uiDir, 'scripts', 'serve-demo.mjs'), join(outDir, 'serve-demo.mjs'));
+for (const name of ['LICENSE', 'NOTICE']) copyFileSync(join(repoDir, name), join(outDir, name));
+writeFileSync(join(outDir, 'third-party-notices.txt'), buildNotices(uiDir));
 writeFileSync(join(outDir, 'README.txt'), [
   `Quadringent Community ${version} - synthetic demo`,
   '',
@@ -75,10 +78,9 @@ console.log(`Synthetic demo built in ${outDir}`);
 
 if (!args.includes('--no-archive')) {
   const archive = `${outDir}.tar.gz`;
-  if (existsSync(archive)) rmSync(archive);
-  const tar = spawnSync('tar', ['-czf', archive, '-C', dirname(outDir), basename(outDir)], { stdio: 'inherit' });
-  if (tar.status !== 0) throw new Error('tar failed to create the demo archive');
+  writeDemoArchive(outDir, archive, Math.floor(epoch / 1000));
   const digest = await sha256(archive);
+  assertNoSymbolicLinks(`${archive}.sha256`);
   writeFileSync(`${archive}.sha256`, `${digest}  ${basename(archive)}\n`);
   console.log(`Archive ${archive}\nSHA-256 ${digest}`);
 }

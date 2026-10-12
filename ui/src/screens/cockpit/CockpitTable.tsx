@@ -298,10 +298,10 @@ function CostsTab({ data }: { readonly data: import('../../data/useCockpit.ts').
     <section className="cockpit-table__tab" aria-label="Costs">
       <p className="mono">
         {cost.amount.toFixed(2)} {cost.currency ?? ''}
-        <span> · {cost.status === 'measured' ? "measured" : "estimated"}</span>
+        <span> · {cost.status === 'synthetic' ? EVIDENCE_COPY.syntheticCost : cost.status === 'measured' ? "measured" : "estimated"}</span>
       </p>
-      {cost.basis ? <p className="cockpit-table__cost-basis">{EVIDENCE_COPY.costBasis}: {EVIDENCE_COPY.costBases[cost.basis] ?? cost.basis}</p> : null}
-      {cost.collectedAt ? <p className="cockpit-table__cost-freshness">{EVIDENCE_COPY.collectedAt} <time dateTime={cost.collectedAt}>{cost.collectedAt}</time></p> : null}
+      {cost.status !== 'synthetic' && cost.basis ? <p className="cockpit-table__cost-basis">{EVIDENCE_COPY.costBasis}: {EVIDENCE_COPY.costBases[cost.basis] ?? cost.basis}</p> : null}
+      {cost.status !== 'synthetic' && cost.collectedAt ? <p className="cockpit-table__cost-freshness">{EVIDENCE_COPY.collectedAt} <time dateTime={cost.collectedAt}>{cost.collectedAt}</time></p> : null}
     </section>
   );
 }

@@ -247,7 +247,7 @@ export interface AuditRecord {
   readonly after: unknown;
 }
 
-export type CostStatus = 'measured' | 'estimated' | 'absent';
+export type CostStatus = 'measured' | 'estimated' | 'synthetic' | 'absent';
 
 export interface CostSnapshot {
   readonly scope: 'connection' | 'table';
@@ -928,7 +928,7 @@ function parseAuthUser(value: unknown): AuthUser {
 
 const PIPELINE_DECLARED_STATES = new Set<PipelineDeclaredState>(['not_started', 'copying', 'live', 'paused', 'attention', 'stopped']);
 const CONFIRMATION_STATES = new Set<ConfirmationState>(['pending', 'approved', 'rejected', 'used', 'expired']);
-const COST_STATUSES = new Set<CostStatus>(['measured', 'estimated', 'absent']);
+const COST_STATUSES = new Set<CostStatus>(['measured', 'estimated', 'synthetic', 'absent']);
 const LOG_LEVELS = new Set<LogLevel>(['info', 'warning', 'error']);
 
 function parsePipelineRecord(value: unknown): PipelineRecordV2 {

@@ -104,6 +104,12 @@ test('an estimated cost is labelled as such, a measured one is not', () => {
   assert.doesNotMatch(measured, /\(estimated\)/);
 });
 
+test('a synthetic cost is labelled next to its amount without requiring the demo banner', () => {
+  const markup = render({ status: 'ready', rows: [row({ costToday: { ...row().costToday!, status: 'synthetic' } })] });
+  assert.match(markup, /4\.50 USD \(synthetic\)/);
+  assert.doesNotMatch(markup, /\(estimated\)/);
+});
+
 test('the function key bar declares F3/F5/F9/F12, F9 disabled without rows and F12 always disabled (no journal at this level)', () => {
   const empty = render({ status: 'ready', rows: [] });
   assert.match(empty, /function-key-bar/);

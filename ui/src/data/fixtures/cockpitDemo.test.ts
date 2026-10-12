@@ -133,12 +133,14 @@ test('logs correlate the incident pipeline and never leak row data (no row/value
   }
 });
 
-test('costs cover the three provenances: measured (connection), estimated, and absent (paused table)', async () => {
+test('generated demo costs stay synthetic at both scopes, and paused costs stay absent', async () => {
   const c = client();
   const measuredConnection = await c.getCosts('connection', DEMO_SOURCE_SALES, '24h');
-  assert.equal(measuredConnection.status, 'measured');
+  assert.equal(measuredConnection.status, 'synthetic');
   const estimatedConnection = await c.getCosts('connection', DEMO_SOURCE_INVENTORY, '24h');
-  assert.equal(estimatedConnection.status, 'estimated');
+  assert.equal(estimatedConnection.status, 'synthetic');
+  const tableCost = await c.getCosts('table', 'pl_sales_order_lines', '24h');
+  assert.equal(tableCost.status, 'synthetic');
   const absentTable = await c.getCosts('table', 'pl_inventory_movements', '24h');
   assert.equal(absentTable.status, 'absent');
   assert.equal(absentTable.amount, null);

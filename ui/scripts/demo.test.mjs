@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,9 +8,13 @@ import { DEMO_CSP, assertSafeDemoOutDir, demoProvenance, verifyDemoOutput } from
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { createDemoServer } from './serve-demo.mjs';
+import * as artifacts from './demo-artifact.mjs';
+import { gunzipSync } from 'node:zlib';
+
+const temporaryRoot = realpathSync(tmpdir());
 
 function demoTree({ csp = DEMO_CSP, banner = 'Synthetic demo. Every value is generated locally.', synthetic = true, guard = 'Synthetic demo: no network request is allowed.' } = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'quadringent-demo-'));
+  const root = mkdtempSync(join(temporaryRoot, 'quadringent-demo-'));
   mkdirSync(join(root, 'assets'));
   writeFileSync(join(root, 'index.html'),
     `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${csp}"></head>`
@@ -19,6 +23,9 @@ function demoTree({ csp = DEMO_CSP, banner = 'Synthetic demo. Every value is gen
   writeFileSync(join(root, 'PROVENANCE.json'), JSON.stringify({ ...demoProvenance({
     version: '0.3.5', commit: 'a'.repeat(40), builtAtUtc: '2026-10-12T18:00:00Z',
   }), synthetic }));
+  writeFileSync(join(root, 'LICENSE'), 'Project license');
+  writeFileSync(join(root, 'NOTICE'), 'Project notice');
+  writeFileSync(join(root, 'third-party-notices.txt'), 'react@19\n@fontsource-variable/ibm-plex-sans@5\n@fontsource/ibm-plex-mono@5\n');
   return root;
 }
 
@@ -49,6 +56,17 @@ test('verification rejects a demo without its network guard', () => {
 test('verification rejects a demo without its synthetic banner or provenance flag', () => {
   assert.throws(() => verifyDemoOutput(demoTree({ banner: 'Cockpit' })), /Synthetic demo/);
   assert.throws(() => verifyDemoOutput(demoTree({ synthetic: false })), /synthetic/);
+});
+
+test('verification requires project and dependency notices', () => {
+  for (const file of ['LICENSE', 'NOTICE', 'third-party-notices.txt']) {
+    const directory = demoTree();
+    rmSync(join(directory, file));
+    assert.throws(() => verifyDemoOutput(directory), /license|notice|ENOENT/i);
+  }
+  const directory = demoTree();
+  writeFileSync(join(directory, 'third-party-notices.txt'), 'react@19 only');
+  assert.throws(() => verifyDemoOutput(directory), /font|notice/i);
 });
 
 let server;
@@ -97,20 +115,89 @@ test('the local server only binds to loopback', () => {
 });
 
 test('the demo build only writes into build/, an empty folder or an earlier demo output', () => {
-  const repo = mkdtempSync(join(tmpdir(), 'quadringent-repo-'));
+  const repo = mkdtempSync(join(temporaryRoot, 'quadringent-repo-'));
   mkdirSync(join(repo, 'build'));
   assert.doesNotThrow(() => assertSafeDemoOutDir(join(repo, 'build', 'quadringent-demo-0.3.5'), repo));
-  const empty = mkdtempSync(join(tmpdir(), 'quadringent-empty-'));
+  const empty = mkdtempSync(join(temporaryRoot, 'quadringent-empty-'));
   assert.doesNotThrow(() => assertSafeDemoOutDir(empty, repo));
   assert.doesNotThrow(() => assertSafeDemoOutDir(join(empty, 'new-folder'), repo));
   const earlier = demoTree();
   assert.doesNotThrow(() => assertSafeDemoOutDir(earlier, repo));
-  const victim = mkdtempSync(join(tmpdir(), 'quadringent-victim-'));
+  const victim = mkdtempSync(join(temporaryRoot, 'quadringent-victim-'));
   writeFileSync(join(victim, 'important.txt'), 'keep');
   assert.throws(() => assertSafeDemoOutDir(victim, repo), /not empty/);
   for (const forbidden of [repo, join(repo, 'build'), join(repo, 'ui'), join(repo, 'ui', 'dist'), '/']) {
     assert.throws(() => assertSafeDemoOutDir(forbidden, repo));
   }
+});
+
+test('demo output rejects symlinks and linked ancestors without touching their targets', () => {
+  const repo = mkdtempSync(join(temporaryRoot, 'quadringent-link-repo-'));
+  mkdirSync(join(repo, 'build'));
+  const victim = mkdtempSync(join(temporaryRoot, 'quadringent-link-victim-'));
+  const sentinel = join(victim, 'important.txt');
+  writeFileSync(sentinel, 'keep');
+  const linked = join(repo, 'build', 'linked');
+  symlinkSync(victim, linked, 'dir');
+  assert.throws(() => assertSafeDemoOutDir(linked, repo), /symbolic link/i);
+  assert.throws(() => assertSafeDemoOutDir(join(linked, 'new'), repo), /symbolic link/i);
+  const broken = join(repo, 'build', 'broken');
+  symlinkSync(join(victim, 'missing'), broken, 'dir');
+  assert.throws(() => assertSafeDemoOutDir(broken, repo), /symbolic link/i);
+  assert.equal(readFileSync(sentinel, 'utf8'), 'keep');
+});
+
+test('demo archives use neutral metadata, retain notices and extract with tar', () => {
+  assert.equal(typeof artifacts.writeDemoArchive, 'function');
+  const directory = demoTree();
+  writeFileSync(join(directory, '._private'), 'private metadata');
+  writeFileSync(join(directory, '.DS_Store'), 'private metadata');
+  const archive = `${directory}.tar.gz`;
+  const mtime = 1_760_000_000;
+  artifacts.writeDemoArchive(directory, archive, mtime);
+  const bytes = readFileSync(archive);
+  utimesSync(join(directory, 'index.html'), new Date(), new Date());
+  artifacts.writeDemoArchive(directory, archive, mtime);
+  assert.deepEqual(readFileSync(archive), bytes);
+  const tar = gunzipSync(bytes);
+  const names = [];
+  for (let offset = 0; tar[offset];) {
+    const header = tar.subarray(offset, offset + 512);
+    const field = (start, length) => header.subarray(start, start + length).toString().replace(/\0.*$/s, '');
+    const name = field(0, 100), prefix = field(345, 155);
+    names.push(prefix ? `${prefix}/${name}` : name);
+    assert.equal(parseInt(field(108, 8), 8), 0);
+    assert.equal(parseInt(field(116, 8), 8), 0);
+    assert.equal(field(265, 32), '');
+    assert.equal(field(297, 32), '');
+    assert.equal(parseInt(field(136, 12), 8), mtime);
+    assert.ok(['0', '5'].includes(field(156, 1)));
+    offset += 512 + Math.ceil(parseInt(field(124, 12), 8) / 512) * 512;
+  }
+  for (const name of ['LICENSE', 'NOTICE', 'third-party-notices.txt']) {
+    assert.ok(names.some((entry) => entry.endsWith(`/${name}`)));
+  }
+  assert.ok(!names.some((entry) => entry.includes('._') || entry.endsWith('.DS_Store')));
+  const extracted = mkdtempSync(join(temporaryRoot, 'quadringent-demo-extract-'));
+  const result = spawnSync('tar', ['-xzf', archive, '-C', extracted], { encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(readFileSync(join(extracted, names[0], 'LICENSE'), 'utf8'), 'Project license');
+});
+
+test('archive output and payload links are refused without changing their targets', () => {
+  const directory = demoTree();
+  const victim = mkdtempSync(join(temporaryRoot, 'quadringent-archive-victim-'));
+  const sentinel = join(victim, 'important.txt');
+  writeFileSync(sentinel, 'keep');
+  const archive = `${directory}.tar.gz`;
+  symlinkSync(sentinel, archive);
+  assert.throws(() => artifacts.writeDemoArchive(directory, archive, 1_760_000_000), /symbolic link/i);
+  symlinkSync(sentinel, `${archive}.sha256`);
+  assert.throws(() => artifacts.assertNoSymbolicLinks(`${archive}.sha256`), /symbolic link/i);
+  rmSync(archive);
+  symlinkSync(sentinel, join(directory, 'assets', 'linked.txt'));
+  assert.throws(() => artifacts.writeDemoArchive(directory, archive, 1_760_000_000), /Unsupported.*entry/);
+  assert.equal(readFileSync(sentinel, 'utf8'), 'keep');
 });
 
 test('verify-build rejects a product build that contains demonstration code', () => {

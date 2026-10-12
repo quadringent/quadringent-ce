@@ -35,7 +35,7 @@ test('the banner states synthetic data, the absence of connection and the build 
 test('the banner never presents demo values as measurements', () => {
   const html = renderToStaticMarkup(createElement(SyntheticDemoBanner, { provenance }));
   assert.match(html, /Every value is generated locally/);
-  assert.match(html, /including values labelled measured or observed/);
+  assert.match(html, /Evidence and costs are synthetic/);
 });
 
 test('a build from uncommitted sources says so next to its commit', () => {

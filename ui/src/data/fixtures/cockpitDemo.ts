@@ -344,19 +344,16 @@ function demoLogs(pipelineId: string, level: string | null, correlateIncident: b
 }
 
 function demoCost(scope: string | null, id: string | null): Record<string, unknown> {
-  // Coûts mesurés au niveau connexion, estimés ou absents au niveau table,
-  // selon l'id — donne aux trois provenances une table à montrer côté écran.
+  // Generated amounts are synthetic at every scope, never measured costs.
   if (scope === 'connection') {
-    const measured = id === DEMO_SOURCE_SALES;
-    return measured
-      ? { window: '24h', status: 'measured', amount: 4.82, currency: 'USD', basis: 'warehouse_credits', collected_at: '2026-09-23T09:00:00Z' }
-      : { window: '24h', status: 'estimated', amount: 2.10, currency: 'USD', basis: 'average_throughput_estimate', collected_at: '2026-09-23T09:00:00Z' };
+    return { window: '24h', status: 'synthetic', amount: id === DEMO_SOURCE_SALES ? 4.82 : 2.10,
+      currency: 'USD', basis: null, collected_at: null };
   }
   if (id === 'pl_inventory_movements') {
-    // La table en pause n'a aucun coût mesurable depuis sa mise en pause.
+    // A paused table has no cost observation.
     return { window: '24h', status: 'absent', amount: null, currency: null, basis: null, collected_at: null };
   }
-  return { window: '24h', status: 'estimated', amount: 0.34, currency: 'USD', basis: 'average_throughput_estimate', collected_at: '2026-09-23T09:00:00Z' };
+  return { window: '24h', status: 'synthetic', amount: 0.34, currency: 'USD', basis: null, collected_at: null };
 }
 
 /** Per-table evidence: each stage keeps its own state. Reconciliation is

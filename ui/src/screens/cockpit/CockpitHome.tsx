@@ -16,6 +16,7 @@ import { getCockpitClient, useCockpitHome, type CockpitHomeState, type Connectio
 import { href } from '../../router.ts';
 import { requiresConfirmation, type ControlActionKind } from '../../domain/controlsPanel.ts';
 import { focusPrimaryControls, navigateBack } from './cockpitFunctionKeys.ts';
+import { EVIDENCE_COPY } from '../../domain/operator.ts';
 
 export function CockpitHome() {
   const { state, reload } = useCockpitHome();
@@ -158,5 +159,6 @@ function HomeTable({ rows }: { readonly rows: readonly ConnectionHomeRow[] }) {
 function costCell(cost: ConnectionHomeRow['costToday']): string {
   if (!cost || cost.status === 'absent' || cost.amount === null) return 'Absent';
   const amount = `${cost.amount.toFixed(2)} ${cost.currency ?? ''}`.trim();
+  if (cost.status === 'synthetic') return `${amount} (${EVIDENCE_COPY.words.synthetic.toLowerCase()})`;
   return cost.status === 'estimated' ? `${amount} (estimated)` : amount;
 }

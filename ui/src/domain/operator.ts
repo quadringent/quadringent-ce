@@ -816,6 +816,7 @@ export const EVIDENCE_COPY = {
   provenance: 'Provenance',
   collectedAt: 'Collected at',
   costBasis: 'Basis',
+  syntheticCost: 'Synthetic cost',
   costBases: {
     warehouse_credits: 'Snowflake warehouse credits',
     average_throughput_estimate: 'estimate from average throughput',
@@ -855,7 +856,7 @@ export const EVIDENCE_COPY = {
 export const SYNTHETIC_DEMO_COPY = {
   title: 'Synthetic demo',
   connection: 'No IBM i, Snowflake or cloud connection. Network requests are blocked.',
-  values: 'Every value is generated locally, including values labelled measured or observed.',
+  values: 'Every value is generated locally. Evidence and costs are synthetic.',
   build: 'Built from source',
   commit: 'commit',
   dirty: 'with uncommitted changes',

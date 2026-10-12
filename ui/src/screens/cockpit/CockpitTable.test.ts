@@ -104,6 +104,14 @@ test('the costs tab distinguishes measured/estimated from absent, and the proofs
   assert.doesNotMatch(proofs, /reconcil/i);
 });
 
+test('a synthetic table cost never claims a measured or estimated amount', () => {
+  const data = tableData({ costToday: { ...tableData().costToday!, status: 'synthetic' } });
+  const markup = render({ tab: 'costs', state: { status: 'ready', data } });
+  assert.match(markup, /0\.34 USD/);
+  assert.match(markup, /Synthetic cost/);
+  assert.doesNotMatch(markup, / · measured| · estimated|Snowflake warehouse credits|Collected at/);
+});
+
 test('loading and failed states never render tab content or the controls panel', () => {
   const loading = render({ state: { status: 'loading' } });
   assert.match(loading, /Reading/);

@@ -164,7 +164,7 @@ not an SLA.
 ### What latency should I expect on the current version?
 
 Not tested. Not measured. Native CDC writes, reader outage and latency are
-Not tested on 0.3.5, and the 0.4.2 source needs fresh qualification. Default
+Not tested on 0.3.5, and the published 0.4.2 prerelease and the 0.4.3 candidate source need fresh qualification. Default
 polling is one second, which targets low latency but does not guarantee
 visibility within ten seconds. Warehouse wake-up, volume and `MERGE` time remain
 part of the delay.

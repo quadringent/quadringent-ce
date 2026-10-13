@@ -75,12 +75,13 @@ def test_readme_states_the_status_once_and_points_to_the_evidence_page():
     assert text.count("DEV/INT") <= 2, "the status line and the pilot call to action"
     assert "[docs/evidence.md](docs/evidence.md)" in top
     source_version = tomllib.loads(read("pyproject.toml"))["project"]["version"]
-    assert f"Source version {source_version} needs fresh qualification" in top
+    assert f"Source version {source_version} (candidate; latest published prerelease" in top and "needs fresh qualification" in top
     runtime = json.loads(read("site/runtime-0.3.5.json"))
     recovery = json.loads(read("site/recovery-0.3.4.json"))
     assert f'{runtime["version"]} (initial copy)' in top and f'{recovery["version"]} (recovery)' in top
     assert "2026-10-12" in top
-    assert set(re.findall(r"\b0\.4\.\d+\b", text)) <= {source_version}, "no stale source version"
+    published = re.search(r"latest published prerelease (\d+\.\d+\.\d+)", top)[1]
+    assert set(re.findall(r"\b0\.4\.\d+\b", text)) <= {source_version, published}, "no stale source version"
 
 
 def test_readme_names_the_uncomfortable_facts_first():
@@ -325,7 +326,8 @@ def test_evidence_section_links_the_evidence_page_and_every_receipt():
     text = text_of_home(section)
     for word in ("Measured", "Not tested", "Not measured"):
         assert word in text
-    assert f"{source_version()}: native CDC, reader outage, latency and complete cloud-loss recovery need fresh qualification" in text
+    assert f"On the {source_version()} candidate source and the published" in text
+    assert "prerelease: native CDC, reader outage, latency and complete cloud-loss recovery need fresh qualification" in text
     assert "not a P95 and not an SLA" in text
     from build_site import DOC_PAGES
     assert DOC_PAGES["docs/evidence.md"][0] == "evidence"

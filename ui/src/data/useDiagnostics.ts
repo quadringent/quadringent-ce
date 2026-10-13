@@ -11,7 +11,7 @@ export type DiagnosticsState =
   | { readonly status: 'failed'; readonly failure: DiagnosticsFailure };
 
 /**
- * Reads `GET /v2/diagnostics`. Each selection (all pipelines, or one) owns its
+ * Reads `GET /v2/diagnostics/report`. Each selection (all pipelines, or one) owns its
  * flag and abort signal: a slow report for pipeline A can never be shown once
  * the screen moved to pipeline B. Reading changes nothing on the service.
  */
@@ -41,7 +41,7 @@ export type DiagnosticsExportState =
   | { readonly status: 'failed'; readonly failure: DiagnosticsFailure };
 
 /**
- * Prepares `GET /v2/diagnostics/export` in memory only. The preview stays on
+ * Prepares `GET /v2/diagnostics/report/export` in memory only. The preview stays on
  * screen until the operator downloads or discards it; nothing is persisted.
  */
 export function useDiagnosticsExport(): {

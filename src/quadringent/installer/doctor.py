@@ -2,7 +2,7 @@
 
 Local checks always run. Network calls happen only on request and are
 bounded: ``--check-ibmi`` (TCP), ``--tls`` (verified TLS handshake) and
-``--control-plane`` (``GET /v2/diagnostics``). The doctor never signs on to
+``--control-plane`` (``GET /v2/diagnostics/report``). The doctor never signs on to
 IBM i, never connects to Snowflake and never changes anything.
 """
 
@@ -55,7 +55,7 @@ def add_doctor_subcommand(subparsers) -> None:
     parser.add_argument("--signon-port", type=int, help="Explicit JTOpen sign-on port (AS400_SIGNON_PORT)")
     parser.add_argument("--command-port", type=int, help="Explicit JTOpen command port (AS400_COMMAND_PORT)")
     parser.add_argument("--control-plane", action="store_true",
-                        help="Read GET /v2/diagnostics from QUADRINGENT_URL or ~/.quadringent/cli.json (network call)")
+                        help="Read GET /v2/diagnostics/report from QUADRINGENT_URL or ~/.quadringent/cli.json (network call)")
     parser.add_argument("--pipeline-id", help="With --control-plane: only this pipeline")
     parser.add_argument("--timeout", type=float, default=5.0, help="Seconds per network call (at most 10)")
     parser.add_argument("--from-report", metavar="FILE", help="Offline: read a saved JSON report instead of checking")
@@ -110,7 +110,7 @@ def _control_plane_results(fetch: Fetch, pipeline_id: str | None, timeout: float
 
 def _read_control_plane(fetch: Fetch, pipeline_id: str | None, timeout: float) -> tuple[list[DiagnosticResult], bool]:
     try:
-        status, body = fetch("/v2/diagnostics", {"pipeline_id": pipeline_id} if pipeline_id else None,
+        status, body = fetch("/v2/diagnostics/report", {"pipeline_id": pipeline_id} if pipeline_id else None,
                              max(0.5, min(timeout, 10.0)))
     except (OSError, socket.timeout) as error:
         reason = "timed out" if isinstance(error, (socket.timeout, TimeoutError)) else "connection refused"
@@ -132,7 +132,7 @@ def _read_control_plane(fetch: Fetch, pipeline_id: str | None, timeout: float) -
                                        "Use a token with the read scope or higher.", error="status 403")], False)
     if status == 404:
         return ([_control_plane_failure("The control plane does not know this pipeline or has no diagnostics route (404).",
-                                       "Check --pipeline-id, or upgrade the control plane to a version with /v2/diagnostics.",
+                                       "Check --pipeline-id, or upgrade the control plane to a version with /v2/diagnostics/report.",
                                        error="status 404")], False)
     if status == 429:
         return ([_control_plane_failure("The control plane is limiting requests (429).",

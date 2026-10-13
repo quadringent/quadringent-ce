@@ -11,6 +11,7 @@ import { StatusWord } from '../../components/foundation/StatusWord.tsx';
 import { FunctionKeyBar } from '../../components/foundation/FunctionKeyBar.tsx';
 import { useFunctionKeys, type FunctionKeyBinding } from '../../components/foundation/useFunctionKeys.ts';
 import { ControlsPanel } from '../../components/ControlsPanel.tsx';
+import { DiagnosticExport } from '../../components/DiagnosticExport.tsx';
 import { connectionAggregateState, fleetNeedsAttention } from '../../domain/cockpit.ts';
 import { getCockpitClient, useCockpitHome, type CockpitHomeState, type ConnectionHomeRow } from '../../data/useCockpit.ts';
 import { href } from '../../router.ts';
@@ -42,6 +43,7 @@ export function CockpitHomeView({ state, onRefresh, onSettled }: { readonly stat
         </div>
         <div className="cockpit-home__header-actions">
           <a className="board__refresh" href={href({ name: 'cockpit-diagnostics' })}>{DIAGNOSTICS_COPY.link}</a>
+          <DiagnosticExport />
           <a className="board__refresh" href={href({ name: 'cockpit-confirmations' })}>Confirmations</a>
           <button type="button" className="board__refresh" onClick={onRefresh}>Refresh</button>
         </div>

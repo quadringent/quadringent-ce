@@ -1,6 +1,6 @@
 # Evidence
 
-Quadringent is a preview for DEV/INT use. Source version **0.4.2** has had no qualification run yet. The latest observed releases are 0.3.5 (initial copy, 2026-10-12) and 0.3.4 (recovery, 2026-10-12). Production: not qualified. Native CDC writes on 0.3.5 are Not tested.
+Quadringent is a preview for DEV/INT use. Source version **0.4.3** (candidate; the latest published prerelease is **0.4.2**) has had no qualification run yet. The latest observed releases are 0.3.5 (initial copy, 2026-10-12) and 0.3.4 (recovery, 2026-10-12). Production: not qualified. Native CDC writes on 0.3.5 are Not tested.
 
 We use four words for evidence, here and everywhere else: Measured (we have a number, with its scope), Not measured (we have no number), Not tested (we ran nothing) and Not supported (it does not work, or we do not intend it to). Every result stays bound to the version, targets and clock it was observed with. A result on 0.3.4 says nothing about 0.4.2.
 
@@ -27,7 +27,7 @@ Latency beyond the campaigns below is Not measured. We have no P95, no SLA and n
 
 Snowflake held history and mirror tables in a dedicated schema, behind a scoped role. IBM i held synthetic journaled tables with before and after images, read over TLS. All tests used synthetic tables on isolated installations. These are maintainer-observed results, not an external certification.
 
-## 0.4.2, current source
+## 0.4.2 published prerelease and 0.4.3 candidate source
 
 Native continuity, reader outage, latency, complete cloud-loss recovery and the operator path are Not tested on 0.4.2. This version binds native capture to the original admitted receiver, refuses automatic adoption of legacy v1 checkpoints, and adds selected replay backup and restore with guarded RAW retention. Keep the previous version and its state until a migration has been verified; see the [native capture guide](product/native-qualification.md).
 

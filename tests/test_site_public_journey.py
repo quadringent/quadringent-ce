@@ -178,6 +178,12 @@ def release_version() -> str:
     return re.search(r'<span class="mono" data-source-version>([0-9.]+)</span>', status)[1]
 
 
+def published_version() -> str:
+    """The latest published prerelease named next to the candidate source in the hero status line."""
+    status = re.search(r'<p class="status-line">.*?</p>', read("site/index.html"), re.S)[0]
+    return re.search(r'latest published prerelease <span class="mono">([0-9.]+)</span>', status)[1]
+
+
 def homepage_section(html: str, section_id: str) -> str:
     match = re.search(rf'<section[^>]*id="{section_id}".*?</section>\s*(?=<section|</main>)', html, re.S)
     assert match, section_id
@@ -226,7 +232,8 @@ def test_status_line_and_evidence_section_use_latest_scoped_observations_without
     status = text_of(re.search(r'<p class="status-line">.*?</p>', html, re.S)[0])
     assert f'last observed release {runtime["version"]} ({runtime["date_utc"]})' in status
     evidence = text_of(homepage_section(html, "evidence"))
-    assert f'{source_version}: native CDC, reader outage, latency and complete cloud-loss recovery need fresh qualification' in evidence
+    assert (f'On the {source_version} candidate source and the published {published_version()} prerelease: native CDC, reader outage, '
+            'latency and complete cloud-loss recovery need fresh qualification') in evidence
     assert f'{runtime["version"]}, {runtime["date_utc"]}' in evidence and "110 mirror rows and 110 history C images" in evidence
     assert f'{recovery["version"]}, 2026-10-12, 18:13 UTC' in evidence
     assert "8 cold/warm observations within 10 s" in evidence
@@ -341,7 +348,7 @@ def test_readme_points_to_the_evidence_page_that_matches_scoped_receipts_and_pre
     recovery = scoped_summary("recovery-0.3.4")
     readme = flat(read("README.md"))
     source_version = tomllib.loads(read("pyproject.toml"))["project"]["version"]
-    assert f"Source version {source_version} needs fresh qualification" in readme
+    assert f"Source version {source_version} (candidate; latest published prerelease {published_version()}) needs fresh qualification" in readme
     assert "[docs/evidence.md](docs/evidence.md)" in readme
     evidence = flat(read("docs/evidence.md"))
     assert f"Source version **{source_version}**" in evidence
@@ -488,7 +495,7 @@ def test_subpath_site_does_not_publish_an_ineffective_robots_file(site):
 
 def test_cloud_command_names_the_assets_of_the_published_release():
     install = homepage_section(read("site/index.html"), "try")
-    assert f"--assets-dir ./quadringent-{release_version()}" in install
+    assert f"--assets-dir ./quadringent-{published_version()}" in install
 
 
 def test_links_to_repository_files_point_to_existing_files(site):

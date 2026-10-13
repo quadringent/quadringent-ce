@@ -1,57 +1,39 @@
-"""``GET /v2/diagnostics`` and ``GET /v2/diagnostics/export``.
-
-Same access control as the other read routes (``require_scope("read")``) and
-the same organization scoping (``app.state.org_id``). Reading a diagnostic
-never repairs anything. The shared ``quadringent.diagnostics`` modules are
-imported on use: an image that does not ship them still starts and answers
-these routes with an explicit 503.
-"""
-
-from __future__ import annotations
+"""Administrator-only diagnostic download; no live provider calls."""
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from ..auth import require_scope
-from ...version import version
-from ..errors import ApiError, not_found
+from ..errors import ApiError, wrong_environment, store_unavailable
+from ..services.diagnostics import DiagnosticsService, FORMAT_VERSION
 
 router = APIRouter(prefix="/v2/diagnostics", tags=["diagnostics"])
+_admin = require_scope("admin")
 
 
-def _unavailable() -> ApiError:
-    return ApiError(503, "capability_unavailable", "Diagnostics are not packaged in this control plane image.",
-                    next_action="use quadringent doctor locally, or upgrade the control plane image",
-                    retryable=False)
-
-
-def _service(request: Request):
-    try:
-        from ..services.diagnostics import DiagnosticsService
-    except ImportError as error:
-        raise _unavailable() from error
-    provider = getattr(request.app.state, "pipeline_observation_provider", None)
-    reader = getattr(provider, "evidence", None)
-    return DiagnosticsService(request.app.state.engine, org_id=request.app.state.org_id, version=version(),
-                              evidence_reader=reader if callable(reader) else None)
+def _identity(request: Request):
+    identity = _admin(request)
+    if identity.subject == "anonymous":
+        raise ApiError(401, "invalid_request", "Diagnostic export requires authentication", next_action="sign in as an administrator", retryable=False)
+    if identity.source_restriction:
+        raise wrong_environment("Organization diagnostic export is outside this token's source restriction")
+    return identity
 
 
 @router.get("")
-async def get_diagnostics(
-    request: Request, pipeline_id: str | None = None, identity=Depends(require_scope("read"))
-) -> dict[str, object]:
-    service = _service(request)
-    from ..services.diagnostics import DiagnosticsPipelineNotFoundError
-    try:
-        return service.report(pipeline_id=pipeline_id).to_dict()
-    except DiagnosticsPipelineNotFoundError as error:
-        raise not_found("Pipeline not found") from error
+async def capabilities(request: Request, identity=Depends(_identity)) -> JSONResponse:
+    return JSONResponse({"export": {"state": "available", "format_version": FORMAT_VERSION, "collection": "local_database_snapshot"}}, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/export")
-async def get_diagnostics_export(request: Request, identity=Depends(require_scope("read"))) -> dict[str, object]:
-    service = _service(request)
+async def download(request: Request, identity=Depends(_identity)) -> JSONResponse:
     try:
-        from quadringent.diagnostics.export import build_export
-    except ImportError as error:
-        raise _unavailable() from error
-    return build_export(service.report(), extra_identifiers=service.sensitive_identifiers()).to_document()
+        snapshot = DiagnosticsService(request.app.state.engine, org_id=request.app.state.org_id).snapshot()
+    except SQLAlchemyError as error:
+        raise store_unavailable("Diagnostic snapshot unavailable; check the control plane database") from error
+    snapshot["api_schema_version"] = request.app.version
+    return JSONResponse(snapshot, headers={
+        "Content-Disposition": 'attachment; filename="quadringent-diagnostic.json"',
+        "Cache-Control": "no-store", "Pragma": "no-cache", "X-Content-Type-Options": "nosniff",
+    })

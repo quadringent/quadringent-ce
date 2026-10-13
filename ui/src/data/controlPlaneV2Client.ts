@@ -448,6 +448,28 @@ export class ControlPlaneV2Client {
     this.maxReconnectDelayMs = Math.max(this.reconnectDelayMs, options.maxReconnectDelayMs ?? 15_000);
   }
 
+  async getDiagnosticExportCapability(signal?: AbortSignal): Promise<boolean> {
+    const payload = await this.getJson('/diagnostics', signal) as Record<string, unknown> | null;
+    const capability = payload?.export as Record<string, unknown> | undefined;
+    return capability?.state === 'available' && capability.format_version === 'quadringent-diagnostic-v1'
+      && capability.collection === 'local_database_snapshot';
+  }
+
+  async getDiagnosticExport(signal?: AbortSignal): Promise<Blob> {
+    const payload = await this.getJson('/diagnostics/export', signal) as Record<string, unknown> | null;
+    const collection = payload?.collection as Record<string, unknown> | undefined;
+    if (payload?.format_version !== 'quadringent-diagnostic-v1' || collection?.mode !== 'local_database_snapshot'
+      || collection.live_checks_performed !== false || typeof payload.generated_at !== 'string'
+      || !Number.isFinite(Date.parse(payload.generated_at))) {
+      throw new ControlPlaneV2Error(502, 'internal_error', 'Invalid diagnostic export response.', 'Try again later.', true);
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2) + '\n'], { type: 'application/json' });
+    if (blob.size > 1_048_576) {
+      throw new ControlPlaneV2Error(502, 'internal_error', 'Invalid diagnostic export size.', 'Try again later.', true);
+    }
+    return blob;
+  }
+
   async testSource(sourceId: string, signal?: AbortSignal): Promise<SourceTestResult> {
     const envelope = await this.write(`/sources/${encodeURIComponent(sourceId)}/test`, {}, signal);
     return parseSourceTestResult(envelope.after);
@@ -692,18 +714,18 @@ export class ControlPlaneV2Client {
     return parseCostSnapshot(payload, scope, id);
   }
 
-  /** GET /v2/diagnostics[?pipeline_id=] — `quadringent.diagnostic.v1`. A report
+  /** GET /v2/diagnostics/report[?pipeline_id=] — `quadringent.diagnostic.v1`. A report
    *  this console cannot interpret exactly is an `invalid_response` error. */
   async getDiagnostics(options: { readonly pipelineId?: string } = {}, signal?: AbortSignal): Promise<DiagnosticReport> {
     const query = options.pipelineId ? `?pipeline_id=${encodeURIComponent(options.pipelineId)}` : '';
-    const payload = await this.getJson(`/diagnostics${query}`, signal);
+    const payload = await this.getJson(`/diagnostics/report${query}`, signal);
     return parseDiagnostics(() => parseDiagnosticReport(payload));
   }
 
-  /** GET /v2/diagnostics/export — `quadringent.diagnostic-export.v1`. Nothing
+  /** GET /v2/diagnostics/report/export — `quadringent.diagnostic-export.v1`. Nothing
    *  is persisted: the caller shows the preview before offering a download. */
   async getDiagnosticsExport(signal?: AbortSignal): Promise<DiagnosticExport> {
-    const payload = await this.getJson('/diagnostics/export', signal);
+    const payload = await this.getJson('/diagnostics/report/export', signal);
     return parseDiagnostics(() => parseDiagnosticExport(payload));
   }
 

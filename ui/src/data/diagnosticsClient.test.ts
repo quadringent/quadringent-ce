@@ -68,7 +68,7 @@ test('getDiagnostics parses a complete report and sends the optional pipeline fi
   });
   const all = await client.getDiagnostics();
   await client.getDiagnostics({ pipelineId: 'pl 1/x' });
-  assert.deepEqual(urls, ['/v2/diagnostics', '/v2/diagnostics?pipeline_id=pl%201%2Fx']);
+  assert.deepEqual(urls, ['/v2/diagnostics/report', '/v2/diagnostics/report?pipeline_id=pl%201%2Fx']);
   assert.equal(all.scope, 'control_plane');
   assert.equal(all.synthetic, false);
   assert.equal(all.overall.status, 'blocked');

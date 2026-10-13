@@ -232,7 +232,7 @@ const json = async (response: Response) => response.json() as Promise<Record<str
 
 test('the demo serves a synthetic control-plane diagnostic that never passes capture, delivery or reconciliation', async () => {
   const fetch = createCockpitDemoFetch();
-  const report = await json(await fetch('/v2/diagnostics'));
+  const report = await json(await fetch('/v2/diagnostics/report'));
   assert.equal(report.schema, 'quadringent.diagnostic.v1');
   assert.equal(report.scope, 'control_plane');
   assert.equal(report.synthetic, true);

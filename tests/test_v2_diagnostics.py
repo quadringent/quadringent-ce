@@ -1,4 +1,4 @@
-"""GET /v2/diagnostics and /v2/diagnostics/export: read-only, organization-scoped."""
+"""GET /v2/diagnostics/report and /v2/diagnostics/report/export: read-only, organization-scoped."""
 
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ def by_code(body, code, subject_ref=None):
 
 def test_report_follows_the_v1_contract_and_is_scoped_to_the_control_plane(engine):
     seed(engine, "default", prefix="a")
-    body = client_for(engine).get("/v2/diagnostics").json()
+    body = client_for(engine).get("/v2/diagnostics/report").json()
     report = parse_report(body)
     assert report.scope == "control_plane"
     assert body["overall"]["status"] in ("blocked", "incomplete")
@@ -90,14 +90,14 @@ def test_report_follows_the_v1_contract_and_is_scoped_to_the_control_plane(engin
 
 def test_configured_credentials_are_not_authentication(engine):
     seed(engine, "default", prefix="a", detected_version=None)
-    body = client_for(engine).get("/v2/diagnostics").json()
+    body = client_for(engine).get("/v2/diagnostics/report").json()
     assert by_code(body, "source.authentication")[0]["status"] == "unknown"
     assert by_code(body, "source.tls")[0]["status"] == "unknown"
 
 
 def test_a_probe_confirmed_source_is_passed_with_its_observation_time(engine):
     seed(engine, "default", prefix="a", detected_version="V7R5M0")
-    auth = by_code(client_for(engine).get("/v2/diagnostics").json(), "source.authentication")[0]
+    auth = by_code(client_for(engine).get("/v2/diagnostics/report").json(), "source.authentication")[0]
     assert auth["status"] == "passed"
     assert "not re-tested" in auth["limits"]
 
@@ -106,12 +106,12 @@ def test_a_probe_confirmed_source_is_passed_with_its_observation_time(engine):
                                             ("declared_not_verified", "unknown")])
 def test_destination_verification_maps_to_a_status(engine, state, expected):
     seed(engine, "default", prefix="a", verification=state)
-    assert by_code(client_for(engine).get("/v2/diagnostics").json(), "destination.verification")[0]["status"] == expected
+    assert by_code(client_for(engine).get("/v2/diagnostics/report").json(), "destination.verification")[0]["status"] == expected
 
 
 def test_table_not_ready_is_an_established_prerequisite_failure(engine):
     seed(engine, "default", prefix="a", readiness="not_journaled")
-    item = by_code(client_for(engine).get("/v2/diagnostics").json(), "source_prerequisites.table")[0]
+    item = by_code(client_for(engine).get("/v2/diagnostics/report").json(), "source_prerequisites.table")[0]
     assert item["status"] == "failed" and item["subject"]["kind"] == "table"
     assert "CL" in item["next_action"]
 
@@ -125,7 +125,7 @@ def test_capture_delivery_and_reconciliation_stay_distinct(engine):
     evidence = {"appl": PipelineEvidence("appl", provenance="kubernetes_loader_log", evidence_kind="live",
                                           collected_at="2026-10-12T19:00:00Z", reading=live("observed"),
                                           delivery=live("stale", "2026-10-12T17:00:00Z"), reconciliation=live("absent"))}
-    body = client_for(engine, provider=Provider(evidence)).get("/v2/diagnostics").json()
+    body = client_for(engine, provider=Provider(evidence)).get("/v2/diagnostics/report").json()
     assert by_code(body, "capture.reading")[0]["status"] == "passed"
     delivery = by_code(body, "delivery.snowflake")[0]
     assert delivery["status"] == "failed" and delivery["since"] == "2026-10-12T17:00:00Z"
@@ -139,7 +139,7 @@ def test_synthetic_or_historical_evidence_is_never_passed(engine, kind):
     seed(engine, "default", prefix="a")
     evidence = {"appl": PipelineEvidence("appl", provenance="demo_fixture", evidence_kind=kind,
                                           reading=live("observed"), delivery=live("observed"))}
-    body = client_for(engine, provider=Provider(evidence)).get("/v2/diagnostics").json()
+    body = client_for(engine, provider=Provider(evidence)).get("/v2/diagnostics/report").json()
     for code in ("capture.reading", "delivery.snowflake"):
         item = by_code(body, code)[0]
         assert item["status"] == "unknown" and item["evidence"]["evidence_kind"] == kind
@@ -147,7 +147,7 @@ def test_synthetic_or_historical_evidence_is_never_passed(engine, kind):
 
 def test_attention_pipeline_is_a_failure_with_its_reason_bounded(engine):
     seed(engine, "default", prefix="a", declared_state="attention", attention_reason="reader stopped " + "x" * 900)
-    item = by_code(client_for(engine).get("/v2/diagnostics").json(), "pipeline.state")[0]
+    item = by_code(client_for(engine).get("/v2/diagnostics/report").json(), "pipeline.state")[0]
     assert item["status"] == "failed" and len(item["evidence"]["attention_reason"]) <= 300
 
 
@@ -155,12 +155,12 @@ def test_pipeline_filter_and_cross_organization_reads(engine):
     seed(engine, "default", prefix="a")
     seed(engine, "other", prefix="b")
     client = client_for(engine, org="default")
-    body = client.get("/v2/diagnostics").json()
+    body = client.get("/v2/diagnostics/report").json()
     refs = json.dumps(body)
     assert "bppl" not in refs and "bsrc" not in refs and "bdst" not in refs
-    assert client.get("/v2/diagnostics", params={"pipeline_id": "bppl"}).status_code == 404
-    assert client.get("/v2/diagnostics", params={"pipeline_id": "missing"}).status_code == 404
-    filtered = client.get("/v2/diagnostics", params={"pipeline_id": "appl"}).json()
+    assert client.get("/v2/diagnostics/report", params={"pipeline_id": "bppl"}).status_code == 404
+    assert client.get("/v2/diagnostics/report", params={"pipeline_id": "missing"}).status_code == 404
+    filtered = client.get("/v2/diagnostics/report", params={"pipeline_id": "appl"}).json()
     assert {r["subject"]["ref"] for r in filtered["results"] if r["subject"] and r["subject"]["kind"] == "pipeline"} == {"appl"}
 
 
@@ -175,21 +175,21 @@ def test_reading_diagnostics_changes_nothing(engine):
 
     before = snapshot()
     client = client_for(engine)
-    client.get("/v2/diagnostics")
-    client.get("/v2/diagnostics/export")
+    client.get("/v2/diagnostics/report")
+    client.get("/v2/diagnostics/report/export")
     assert snapshot() == before
 
 
 def test_routes_require_an_identity_when_authentication_is_required(engine):
     seed(engine, "default", prefix="a")
     client = client_for(engine, token_pepper=b"synthetic-pepper", require_authentication=True)
-    assert client.get("/v2/diagnostics").status_code == 401
-    assert client.get("/v2/diagnostics/export").status_code == 401
+    assert client.get("/v2/diagnostics/report").status_code == 401
+    assert client.get("/v2/diagnostics/report/export").status_code == 401
 
 
 def test_export_pseudonymizes_identities_and_previews_its_files(engine):
     seed(engine, "default", prefix="a", detected_version="V7R5M0")
-    document = client_for(engine).get("/v2/diagnostics/export").json()
+    document = client_for(engine).get("/v2/diagnostics/report/export").json()
     assert document["schema"] == "quadringent.diagnostic-export.v1"
     text = json.dumps(document)
     for value in (CANARY_HOST, CANARY_USER, "canary-account", "appl", "asrc", "adst", "SALESLIB"):
@@ -202,10 +202,10 @@ def test_an_image_without_the_diagnostics_modules_still_starts_and_explains(engi
     seed(engine, "default", prefix="a")
     client = client_for(engine)
     for name in [name for name in sys.modules if name.startswith(("quadringent.diagnostics",
-                                                                   "quadringent_control_plane.v2.services.diagnostics"))]:
+                                                                   "quadringent_control_plane.v2.services.diagnostics_report"))]:
         monkeypatch.delitem(sys.modules, name)
     monkeypatch.setitem(sys.modules, "quadringent.diagnostics", None)
-    response = client.get("/v2/diagnostics")
+    response = client.get("/v2/diagnostics/report")
     assert response.status_code == 503 and response.json()["error"]["code"] == "capability_unavailable"
     assert client.get("/v2/healthz").status_code == 200
 
@@ -250,19 +250,19 @@ def test_large_organizations_get_a_bounded_report_that_says_it_is_partial(engine
     seed(engine, "default", prefix="a")
     _many_pipelines(engine, 120)
     client = client_for(engine)
-    response = client.get("/v2/diagnostics")
+    response = client.get("/v2/diagnostics/report")
     assert response.status_code == 200
     truncated = by_code(response.json(), "control_plane.report_truncated")
     assert truncated and truncated[0]["status"] == "unknown" and "pipeline_id" in truncated[0]["next_action"]
     assert truncated[0]["evidence"] == {"pipeline_count": 121}
     assert response.json()["overall"]["status"] != "ready"
-    assert client.get("/v2/diagnostics/export").status_code == 200
+    assert client.get("/v2/diagnostics/report/export").status_code == 200
 
 
 def test_an_empty_organization_is_incomplete_not_ready(engine):
     with engine.begin() as c:
         c.execute(v2_schema.organizations.insert(), {"id": "default", "name": "empty"})
-    body = client_for(engine).get("/v2/diagnostics").json()
+    body = client_for(engine).get("/v2/diagnostics/report").json()
     assert body["overall"]["status"] == "incomplete"
     assert by_code(body, "control_plane.configuration")[0]["status"] == "unknown"
 
@@ -272,13 +272,13 @@ def test_catalog_tables_without_a_pipeline_do_not_block(engine):
     with engine.begin() as c:
         c.execute(v2_schema.tables.insert(), {"id": "unrelated", "source_id": "asrc", "schema_name": "LIB",
                                                "table_name": "UNRELATED", "readiness": "not_journaled"})
-    body = client_for(engine).get("/v2/diagnostics").json()
+    body = client_for(engine).get("/v2/diagnostics/report").json()
     assert all(r["subject"]["ref"] != "unrelated" for r in body["results"] if r["subject"])
 
 
 def test_a_probe_result_is_not_dated_with_an_unrelated_record_update(engine):
     seed(engine, "default", prefix="a", detected_version="V7R5M0")
-    auth = by_code(client_for(engine).get("/v2/diagnostics").json(), "source.authentication")[0]
+    auth = by_code(client_for(engine).get("/v2/diagnostics/report").json(), "source.authentication")[0]
     assert auth["observed_at"] != "2026-10-12T18:30:00Z"
     assert "time of that probe is not recorded" in auth["limits"]
 
@@ -290,7 +290,7 @@ def test_an_unreadable_evidence_source_degrades_one_pipeline_only(engine):
         def evidence(self, pipeline_id):
             raise TimeoutError("kubernetes log read timed out with token=abc")
 
-    body = client_for(engine, provider=Broken()).get("/v2/diagnostics").json()
+    body = client_for(engine, provider=Broken()).get("/v2/diagnostics/report").json()
     delivery = by_code(body, "delivery.snowflake")[0]
     assert delivery["status"] == "unknown" and "could not be read" in delivery["summary"]
     assert "token=abc" not in json.dumps(body)

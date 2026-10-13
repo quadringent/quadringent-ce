@@ -7,7 +7,7 @@ We build open-source change data capture from IBM i (formerly AS/400 and iSeries
 <!-- The thesis line also opens docs/pypi.md; tests/test_pypi_metadata.py checks that they match. -->
 <!-- source: docs/architecture.md, docs/licensing.md, docs/evidence.md, docs/product/your-data.md, docs/product/quadringent-destination-proof-contract.md, docs/product/synthetic-demo.md, docs/product/operator-guide.md, docs/product/try-it-local.md, site/runtime-0.3.5.json, site/recovery-0.3.4.json, site/qualification-0.3.4.json, CHANGELOG.md, pyproject.toml -->
 
-Status: Preview, DEV/INT only. We claim no production qualification. Source version 0.4.2 needs fresh qualification; the latest observed releases are 0.3.5 (initial copy) and 0.3.4 (recovery), both 2026-10-12. Dates, tables and limits: [docs/evidence.md](docs/evidence.md).
+Status: Preview, DEV/INT only. We claim no production qualification. Source version 0.4.3 (candidate; latest published prerelease 0.4.2) needs fresh qualification; the latest observed releases are 0.3.5 (initial copy) and 0.3.4 (recovery), both 2026-10-12. Dates, tables and limits: [docs/evidence.md](docs/evidence.md).
 
 In the 0.3.4 cold-warehouse trial, 3 of 4 targets missed our 10 s latency bar; a later run passed on all four. The IBM i CPU and I/O cost of the reader is Not measured. Only IBM i 7.5, on one shared server, has been tested, in a historical measurement on one table, and no published summary names the release.
 

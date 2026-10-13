@@ -7,7 +7,7 @@ boundaries. No external connection is made. The matrix and its limits are in
 ``docs/product/local-lab.md``; browser checks are in
 ``ui/scripts/lab-browser-scenarios.mjs``.
 
-Assertions on ``/v2/diagnostics`` activate automatically once the
+Assertions on ``/v2/diagnostics/report`` activate automatically once the
 coordinator wires that route into ``create_v2_app``; until then they skip
 with an explicit reason.
 """
@@ -55,7 +55,7 @@ def _need_diagnostics(lab: Lab) -> None:
 
 
 def _diagnostics(session, **params) -> dict:
-    response = session.get("/v2/diagnostics", params=params)
+    response = session.get("/v2/diagnostics/report", params=params)
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -462,7 +462,7 @@ def test_scenario_17_reader_without_rights(lab_for):
     # Without any identity the service answers 401, never an anonymous admin.
     assert lab.anonymous().get("/v2/pipelines").status_code == 401
     if lab.diagnostics_available():
-        assert reader.get("/v2/diagnostics").status_code == 200  # read scope is enough
+        assert reader.get("/v2/diagnostics/report").status_code == 200  # read scope is enough
 
 
 # --- 18: two organizations ------------------------------------------------------------------------------
@@ -497,12 +497,12 @@ def test_scenario_18_cross_organization(lab_for):
     assert lab.executor_events() == []
 
     if lab.diagnostics_available():
-        assert other.get("/v2/diagnostics", params={"pipeline_id": fixtures.PIPELINE_ORDERS}).status_code == 404
-        report = other.get("/v2/diagnostics").json()
+        assert other.get("/v2/diagnostics/report", params={"pipeline_id": fixtures.PIPELINE_ORDERS}).status_code == 404
+        report = other.get("/v2/diagnostics/report").json()
         text = json.dumps(report)
         for leaked in (fixtures.SOURCE_ID, fixtures.DESTINATION_ID, fixtures.PIPELINE_ORDERS, "LABLIB"):
             assert leaked not in text
-        mine = lab.session().get("/v2/diagnostics").json()
+        mine = lab.session().get("/v2/diagnostics/report").json()
         assert fixtures.PIPELINE_OTHER_ORDERS not in json.dumps(mine)
 
 
@@ -551,7 +551,7 @@ def test_scenario_19_export_canaries(lab_for):
     lab = lab_for("export_canaries")
     _need_diagnostics(lab)
     reader = lab.session("reader")
-    response = reader.get("/v2/diagnostics/export")
+    response = reader.get("/v2/diagnostics/report/export")
     assert response.status_code == 200, response.text
     export = response.json()
     assert export["schema"] == "quadringent.diagnostic-export.v1"
@@ -570,7 +570,7 @@ def test_scenario_19_export_canaries(lab_for):
         assert entry["bytes"] == len(text.encode("utf-8"))
         assert entry["sha256"] == hashlib.sha256(text.encode("utf-8")).hexdigest()
     # Reading the report itself does not expose them either.
-    assert fixtures.CANARY_SECRET not in reader.get("/v2/diagnostics").text
+    assert fixtures.CANARY_SECRET not in reader.get("/v2/diagnostics/report").text
 
 
 # --- 20: resume after refresh -------------------------------------------------------------------------------

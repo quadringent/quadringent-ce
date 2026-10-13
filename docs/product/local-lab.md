@@ -87,8 +87,8 @@ Chrome at 1440x900 in the light and dark colour schemes, with keyboard use
 and a console/network check, and save screenshots
 (`ui/scripts/lab-browser-scenarios.mjs`). The "visible state" column is the
 expected state; it is asserted in the browser only where a browser check is
-listed. Diagnostics assertions use `GET /v2/diagnostics` and
-`/v2/diagnostics/export`.
+listed. Diagnostics assertions use `GET /v2/diagnostics/report` and
+`/v2/diagnostics/report/export`.
 
 | # | Scenario | Injected condition | Backend result | Visible state | Action allowed or forbidden | Assertion |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -140,7 +140,7 @@ laboratory. They are reported, not worked around.
    shows both connections) and can run actions on its pipelines. Starting a
    pipeline without `destination_id` also considers destinations of every
    organization. Four tests are marked `xfail(strict=True)` and flip to failures
-   once this is fixed. `/v2/diagnostics` is scoped by organization and is
+   once this is fixed. `/v2/diagnostics/report` is scoped by organization and is
    asserted strictly.
 2. **No readiness gate on start.** `POST /v2/tables/{id}/pipeline` starts a
    pipeline for a table that is not journaled, and the executor is invoked.

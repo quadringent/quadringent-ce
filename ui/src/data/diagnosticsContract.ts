@@ -1,6 +1,6 @@
 /**
- * Strict parsers for the diagnostic contracts served by `/v2/diagnostics`
- * (`quadringent.diagnostic.v1`) and `/v2/diagnostics/export`
+ * Strict parsers for the diagnostic contracts served by `/v2/diagnostics/report`
+ * (`quadringent.diagnostic.v1`) and `/v2/diagnostics/report/export`
  * (`quadringent.diagnostic-export.v1`).
  *
  * A diagnostic is evidence about one layer of the data path. Anything this

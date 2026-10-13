@@ -165,13 +165,13 @@ export function createCockpitDemoFetch(): (input: string, init?: RequestInit) =>
       return json(200, { items: demoLogs(logsMatch[1], query.get('level'), query.get('correlate_incident') === 'true') });
     }
 
-    if (method === 'GET' && path === '/diagnostics') {
+    if (method === 'GET' && path === '/diagnostics/report') {
       const pipelineId = query.get('pipeline_id');
       if (pipelineId !== null && !pipelines.some((item) => item.id === pipelineId)) return notFound(path);
       return json(200, demoDiagnostics(pipelines, pipelineId));
     }
 
-    if (method === 'GET' && path === '/diagnostics/export') {
+    if (method === 'GET' && path === '/diagnostics/report/export') {
       return json(200, demoDiagnosticsExport(demoDiagnostics(pipelines, null)));
     }
 

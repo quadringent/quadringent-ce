@@ -77,7 +77,7 @@ class Lab:
         ]
 
     def diagnostics_available(self) -> bool:
-        return "/v2/diagnostics" in self.runtime.apps["lab"].openapi().get("paths", {})
+        return "/v2/diagnostics/report" in self.runtime.apps["lab"].openapi().get("paths", {})
 
 
 def build_lab(workdir: Path, scenario: str) -> Lab:
@@ -86,6 +86,6 @@ def build_lab(workdir: Path, scenario: str) -> Lab:
 
 
 DIAGNOSTICS_SKIP_REASON = (
-    "the /v2/diagnostics route is not wired into create_v2_app yet "
+    "the /v2/diagnostics/report route is not wired into create_v2_app yet "
     "(coordinator-owned routes/diagnostics.py); the assertion activates automatically once it is"
 )

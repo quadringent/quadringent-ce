@@ -19,7 +19,7 @@ The engine, API and local cockpit are open source under [Apache-2.0](LICENSE),
 with no license key or commercial table limit. Operators pay their own
 infrastructure costs. No production qualification is claimed.
 
-Source version is **0.4.4 candidate**; the latest published prerelease remains
+Source version is **0.4.5 candidate**; the latest published prerelease remains
 **0.4.2**. Original native receiver bindings, selected replay backup/restore
 and guarded RAW retention are included. Native
 continuity, complete site recovery and the operator path need fresh qualification.

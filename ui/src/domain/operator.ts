@@ -30,6 +30,14 @@ import type { ControlActionKind, ControlLevel } from './controlsPanel.ts';
 /** Santé d'une liaison — ce que la couleur porte, et rien d'autre. */
 export type Health = 'ok' | 'attention' | 'stopped' | 'unknown';
 
+export const DIAGNOSTIC_COPY = {
+  download: 'Download diagnostic',
+  preparing: 'Preparing diagnostic',
+  scope: 'Local metadata only. No live checks, secrets or raw logs. Review before sharing.',
+  failed: 'Download failed. Try again or check the service.',
+  started: 'Download started. Review before sharing.',
+} as const;
+
 export type StatusWordState = 'live' | 'copying' | 'paused' | 'attention' | 'stopped';
 
 export interface StatusWordCopy {

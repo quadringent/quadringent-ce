@@ -62,6 +62,14 @@ TLS or the IBM i account, `STOPPED_PROOF_CHAIN` to incomplete continuity,
 [on-call runbook](oncall-runbook.md) lists the first reads for each case.
 Keep one reader per journal; never start a second reader to "help".
 
+An authenticated organization administrator can select **Download diagnostic**
+in the cockpit. The JSON file contains a dated local database snapshot,
+resource counts and declared/cached states with temporary resource aliases.
+It excludes names, endpoints, credentials, SQL, row payloads and raw logs.
+The stored state-change time is not a recent measurement; delivery, metrics
+and costs are not collected. The export triggers no live provider checks.
+Keep the file private and review it before sharing; nothing is sent automatically.
+
 ## 6. Recovery
 
 Pause and resume keep the durable checkpoint. A resume is offered only when the

@@ -81,9 +81,19 @@ class ControlPlaneV2Tests(unittest.TestCase):
         result = render("controlPlane.v2.enabled=true", "postgres.enabled=false")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(
-            "controlPlane.v2.enabled exige postgres.enabled=true ou externalDatabase.url/existingSecret",
+            "controlPlane.v2.enabled requires postgres.enabled=true or externalDatabase.url/existingSecret",
             result.stderr,
         )
+
+    def test_network_bind_requires_authentication_in_english(self) -> None:
+        result = render("controlPlane.v2.enabled=true", "postgres.enabled=true", "controlPlane.host=0.0.0.0")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("non-loopback controlPlane.host requires controlPlane.auth.enabled=true", result.stderr)
+
+    def test_proxy_authentication_requires_groups_in_english(self) -> None:
+        result = render("controlPlane.v2.enabled=true", "postgres.enabled=true", "controlPlane.auth.enabled=true")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("controlPlane.auth.enabled requires non-empty operatorGroups or adminGroups", result.stderr)
 
     def test_postgres_and_external_database_together_are_refused(self) -> None:
         result = render(

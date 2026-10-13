@@ -357,7 +357,7 @@ def build_app(environ: Mapping[str, str] | None = None) -> tuple[FastAPI, Engine
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Control plane Quadringent v2 (FastAPI/uvicorn) — voir docs/api-v2.md"
+        description="Quadringent v2 control plane (FastAPI/uvicorn) — see docs/api-v2.md"
     )
     parser.add_argument("--host", default=os.environ.get(ENV_HOST, DEFAULT_HOST))
     parser.add_argument("--port", type=int, default=int(os.environ.get(ENV_PORT, DEFAULT_PORT) or DEFAULT_PORT))

@@ -33,7 +33,7 @@
 {{- if $existingStatefulSet }}
 {{- $claims := $existingStatefulSet.spec.volumeClaimTemplates }}
 {{- if or (ne (len $claims) 1) (ne (index $claims 0).metadata.name "data") }}
-{{- fail "StatefulSet Postgres existant : template PVC data unique obligatoire" }}
+{{- fail "Existing PostgreSQL StatefulSet requires exactly one PVC template named data" }}
 {{- end }}
 {{- $claimMetadata = (index $claims 0).metadata }}
 {{- end }}

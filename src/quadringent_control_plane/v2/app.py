@@ -35,6 +35,7 @@ from .routes import oidc as oidc_routes
 from .routes import confirmations as confirmations_routes
 from .routes import costs as costs_routes
 from .routes import destinations as destinations_routes
+from .routes import diagnostics as diagnostics_routes
 from .routes import events as events_routes
 from .routes import pipelines as pipelines_routes
 from .routes import sources as sources_routes
@@ -288,6 +289,7 @@ def create_v2_app(
 
     app.include_router(sources_routes.router)
     app.include_router(destinations_routes.router)
+    app.include_router(diagnostics_routes.router)
     app.include_router(costs_routes.router)
     app.include_router(pipelines_routes.router)
     app.include_router(actions_routes.router)

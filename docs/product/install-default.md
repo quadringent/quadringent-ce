@@ -35,7 +35,8 @@ and image-child selection was sometimes inferred from the sealed manifest.
 Download the wheel, sdist and release manifest from the **same admitted
 release**. The wheel installs the CLI; the extracted sdist supplies chart/
 and deploy/terraform/. The three OCI images are separate, immutable digest
-references. Verify all published hashes before installation. An absent page
+references. Verify them before installation as described in
+[Verify a release](verify-a-release.md). An absent page
 or a draft is not an available release.
 
 ```sh

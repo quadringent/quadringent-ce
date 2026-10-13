@@ -33,7 +33,7 @@ production qualification.
 | `RGZPFM`, `CLRPFM` | Not tested | Plan a manual resynchronization of the table after either command. The backlog reader stops on file-level journal entries, but the tail reader only reads row entries (`JOURNAL_CODES => 'R'` in `JournalSession.java`), so detection is not guaranteed. |
 | `CHGPF`, `ALTER TABLE`, `DROP TABLE` | Not tested | No specific handling is documented; plan a resynchronization. |
 | Receiver rotation (`CHGJRN`) | Not tested | The reader follows receivers in attach order and stops on a sequence gap. Rotation was not qualified (`rotation_qualified=false` in the native qualification). |
-| TLS host servers 9471, 9475, 9476 | Required | Database, remote command and sign-on servers over TLS; plaintext is refused. The site supplies its CA. `quadringent doctor --check-ibmi <host>` tests TCP reachability, and `--tls` a verified handshake. |
+| TLS host servers 9471, 9475, 9476 | Required | Database, remote command and sign-on servers over TLS; the chart and installer refuse plaintext (the engine-level opt-out is described in [IBM i footprint](ibm-i-footprint.md#ports-and-tls)). The site supplies its CA. `quadringent doctor --check-ibmi <host>` tests TCP reachability, and `--tls` a verified handshake. |
 | Server mapper port 449 | Required (unless every service port is set) | JTOpen looks up service ports on 449 unless the database, sign-on and command ports are all configured ([IBM](https://www.ibm.com/support/pages/how-prevent-port-lookup-ibm-toolbox-java)). `quadringent doctor --check-ibmi <host>` tests it over TCP in that case. |
 | `QTIMZON` declared to the site | Required | The source time zone is read, never assumed to be UTC (`docs/product/install-client.md`). |
 

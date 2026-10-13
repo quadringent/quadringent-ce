@@ -61,8 +61,7 @@ def test_readme_is_a_file_that_exists_and_has_only_absolute_links():
 
 def test_readme_keeps_the_preview_and_honesty_statements():
     text = " ".join((ROOT / PROJECT["readme"]).read_text().split())
-    assert "DEV/INT preview" in text
-    assert "No production qualification is claimed" in text
+    assert "Status: Preview, DEV/INT only. We claim no production qualification." in text
     assert "Not measured" in text
     assert "Apache-2.0" in text
 
@@ -86,9 +85,9 @@ def test_package_page_carries_the_value_statement_and_the_new_pages():
     first = " ".join((ROOT / "README.md").read_text().split("\n\n")[1].split())
     assert first in text
     assert "needs no Kafka" in text
-    assert "DEV/INT preview" in text
-    assert "No production qualification is claimed" in text
+    assert "Status: Preview, DEV/INT only. We claim no production qualification." in text
     assert "Not measured" in text
+    assert f"{REPOSITORY}/blob/main/docs/evidence.md" in text
     for path in (
         "docs/product/faq.md",
         "docs/product/comparison.md",

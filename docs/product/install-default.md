@@ -9,8 +9,9 @@ cluster. The [expert guide](install-client.md) covers sites managing their own
 Helm values. See [backup and restore](backup-restore.md) before upgrading or
 rebuilding a site.
 
-Current source is **0.4.2, a DEV/INT preview** with native receiver
-bindings and selected replay recovery. Use only available, admitted release
+The source prepares **0.4.3**. Installation links target the published
+**0.4.2 DEV/INT prerelease**, with native receiver bindings and selected replay
+recovery. Use only available, admitted release
 assets; this preview has no native continuity or full-site recovery verdict.
 The published [0.3.5 scoped receipt](../../site/runtime-0.3.5.json) covers initial
 copy and an EKS application cycle. The

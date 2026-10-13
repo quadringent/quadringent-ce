@@ -19,7 +19,16 @@ The engine, API and local cockpit are open source under [Apache-2.0](LICENSE),
 with no license key or commercial table limit. Operators pay their own
 infrastructure costs. No production qualification is claimed.
 
-The current preview is **0.3.5**. Its [scoped runtime receipt](site/runtime-0.3.5.json)
+Current source is **0.4.0**, a DEV/INT candidate with original native receiver
+bindings, selected replay backup/restore and guarded RAW retention. Native
+continuity, complete site recovery and the operator path need fresh qualification.
+
+This candidate changes native capture configuration and checkpoint semantics.
+It requires the original admitted receiver binding and refuses automatic adoption
+of legacy v1 checkpoints. Preserve the previous version and its state until a
+separate migration has been verified; see the [native capture guide](docs/product/native-qualification.md).
+
+The published **0.3.5** [scoped runtime receipt](site/runtime-0.3.5.json)
 records initial copy on four targets and an EKS application cycle, with cleanup
 independently verified. Native CDC writes, reader outage, latency and complete
 infrastructure-loss recovery remain unestablished on 0.3.5.

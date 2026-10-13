@@ -245,12 +245,14 @@ The code has no Kafka dependency and no message broker in that path.
 
 ### Does it run without Kubernetes?
 
-**Status: Not supported.** Today the cloud VM target runs k3s on a dedicated VM,
-and the other target uses an existing EKS or GKE cluster. A local control plane
-and a synthetic demo run on one machine, but they do not read an IBM i or write
-to Snowflake.
+**Status: Not tested.** The released install paths need Kubernetes: the cloud VM
+target runs k3s on a dedicated VM, and the other target uses an existing EKS or
+GKE cluster. `quadringent local` runs one table on a single machine with Docker,
+with no cloud account and no Kubernetes ([Try it locally](try-it-local.md)). It
+needs images from a release that includes it, and it has not been validated end
+to end against a real IBM i and Snowflake.
 
-<!-- source: docs/product/install-default.md, docs/product/compatibility.md, docs/product/synthetic-demo.md, docs/product/local-lab.md -->
+<!-- source: docs/product/install-default.md, docs/product/try-it-local.md, src/quadringent/local/cli.py -->
 
 ### Which clouds and targets were tested?
 

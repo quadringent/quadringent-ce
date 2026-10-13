@@ -32,7 +32,7 @@ Items nobody has reported on stay where they are.
 
 Work that is in progress or being prepared at the time of writing.
 
-- **Local mode.** A single-machine mode is in progress. It is not released and no date is given. Current install path: [Install on AWS or GCP](docs/product/install-default.md).
+- **Local mode (in progress).** `quadringent local` runs one table on a single machine with Docker ([Try it locally](docs/product/try-it-local.md)). It is not released yet and has not been validated end to end against a real IBM i and Snowflake; no date is given. Current install path: [Install on AWS or GCP](docs/product/install-default.md).
 - **Fresh qualification of the 0.4 line.** Native continuity, complete site recovery and the operator path need their own evidence. See the Status section of the [README](README.md).
 - **Publish the package on PyPI.** Package metadata is prepared ([PyPI page text](docs/pypi.md)); the package is not published there today.
 - **Compatibility reports.** Collect reports for IBM i releases and setups other than the one tested. See the [compatibility page](docs/product/compatibility.md).

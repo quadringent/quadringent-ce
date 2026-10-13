@@ -251,8 +251,9 @@ def test_faq_gives_published_figures_only_with_their_scope_or_says_not_measured(
 
 def test_faq_states_the_kubernetes_position_without_any_roadmap_hint():
     answer = flat(dict(faq_questions())["Does it run without Kubernetes?"])
-    assert "k3s" in answer and "EKS or GKE" in answer and "Not supported" in answer
-    assert "do not read an IBM i or write to Snowflake" in answer
+    assert "k3s" in answer and "EKS or GKE" in answer and "Not tested" in answer
+    assert "quadringent local" in answer and "try-it-local.md" in answer
+    assert "has not been validated end to end" in answer
     assert not re.search(r"being prepared|planned|roadmap|upcoming|coming|soon|no date|\b(20\d\d|Q[1-4])\b", answer, re.I)
 
 

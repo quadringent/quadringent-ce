@@ -260,7 +260,8 @@ remain derived from sealed artifacts where no direct runtime read was made.
 
 ## Scope
 
-- Java/JTOpen reading over TLS, raw S3 or GCS storage and a durable checkpoint.
+- Java/JTOpen reading over TLS, raw S3 or GCS storage (or a local data directory in
+  [local mode](docs/product/try-it-local.md)) and a durable checkpoint.
 - Targets observed by release batch: AWS VM, EKS, GCP VM and GKE, in DEV/INT.
 - Capture and reconciliation into Snowflake, dated evidence and explicit scope.
 - Desktop cockpit (1440 px reference), `/v1` API and connection configuration.

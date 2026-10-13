@@ -440,7 +440,18 @@ def test_cl_commands_are_suggestions_stored_for_display_only() -> None:
         "src/quadringent_control_plane/v2/schema.py",
         "src/quadringent_control_plane/v2/migrations/versions/0004_tables_discovery.py",
         "src/quadringent_control_plane/v2/services/tables.py",
+        # quadringent local prints the same suggestions for the administrator to review.
+        "src/quadringent/local/check.py",
+        "src/quadringent/local/cli.py",
+        "src/quadringent/local/discovery.py",
+        "src/quadringent/local/orchestrator.py",
     }
+    for name in ("cli.py", "orchestrator.py"):
+        text = _read(ROOT / "src/quadringent/local" / name)
+        assert 'print(f"  {command}"' in text, name
+    for name in ("check.py", "cli.py", "discovery.py", "orchestrator.py"):
+        text = _read(ROOT / "src/quadringent/local" / name)
+        assert not re.search(r"QCMDEXC|CommandCall|runner\.run\([^)]*command\b", text), name
     tree = ast.parse(_read(ROOT / "src/quadringent/table_discovery.py"))
     modules = set()
     for node in ast.walk(tree):

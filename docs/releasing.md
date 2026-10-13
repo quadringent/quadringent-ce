@@ -5,7 +5,7 @@ python scripts/sync_version.py derives chart version/appVersion, Java and UI
 versions and the npm lockfile. CI requires --check. For this candidate:
 
 ```sh
-python scripts/sync_version.py --check --release v0.3.4
+python scripts/sync_version.py --check --release v0.4.2
 ```
 
 /v1/version reads installed package metadata; images read the same pyproject
@@ -125,8 +125,9 @@ run and attempt, then compares original metadata to the sealed scan receipt. It 
 not revalidate all layers locally. Wait for expiry or remove temporary private evidence
 before making its repository public.
 
-The GitHub draft contains chart tgz, wheel, sdist, release-manifest.json, images.json,
-six SBOMs and three SARIF reports. The chart is a release archive, not an OCI chart.
+The GitHub draft contains 16 assets: chart tgz, wheel, sdist, release-manifest.json,
+images.json, six SBOMs, three SARIF reports, and the synthetic demo archive with its
+SHA256 file. The chart is a release archive, not an OCI chart.
 The CLI installs from the wheel plus the same release's extracted sdist through
 --assets-dir. The wheel alone does not contain chart/Terraform files.
 

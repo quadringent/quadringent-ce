@@ -72,6 +72,15 @@ jobs:
       - uses: azure/setup-helm@v4
         with:
           version: v4.1.4
+      - name: Terraform for provider-free guards
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+      - name: Verify provider-free Terraform CLI
+        run: |
+          command -v terraform
+          terraform version -json | python -c 'import json, sys; sys.exit(json.load(sys.stdin)["terraform_version"] != "1.9.8")'
       - name: Shared local and CI collection
         id: pytest_collection
         run: |

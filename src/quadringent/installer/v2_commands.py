@@ -52,7 +52,7 @@ def _add_confirmation_token(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_sources(subparsers: argparse._SubParsersAction) -> None:
-    parser = subparsers.add_parser("sources", help="Sources IBM i")
+    parser = subparsers.add_parser("sources", help="IBM i sources")
     sub = parser.add_subparsers(dest="subcommand", required=True)
 
     sub.add_parser("list", help="List sources").set_defaults(handler=_cmd_sources_list)
@@ -99,7 +99,7 @@ def _cmd_sources_action(client: ApiClient, args: argparse.Namespace) -> ApiResul
 
 
 def _add_destinations(subparsers: argparse._SubParsersAction) -> None:
-    parser = subparsers.add_parser("destinations", help="Destinations Snowflake")
+    parser = subparsers.add_parser("destinations", help="Snowflake destinations")
     sub = parser.add_subparsers(dest="subcommand", required=True)
 
     sub.add_parser("list", help="List destinations").set_defaults(handler=_cmd_destinations_list)
@@ -193,7 +193,7 @@ _PIPELINE_ACTIONS = ("pause", "resume", "restart-initial-copy", "replay", "remov
 
 
 def _add_pipelines(subparsers: argparse._SubParsersAction) -> None:
-    parser = subparsers.add_parser("pipelines", help="Pipelines source x table x destination")
+    parser = subparsers.add_parser("pipelines", help="Pipelines by source, table and destination")
     sub = parser.add_subparsers(dest="subcommand", required=True)
 
     sub.add_parser("list", help="List pipelines").set_defaults(handler=_cmd_pipelines_list)
@@ -203,7 +203,7 @@ def _add_pipelines(subparsers: argparse._SubParsersAction) -> None:
     get.set_defaults(handler=_cmd_pipelines_get)
 
     for verb in _PIPELINE_ACTIONS:
-        action = sub.add_parser(verb, help=f"Action « {verb}' on a pipeline")
+        action = sub.add_parser(verb, help=f"Run '{verb}' on a pipeline")
         action.add_argument("pipeline_id")
         _add_dry_run(action)
         _add_idempotency_key(action)
@@ -243,7 +243,7 @@ def _cmd_pipelines_action(client: ApiClient, args: argparse.Namespace) -> ApiRes
 
 
 def _add_actions(subparsers: argparse._SubParsersAction) -> None:
-    parser = subparsers.add_parser("actions", help="Actions globales (toutes sources/destinations)")
+    parser = subparsers.add_parser("actions", help="Global actions (all sources and destinations)")
     sub = parser.add_subparsers(dest="subcommand", required=True)
     for verb in ("pause-all", "resume-all"):
         action = sub.add_parser(verb, help=f"{verb.replace('-', ' ').capitalize()}")
@@ -264,7 +264,7 @@ def _cmd_actions_bulk(client: ApiClient, args: argparse.Namespace) -> ApiResult:
 
 
 def _add_confirmations(subparsers: argparse._SubParsersAction) -> None:
-    parser = subparsers.add_parser("confirmations", help="Confirmations d'actions sensibles")
+    parser = subparsers.add_parser("confirmations", help="Confirmations for sensitive actions")
     sub = parser.add_subparsers(dest="subcommand", required=True)
 
     listp = sub.add_parser("list", help="List confirmations")
@@ -296,7 +296,7 @@ def _cmd_confirmations_action(client: ApiClient, args: argparse.Namespace) -> Ap
 
 
 def _add_tokens(subparsers: argparse._SubParsersAction) -> None:
-    parser = subparsers.add_parser("tokens", help="Jetons d'agent")
+    parser = subparsers.add_parser("tokens", help="Agent tokens")
     sub = parser.add_subparsers(dest="subcommand", required=True)
 
     sub.add_parser("list", help="List agent tokens").set_defaults(handler=_cmd_tokens_list)
@@ -353,7 +353,7 @@ def _cmd_tokens_revoke(client: ApiClient, args: argparse.Namespace) -> ApiResult
 
 
 def _add_users(subparsers: argparse._SubParsersAction) -> None:
-    parser = subparsers.add_parser("users", help="Utilisateurs humains")
+    parser = subparsers.add_parser("users", help="Human users")
     parser.add_argument(
         "--config",
         dest="users_config",
@@ -399,7 +399,7 @@ def _cmd_users_reissue_activation(client: ApiClient, args: argparse.Namespace) -
 
 
 def _add_audit(subparsers: argparse._SubParsersAction) -> None:
-    parser = subparsers.add_parser("audit", help="Journal d'audit")
+    parser = subparsers.add_parser("audit", help="Audit log")
     sub = parser.add_subparsers(dest="subcommand", required=True)
 
     tail = sub.add_parser("tail", help="Query the latest audit rows")

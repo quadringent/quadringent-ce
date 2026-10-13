@@ -19,6 +19,8 @@ import sys
 import time
 from typing import Any
 
+from .boundary import installed_checkpoints_required, legacy_inspection_allowed, read_checkpoint_pair, scope_context
+
 ID = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,127}\Z")
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 MAX_ROWS = 1000
@@ -247,6 +249,8 @@ def _evaluate_recovery(before,after,order,operations,*,crash=False):
         raise ValueError("incomplete before/after checks")
     if before['checkpoint']['receiver']!=after['checkpoint']['receiver']:
         raise ValueError("rotation outside the scope")
+    if installed_checkpoints_required(before,after):
+        read_checkpoint_pair(before['checkpoint'],after['checkpoint'])
     resume=resume_evidence(before["checkpoint"],after["checkpoint"],None)
     if resume["status"] != "PASS" or not resume["changed"]:
         raise ValueError("resume progress not proven")
@@ -428,7 +432,7 @@ def validate_mutation_result(before_source,after_source,after_mirror,mutations,c
         raise ValueError("business state differs after mutations")
 
 
-def evaluate_rotation(before, after, operations):
+def evaluate_rotation(before, after, operations, *, historical=False):
     """Rotation bornée : catalogue JDBC réel et événements source indépendants."""
     from ..continuous import require_readable_receiver, require_receiver_link
     from ..java_catalog import parse_catalog_output
@@ -450,6 +454,10 @@ def evaluate_rotation(before, after, operations):
             if any(not before[component].get(k) or workload.get(k)!=before[component][k] for k in ('uid','pod_uid')):
                 raise ValueError("rotation UID changed")
         if any(snapshot.get(k)!=before.get(k) or before.get(k) is None for k in scope):raise ValueError("Snapshot is outside the scope")
+    native_envelopes=any(any(field in snapshot['checkpoint'] for field in ('bound_checkpoint','capture_binding')) for snapshot in (before,after))
+    if not historical or native_envelopes:
+        read_checkpoint_pair(before['checkpoint'],after['checkpoint'])
+        raise ValueError("bound receiver rotation requires independently observed native generations for every receiver")
     journal_library,journal_name=operations.get('journal_library'),operations.get('journal_name')
     if not isinstance(journal_library,str) or not isinstance(journal_name,str) or ID.fullmatch(journal_library) is None or ID.fullmatch(journal_name) is None:raise ValueError("explicit expected journal absent")
     rotation=operations['rotation']
@@ -634,6 +642,8 @@ def normalize_history(rows,columns):
 def resume_evidence(before, after, receiver_order=None):
     if not before or not after:
         return {"status": "unmeasured", "reason": "checkpoint_missing"}
+    if any(field in checkpoint for checkpoint in (before,after) for field in ('bound_checkpoint','capture_binding')):
+        read_checkpoint_pair(before,after)
     if before["receiver"] == after["receiver"]:
         forward = after["sequence"] >= before["sequence"]
     elif receiver_order and before["receiver"] in receiver_order and after["receiver"] in receiver_order:
@@ -765,6 +775,9 @@ import google.auth
 from google.auth.compute_engine import credentials as metadata_credentials, _metadata
 from google.auth.transport.requests import Request
 from google.cloud import storage
+from quadringent.checkpoint import _decode_checkpoint_json
+from quadringent.qualification.boundary import read_binding, read_copy_boundary
+from types import SimpleNamespace
 class BoundedRequest(Request):
  def __call__(self,*args,**kwargs):
   kwargs['timeout']=10
@@ -776,19 +789,29 @@ if type(credentials) is not metadata_credentials.Credentials: raise SystemExit(1
 request=BoundedRequest();credentials.refresh(request)
 project=_metadata.get_project_id(request)
 if project!={self.args.expected_gcp_project!r} or credentials.service_account_email!={self.args.expected_gcp_service_account!r}: raise SystemExit(1)
-{instance_checks}if 'QUADRINGENT_LOADER_TABLE_SET_JSON' in os.environ:
+{instance_checks}scope=SimpleNamespace(**{scope_context(self.args)!r})
+runtime_binding=None
+authority='gcs://'+{self.args.expected_gcs_bucket!r}+'/receiver-authority-v1'
+if 'AS400_CAPTURE_BINDING_JSON' in os.environ:
+ runtime_binding=read_binding(_decode_checkpoint_json(os.environ['AS400_CAPTURE_BINDING_JSON']),scope,authority=authority,scope_id=os.environ['AS400_STREAM_KEY'])
+if 'QUADRINGENT_LOADER_TABLE_SET_JSON' in os.environ:
 {chr(10).join(" "+line for line in self.loader_import_script("loader").splitlines())}
  tables=[t for t in loader.parse_table_set(os.environ['QUADRINGENT_LOADER_TABLE_SET_JSON']) if t.table_id=={self.args.table_id!r}]
  if len(tables)!=1 or tables[0].evidence_key!={self.args.gcs_read_key!r}: raise SystemExit(1)
+ t=tables[0]
+ if not {legacy_inspection_allowed(self.args)!r} and (t.pipeline_id!={self.args.pipeline!r} or t.run_id!={self.args.copy_run_id!r} or t.schema_name.upper()+'.'+t.table_name.upper()!=scope.table):raise SystemExit(1)
+ loader_binding=read_binding(t.capture_binding,scope,authority=authority) if t.capture_binding is not None else None
+ if runtime_binding is not None and loader_binding!=runtime_binding:raise SystemExit(1)
+ runtime_binding=loader_binding
+if not {legacy_inspection_allowed(self.args)!r} and runtime_binding is None:raise SystemExit(1)
 client=storage.Client(project=project,credentials=credentials)
 blob=client.bucket({self.args.expected_gcs_bucket!r}).blob({self.args.gcs_read_key!r})
 blob.reload(timeout=10,retry=None)
 if not blob.size or blob.size>262144: raise SystemExit(1)
 payload=blob.download_as_bytes(if_generation_match=blob.generation,timeout=10,retry=None)
-evidence=json.loads(payload)
-boundary=evidence.get('boundary',{{}})
-if (evidence.get('pipeline_id')!={self.args.pipeline!r} or evidence.get('table_id')!={self.args.table_id!r} or
- evidence.get('run_id')!={self.args.copy_run_id!r} or str(boundary.get('receiver_name'))+':'+str(boundary.get('last_sequence'))!={self.args.copy_boundary!r}): raise SystemExit(1)
+evidence=_decode_checkpoint_json(payload)
+boundary=read_copy_boundary(evidence,scope,expected_binding=runtime_binding,original_only=True)
+if boundary.capture_binding is not None:read_binding(boundary.capture_binding,scope,authority=authority)
 print(json.dumps({{'method':'google-compute-metadata','credential_type':'google.auth.compute_engine.credentials.Credentials',
  'service_account_email':credentials.service_account_email,'project':project,'refreshed':True,
  'gcs_read':{{'verified':True,'bucket':{self.args.expected_gcs_bucket!r},'key':{self.args.gcs_read_key!r},
@@ -960,11 +983,34 @@ print(json.dumps({{'method':'google-compute-metadata','credential_type':'google.
         )}
         location = "AS400_CHECKPOINT_BUCKET" if values["QUADRINGENT_STORAGE_BACKEND"] == "gcs" else "AS400_CHECKPOINT_TABLE"
         values[location] = env[location]
-        script = ("import json,os; "
-                  "from quadringent.storage_backend import StorageBackend; "
-                  f"os.environ.update({values!r}); "
-                  "p=StorageBackend.from_environment(os.environ).checkpoint_store(os.environ['AS400_STREAM_KEY']).load(); "
-                  "print(json.dumps(None if p is None else {'receiver':p.receiver,'sequence':p.sequence}))")
+        binding_json = env.get('AS400_CAPTURE_BINDING_JSON')
+        if binding_json is None and not legacy_inspection_allowed(self.args):
+            raise ValueError('installed checkpoint requires its native runtime binding')
+        script = f'''import json,os
+from types import SimpleNamespace
+from quadringent.storage_backend import StorageBackend
+from quadringent.checkpoint import _decode_checkpoint_json
+from quadringent.qualification.boundary import read_binding
+from quadringent.receiver_registry import ReceiverNameRegistry
+os.environ.update({values!r})
+storage=StorageBackend.from_environment(os.environ)
+store=storage.checkpoint_store(os.environ['AS400_STREAM_KEY'])
+binding_json={binding_json!r}
+if binding_json is None:
+ p=store.load()
+ result=None if p is None else {{'receiver':p.receiver,'sequence':p.sequence}}
+else:
+ authority=('s3' if storage.kind=='aws' else 'gcs')+'://'+storage.raw_bucket+'/receiver-authority-v1'
+ binding=read_binding(_decode_checkpoint_json(binding_json),SimpleNamespace(**{scope_context(self.args)!r}),authority=authority,scope_id=os.environ['AS400_STREAM_KEY'])
+ p=store.load_bound()
+ if p is None:result=None
+ else:
+  binding.validate_checkpoint(p)
+  registry=ReceiverNameRegistry(storage.object_store('receiver-authority-v1'),authority=authority,source_system=binding.source_system,journal=binding.journal)
+  registry.require(binding,p)
+  result={{'receiver':p.receiver_identity.receiver_name,'sequence':p.sequence,'bound_checkpoint':p.to_dict(),'capture_binding':binding.to_dict()}}
+print(json.dumps(result))
+'''
         return self.exec_json(target["pod"], target["container"], script)
 
     def source(self, reader):

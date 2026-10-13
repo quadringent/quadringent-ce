@@ -98,10 +98,13 @@ class LocalChecker:
     def _local(self, options: CheckOptions) -> list[DiagnosticResult]:
         results = tool_results(self.runner.which, ("docker",))
         try:
-            check_layout(self.paths)
+            check_layout(self.paths, data=not self.config.uses_volume)
+            held = (f"configuration and secrets have private permissions (data in the Docker volume "
+                    f"{self.config.volume_name})" if self.config.uses_volume
+                    else "configuration, secrets and data directory have private permissions")
             results.append(_result(
                 "local_config.instance", "local_config", "passed",
-                f"Instance {self.config.name!r}: configuration, secrets and data directory have private permissions.",
+                f"Instance {self.config.name!r}: {held}.",
                 "No action.", "Permissions and file types only; secret values are not read.",
                 subject=Subject("source", self.config.name)))
         except ConfigError as error:

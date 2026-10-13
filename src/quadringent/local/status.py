@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import stat
 from typing import Any
 
 from ..installer.runner import CommandRunner
 from . import dockerplan as plan
 from .config import LocalConfig, LocalPaths
-from .orchestrator import Docker, StartError, load_run_state
+from .discovery import JobOutputError, result_line
+from .orchestrator import RESULT_PREFIX, Docker, StartError, failure_reason, load_run_state
 
 MAX_SNAPSHOT_BYTES = 1_048_576
 LOG_LINES = 40
@@ -34,6 +36,11 @@ def read_console(paths: LocalPaths) -> dict[str, Any] | None:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+    return summarize_console(document)
+
+
+def summarize_console(document: object) -> dict[str, Any] | None:
+    """The fields ``status`` shows, from a console snapshot read from a folder or from a Docker volume."""
     if not isinstance(document, dict):
         return None
     run = document.get("run") if isinstance(document.get("run"), dict) else {}
@@ -54,6 +61,32 @@ def read_console(paths: LocalPaths) -> dict[str, Any] | None:
     }
 
 
+def read_volume(docker: Docker, stages: dict, problems: list[str]) -> tuple[dict[str, Any] | None, int | None]:
+    """Console snapshot and copy-evidence row count out of the data volume, through a read-only helper container.
+
+    A missing volume is not created (``docker run`` would create an unlabelled one): it reads as "no snapshot".
+    """
+    labels = docker.volume_labels()
+    if labels is None:
+        return None, None
+    docker._require_owned_volume(labels)  # a volume that merely has this name is not read
+    if not docker.image_present(docker.config.capture_image):
+        problems.append(f"the data volume was not read: image {docker.config.capture_image} is not present "
+                        "locally (status never pulls an image; start does)")
+        return None, None
+    key = (stages.get("copy") or {}).get("evidence_key")
+    spec = plan.read_status_spec(docker.config, docker.paths, evidence_key=key if isinstance(key, str) else None,
+                                 name_suffix=secrets.token_hex(4))
+    result = docker.run(spec)
+    try:
+        document = result_line(result.stdout, RESULT_PREFIX)
+    except JobOutputError:
+        problems.append(f"the data volume could not be read: {failure_reason(result)}")
+        return None, None
+    rows = document.get("evidence_rows")
+    return summarize_console(document.get("console")), rows if isinstance(rows, int) else None
+
+
 def collect(config: LocalConfig, paths: LocalPaths, runner: CommandRunner, *, uid: int, gid: int,
             logs: bool = False) -> dict[str, Any]:
     docker = Docker(runner, config, paths, uid=uid, gid=gid)
@@ -70,16 +103,30 @@ def collect(config: LocalConfig, paths: LocalPaths, runner: CommandRunner, *, ui
         stages = load_run_state(paths)["stages"]
     except StartError as error:
         stages, docker_error = {}, docker_error or str(error)
+    capture, evidence_rows = None, None
+    if config.uses_volume:
+        if docker_error is None:
+            volume_problems: list[str] = []
+            try:
+                capture, evidence_rows = read_volume(docker, stages, volume_problems)
+            except StartError as error:
+                volume_problems.append(str(error))
+            docker_error = volume_problems[0] if volume_problems else None
+    else:
+        capture = read_console(paths)
     document: dict[str, Any] = {
         "instance": config.name,
         "table": f"{config.table_schema}/{config.table_name}",
         "ibmi_host": config.ibmi.host,
         "destination": f"{config.snowflake.account}/{config.snowflake.database}",
-        "data_directory": str(paths.data),
+        "data_location": config.data_location,
+        "data_directory": None if config.uses_volume else str(paths.data),  # always a path, or null for a volume
+        "data_volume": config.volume_name if config.uses_volume else None,
         "containers": containers,
         "stages": {name: name in stages for name in STAGE_ORDER},
         "initial_copy_rows": (stages.get("copy") or {}).get("rows"),
-        "capture": read_console(paths),
+        "initial_copy_evidence_rows": evidence_rows,
+        "capture": capture,
         "delivery": "not measured: the loader prints its progress in its logs; no count is read back from Snowflake",
         "problem": docker_error,
     }
@@ -94,7 +141,8 @@ def collect(config: LocalConfig, paths: LocalPaths, runner: CommandRunner, *, ui
 def render(document: dict[str, Any]) -> str:
     lines = [
         f"Instance {document['instance']}: {document['table']} from {document['ibmi_host']} to {document['destination']}",
-        f"Data directory: {document['data_directory']}",
+        (f"Data volume: docker volume {document['data_volume']}" if document["data_volume"]
+         else f"Data directory: {document['data_directory']}"),
     ]
     if document["problem"]:
         lines.append(f"Problem: {document['problem']}")

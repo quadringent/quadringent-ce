@@ -22,6 +22,16 @@ quadringent local init --name lab \
   --allow-plaintext-ibmi --source-time-zone Europe/Paris
 ```
 
+`data_location` is `bind` (a folder of the instance directory, the default on a
+Linux host) or `volume` (a Docker named volume `qdt-local-<name>-data`, the
+default on Docker Desktop and macOS). `init` picks it; override it with:
+
+```sh
+quadringent local init --name sales --data-location volume \
+  --ibmi-host ibmi.example.test --ibmi-user COPYUSER \
+  --table SALESLIB/ORDERS --snowflake-account myorg-myaccount
+```
+
 The IBM i password and the Snowflake key are never in this file: they are 0600
 files in `secrets/`. See [Try Quadringent on one machine](../../docs/product/try-it-local.md)
 for the steps, the costs, the limits and how to clean up.

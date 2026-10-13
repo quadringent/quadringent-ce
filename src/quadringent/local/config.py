@@ -6,7 +6,8 @@ The file holds no secret. Layout of the instance directory (0700):
   secrets/                    ibmi_password, snowflake_key.p8 (0700 / 0600)
   snowflake-setup.sql         setup script for a Snowflake administrator (public key only)
   ibmi-ca.pem                 optional CA certificate trusted for the IBM i (public)
-  data/                       shared data directory mounted at /data (0700)
+  data/                       shared data directory mounted at /data (0700); only with data_location "bind"
+                              (with "volume" the data lives in the Docker named volume qdt-local-<name>-data)
   state/                      run.json, per-container env files, lock (0700)
 """
 
@@ -37,6 +38,11 @@ MARKER_FORMAT_VERSION = 1
 RAW_PREFIX_ROOT = "raw"
 DEFAULT_ROOT = Path("~/.quadringent/local")
 DEFAULT_DATABASE = "QUADRINGENT"
+DATA_BIND = "bind"  # a host directory bind-mounted at /data
+DATA_VOLUME = "volume"  # a Docker named volume mounted at /data
+DATA_LOCATIONS = (DATA_BIND, DATA_VOLUME)
+VOLUME_LABEL = "io.quadringent.local"  # label value: the instance name
+VOLUME_ID_LABEL = "io.quadringent.local.id"  # volumes only; value: the instance's store label (unique per init)
 
 # Same patterns as quadringent_control_plane.connections (parity test).
 NAME = re.compile(r"[a-z][a-z0-9-]{0,28}[a-z0-9]")
@@ -94,6 +100,7 @@ class LocalConfig:
     table_id: str
     source_time_zone: str | None = None
     from_checkout: str | None = None  # developer-only: repository bind-mounted over the images
+    data_location: str = DATA_BIND
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).replace(microsecond=0).isoformat())
 
     def to_dict(self) -> dict[str, Any]:
@@ -110,6 +117,7 @@ class LocalConfig:
             },
             "source_time_zone": self.source_time_zone,
             "from_checkout": self.from_checkout,
+            "data_location": self.data_location,
             "table": {"schema": self.table_schema, "name": self.table_name},
             "snowflake": {
                 "account": self.snowflake.account, "database": self.snowflake.database,
@@ -118,6 +126,15 @@ class LocalConfig:
             "images": {"capture": self.capture_image, "loader": self.loader_image},
             "ids": {"source": self.source_id, "pipeline": self.pipeline_id, "table": self.table_id},
         }
+
+    @property
+    def uses_volume(self) -> bool:
+        return self.data_location == DATA_VOLUME
+
+    @property
+    def volume_name(self) -> str:
+        """Docker named volume of the data directory (used only when ``data_location`` is ``volume``)."""
+        return volume_name_for(self.name)
 
     @property
     def warehouse(self) -> str:
@@ -211,6 +228,10 @@ def validate_name(value: str) -> str:
     return value
 
 
+def volume_name_for(instance: str) -> str:
+    return f"qdt-local-{instance}-data"
+
+
 def generate_label() -> str:
     return "qdt-" + uuid.uuid4().hex[:8]
 
@@ -255,6 +276,8 @@ def validate(config: LocalConfig) -> LocalConfig:
             raise ConfigError("invalid image reference")
     if config.source_time_zone is not None:
         validate_source_time_zone(config.source_time_zone)
+    if config.data_location not in DATA_LOCATIONS:
+        raise ConfigError("data_location must be bind or volume")
     if config.from_checkout is not None and not Path(config.from_checkout).is_absolute():
         raise ConfigError("from_checkout must be an absolute path")
     return config
@@ -283,6 +306,7 @@ def from_dict(document: object) -> LocalConfig:
             source_id=ids["source"], pipeline_id=ids["pipeline"], table_id=ids["table"],
             source_time_zone=document.get("source_time_zone"),
             from_checkout=document.get("from_checkout"),
+            data_location=document.get("data_location", DATA_BIND),
         )
     except (KeyError, TypeError) as error:
         raise ConfigError(f"malformed configuration: {type(error).__name__}") from None
@@ -306,11 +330,15 @@ def save(paths: LocalPaths, config: LocalConfig) -> None:
     replace_private_file(paths.config, (json.dumps(config.to_dict(), indent=2, sort_keys=True) + "\n").encode())
 
 
-def check_layout(paths: LocalPaths, *, secrets: bool = True) -> None:
-    """Refuse links and open permission modes on every private path of the instance."""
+def check_layout(paths: LocalPaths, *, secrets: bool = True, data: bool = True) -> None:
+    """Refuse links and open permission modes on every private path of the instance.
+
+    ``data=False`` skips the host data directory: with a Docker named volume there is none.
+    """
     try:
         check_private_dir(paths.directory)
-        check_private_dir(paths.data)
+        if data:
+            check_private_dir(paths.data)
         check_private_dir(paths.state)
         check_private_file(paths.config)
         if secrets:

@@ -14,6 +14,10 @@ which check failed.
 
 Subcommands
 -----------
+``init-data``         create the marker and the sub-directories of a fresh data directory
+                      (a Docker named volume), owned by the host user; idempotent.
+``read-status``       read the capture console snapshot and the copy-evidence row count
+                      out of the data directory, read-only, for ``quadringent local status``.
 ``fs-probe``          prove the data directory offers hard links, flock, atomic
                       rename and directory fsync (``probe_local_filesystem``).
 ``boundary``          read the attached journal receiver and its native identity,
@@ -66,9 +70,12 @@ from quadringent.receiver_identity import ReceiverIdentity
 from quadringent.receiver_registry import ReceiverNameRegistry
 from quadringent.storage_backend import (
     LOCAL_DATA_DIR_ENV,
+    LOCAL_MARKER_NAME,
     StorageBackend,
     probe_local_filesystem,
     registry_authority,
+    require_local_marker,
+    validate_local_label,
 )
 
 from .boundary import BoundaryError, JournalBoundary, plan_bootstrap
@@ -209,6 +216,123 @@ def command_fs_probe(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     except ValueError as error:
         raise LocalRuntimeError("config_invalid", str(error)) from error
     return result, 0 if result["ok"] else 1
+
+
+# -- init-data and read-status (data kept in a Docker named volume) --------------------------------
+
+
+MARKER_FORMAT_VERSION = 1
+MAX_CONSOLE_BYTES = 1_048_576
+MAX_EVIDENCE_READ_BYTES = 1_048_576
+DATA_SUBDIRECTORIES = ("console", "scratch")
+
+
+def _data_directory(args: argparse.Namespace) -> str:
+    path = args.data_dir or _env(LOCAL_DATA_DIR_ENV)
+    try:
+        info = os.lstat(path)
+    except OSError as error:
+        raise LocalRuntimeError("config_invalid", "data directory does not exist") from error
+    if not stat.S_ISDIR(info.st_mode):
+        raise LocalRuntimeError("config_invalid", "data directory must be a real directory, not a link")
+    return path
+
+
+def _ensure_directory(path: str) -> None:
+    try:
+        os.mkdir(path, 0o700)
+    except FileExistsError:
+        pass
+    if not stat.S_ISDIR(os.lstat(path).st_mode):
+        raise LocalRuntimeError("config_invalid", "a data sub-directory is not a real directory")
+
+
+def _write_marker(data_dir: str, label: str) -> bool:
+    path = os.path.join(data_dir, LOCAL_MARKER_NAME)
+    document = (json.dumps({"format_version": MARKER_FORMAT_VERSION, "label": label}, sort_keys=True) + "\n").encode()
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except FileExistsError:
+        return False
+    try:
+        os.write(descriptor, document)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    return True
+
+
+def command_init_data(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Prepare ``/data`` of a fresh Docker volume (root-owned) for the containers that run as the host user.
+
+    Creates the marker, ``console/`` and ``scratch/`` (0700), verifies an existing marker for this exact label,
+    then hands the top level over to ``--uid:--gid``. Only the top level is touched: files that earlier runs
+    wrote keep the owner they have.
+    """
+    data_dir = _data_directory(args)
+    try:
+        label = validate_local_label(args.label or _env("AS400_RAW_BUCKET"))
+    except ValueError as error:
+        raise LocalRuntimeError("config_invalid", str(error)) from error
+    if args.uid < 0 or args.gid < 0:
+        raise LocalRuntimeError("config_invalid", "uid and gid must not be negative")
+    entries = [os.path.join(data_dir, name) for name in DATA_SUBDIRECTORIES]
+    try:
+        for entry in entries:
+            _ensure_directory(entry)
+        created = _write_marker(data_dir, label)
+        try:
+            require_local_marker(data_dir, label)
+        except ValueError as error:
+            raise LocalRuntimeError("storage_invalid", str(error)) from error
+        owned = os.geteuid() == os.lstat(data_dir).st_uid
+        if owned and stat.S_IMODE(os.lstat(data_dir).st_mode) != 0o700:
+            os.chmod(data_dir, 0o700)
+        for entry in (data_dir, *entries, os.path.join(data_dir, LOCAL_MARKER_NAME)):
+            info = os.lstat(entry)
+            if (info.st_uid, info.st_gid) != (args.uid, args.gid):
+                os.lchown(entry, args.uid, args.gid)
+    except OSError as error:
+        raise LocalRuntimeError("storage_invalid", f"cannot prepare the data directory: {type(error).__name__}") from error
+    return {"ok": True, "created": created, "label": label}, 0
+
+
+def _read_bounded_json(path: str, limit: int) -> Any | None:
+    """A small regular JSON file, or None when it is absent, a link, too large or not JSON."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return None
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_size > limit:
+            return None
+        content = os.read(descriptor, limit + 1)
+    finally:
+        os.close(descriptor)
+    if len(content) > limit:
+        return None
+    try:
+        return json.loads(content.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return None
+
+
+def command_read_status(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Read-only view for ``status``: the console snapshot, and ``rows_copied`` of the copy evidence if asked."""
+    data_dir = _data_directory(args)
+    console = _read_bounded_json(os.path.join(data_dir, "console", "capture.json"), MAX_CONSOLE_BYTES)
+    rows: int | None = None
+    if args.evidence_key:
+        key = _raw_prefix_root(args.evidence_key)
+        try:
+            label = validate_local_label(_env("AS400_RAW_BUCKET"))
+        except ValueError as error:
+            raise LocalRuntimeError("config_invalid", str(error)) from error
+        evidence = _read_bounded_json(os.path.join(data_dir, "objects", label, *key.split("/")), MAX_EVIDENCE_READ_BYTES)
+        value = evidence.get("rows_copied") if isinstance(evidence, dict) else None
+        rows = value if type(value) is int and value >= 0 else None
+    return {"console": console if isinstance(console, dict) else None, "evidence_rows": rows}, 0
 
 
 # -- boundary ------------------------------------------------------------------------------------
@@ -696,6 +820,16 @@ def build_parser() -> argparse.ArgumentParser:
     probe = commands.add_parser("fs-probe", help="check the data directory filesystem")
     probe.add_argument("--data-dir", default=None)
 
+    init_data = commands.add_parser("init-data", help="prepare a fresh data directory (Docker volume)")
+    init_data.add_argument("--data-dir", default=None)
+    init_data.add_argument("--label", default=None)
+    init_data.add_argument("--uid", type=int, required=True)
+    init_data.add_argument("--gid", type=int, required=True)
+
+    read_status = commands.add_parser("read-status", help="read the console snapshot for status")
+    read_status.add_argument("--data-dir", default=None)
+    read_status.add_argument("--evidence-key", default=None)
+
     boundary = commands.add_parser("boundary", help="read the attached journal receiver boundary")
     boundary.add_argument("--password-file", default=None)
     boundary.add_argument("--timeout-seconds", type=float, default=BOUNDARY_TIMEOUT_SECONDS)
@@ -729,6 +863,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 COMMANDS: dict[str, Callable[..., tuple[dict[str, Any], int]]] = {
+    "init-data": command_init_data,
+    "read-status": command_read_status,
     "fs-probe": command_fs_probe,
     "boundary": command_boundary,
     "admit": command_admit,

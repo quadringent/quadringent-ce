@@ -15,6 +15,7 @@
   },
   "source_time_zone": null,
   "from_checkout": null,
+  "data_location": "bind",
   "table": {"schema": "SALESLIB", "name": "ORDERS"},
   "snowflake": {
     "account": "myorg-myaccount",

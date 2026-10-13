@@ -85,6 +85,12 @@ class DockerStub(RecordingRunner):
         super().__init__(available_tools=frozenset({"docker", "openssl"}))
         self.handlers: dict = {}
         self.states: dict[str, str] = {}
+        self.operating_system = "Ubuntu 24.04.1 LTS"  # what ``docker info`` reports; "Docker Desktop" on a desktop
+        self.volumes: dict[str, dict[str, str]] = {}  # Docker named volumes: name -> labels
+        self.console: dict | None = None  # content of console/capture.json in volume mode
+        self.evidence_rows: int | None = None
+        self.inspect_error: str | None = None  # stderr of a failing ``docker volume inspect`` (not "no such volume")
+        self.missing_images: set[str] = set()  # images ``docker image inspect`` does not find
         self.table_row = table_row()
         self.probe = probe_output()
         for role, handler in overrides.items():
@@ -107,6 +113,24 @@ class DockerStub(RecordingRunner):
             answer = self._docker_run(argv)
         elif argv[:2] == ("docker", "ps"):
             answer = result(argv, "".join(f"{name}\t{state}\n" for name, state in self.states.items()))
+        elif argv[:2] == ("docker", "info"):
+            answer = result(argv, self.operating_system + "\n")
+        elif argv[:3] == ("docker", "image", "inspect") and argv[-1] in self.missing_images:
+            answer = result(argv, returncode=1, stderr="Error: No such image")
+        elif argv[:3] == ("docker", "volume", "inspect") and self.inspect_error:
+            answer = result(argv, returncode=1, stderr=self.inspect_error)
+        elif argv[:3] == ("docker", "volume", "inspect"):
+            labels = self.volumes.get(argv[-1])
+            answer = result(argv, json.dumps(labels or None) + "\n") if argv[-1] in self.volumes \
+                else result(argv, returncode=1, stderr="Error: No such volume")
+        elif argv[:3] == ("docker", "volume", "create"):
+            labels = {argv[i + 1].split("=", 1)[0]: argv[i + 1].split("=", 1)[1]
+                      for i, item in enumerate(argv) if item == "--label"}
+            self.volumes[argv[-1]] = labels
+            answer = result(argv, argv[-1] + "\n")
+        elif argv[:3] == ("docker", "volume", "rm"):
+            self.volumes.pop(argv[-1], None)
+            answer = result(argv, argv[-1] + "\n")
         elif argv[:2] == ("docker", "rm"):
             self.states.pop(argv[-1], None)
             answer = result(argv)
@@ -139,6 +163,10 @@ class DockerStub(RecordingRunner):
     def _default(self, role, argv) -> str:
         if role == "fs-probe":
             return RESULT + json.dumps({"ok": True, "checks": {"hard_link": {"ok": True, "detail": "ok"}}}) + "\n"
+        if role == "init-data":
+            return RESULT + json.dumps({"ok": True, "created": True, "label": "qdt-00000000"}) + "\n"
+        if role == "read-status":
+            return RESULT + json.dumps({"console": self.console, "evidence_rows": self.evidence_rows}) + "\n"
         if role == "probe":
             return self.probe
         if role == "discover":
@@ -161,9 +189,11 @@ class DockerStub(RecordingRunner):
 class Cli:
     """One local root; helpers to invoke the real CLI parser with stubbed Docker."""
 
-    def __init__(self, tmp_path: Path, name: str = "demo", runner: DockerStub | None = None) -> None:
+    def __init__(self, tmp_path: Path, name: str = "demo", runner: DockerStub | None = None,
+                 platform: str = "linux") -> None:
         self.root = tmp_path / "local-root"
         self.name = name
+        self.platform = platform  # host operating system seen by init; Linux unless a test says otherwise
         self.runner = runner or DockerStub()
         self.paths = cfg.LocalPaths(self.root, name)
         self.out, self.err = io.StringIO(), io.StringIO()
@@ -173,7 +203,8 @@ class Cli:
         base = ["local", argv[0], "--root", str(self.root), "--name", self.name, *argv[1:]]
         args = _build_parser().parse_args(base)
         return run_local_command(args, self.runner, self.out, stderr=self.err, stdin=io.StringIO(stdin or ""),
-                                 uid=1000, gid=1000, confirm=confirm, **kwargs)
+                                 uid=1000, gid=1000, confirm=confirm,
+                                 host_platform=self.platform, **kwargs)
 
     def init(self, *extra: str, password: str = PASSWORD + "\n") -> int:
         return self.invoke("init", "--ibmi-host", IBMI_HOST, "--ibmi-user", "svcuser", "--table", "qdclib/orders",

@@ -22,11 +22,11 @@ Quadringent for real.
 
 | Need | Detail |
 | --- | --- |
-| Docker | A running Docker daemon on a Linux host, or in a Linux VM or WSL2 (inside the Linux file system). Docker Desktop on macOS or Windows is not enough on its own, see [limits](#limits). Native Windows is not supported. |
+| Docker | A running Docker daemon: on a Linux host (data in a folder), or Docker Desktop on macOS, or on Windows with WSL2 (data in a Docker volume, see [Docker Desktop](#docker-desktop-macos-and-windows-with-wsl2); not verified on a real Docker Desktop, the file system gate decides). Native Windows is not supported. |
 | Python 3.12 | To install the `quadringent` command from the wheel of an admitted release (see [Release assets](install-default.md#release-assets)). |
 | An IBM i | Reachable from this machine and from Docker over TLS (ports 9471, 9475, 9476 and 449, or the three ports your administrator fixed). A user that can read the catalog, the journal receivers and the table. |
 | A Snowflake account | A Snowflake administrator who runs one SQL script once. You never give Quadringent an administrator credential. |
-| Disk | Local Linux disk (ext4, xfs or btrfs) for the data directory. See [limits](#limits). |
+| Disk | A local Linux disk (ext4, xfs or btrfs) for the data directory, or the disk of Docker's Linux VM for a Docker volume, if it passes the file system gate. See [limits](#limits). |
 
 The images are `ghcr.io/quadringent/quadringent-ce:<version>-capture` (IBM i
 reader and jobs) and `ghcr.io/quadringent/quadringent-ce:<version>-control-plane`
@@ -65,8 +65,16 @@ This creates `~/.quadringent/local/sales/` (mode 0700):
 | `config.json` | Settings, no secret. |
 | `secrets/ibmi_password`, `secrets/snowflake_key.p8` | The only secrets, mode 0600. The Snowflake key is generated here and never leaves. |
 | `snowflake-setup.sql` | The script for the administrator. It contains the public key only. |
-| `data/` | The shared data directory (checkpoints, copied data, console snapshot). |
+| `data/` | The shared data directory (checkpoints, copied data, console snapshot), when the data location is `bind`. With `volume` there is no such folder: the data lives in the Docker volume `qdt-local-sales-data`. |
 | `state/` | Which steps are done, so a second `start` resumes. |
+
+The data location is chosen for you: `volume` when `docker info` reports
+Docker Desktop or the host is macOS, `bind` otherwise (a Linux host, including
+WSL2 when `docker info` does not report Docker Desktop). Force one with
+`--data-location bind` or `--data-location volume`. `start` creates the volume;
+`init` does not need Docker running, but then it cannot detect Docker Desktop
+and says so. The location is fixed when the instance is created: to change it,
+create another instance (see [Stop and clean up](#stop-and-clean-up)).
 
 ### 2. Have the Snowflake script run
 
@@ -109,8 +117,9 @@ quadringent local start --name sales
 `start` shows a summary and asks to continue (`--yes` skips the question). Then
 it:
 
-1. pulls the images if needed and proves that the data directory file system is
-   supported;
+1. pulls the images if needed, prepares the data volume when there is one (a
+   short-lived helper container creates its marker), and proves that the data
+   directory file system is supported;
 2. signs on once and derives the capture time zone from the IBM i;
 3. reads the catalog entry of the table and stops with CL commands if it is
    not ready;
@@ -175,8 +184,14 @@ quadringent local stop  --name sales    # containers stop; checkpoints are kept;
 quadringent local reset --name sales --yes
 ```
 
-`reset` stops the containers and deletes the data directory and the recorded
-steps. It keeps the configuration and the secrets. It does **not** touch
+`reset` stops the containers and deletes the data directory (or removes the
+Docker volume, then creates an empty one) and the recorded steps. It keeps the
+configuration and the secrets. With a volume it removes only a volume that
+carries both labels that this tool put on it (`io.quadringent.local=<name>` and
+`io.quadringent.local.id=<the instance's own store label>`), so a volume of another
+instance with the same name (another `--root`, or an instance deleted and created
+again) is refused, and never touches a host folder. The next `start` creates a new
+volume. It does **not** touch
 Snowflake: to copy the same table again from scratch, also drop the history and
 mirror tables yourself.
 
@@ -187,7 +202,48 @@ so the administrator must run the new script. (`init` refuses an existing name.)
 
 To remove everything: run `reset`, delete `~/.quadringent/local/sales/`, drop
 the Snowflake objects the script created (service user, role, warehouse,
-database or schemas, read role), and remove the images with `docker image rm`.
+database or schemas, read role), remove the images with `docker image rm` and,
+for a volume instance, the volume with `docker volume rm qdt-local-sales-data`.
+
+## Docker Desktop (macOS, and Windows with WSL2)
+
+Docker Desktop shares host folders with containers through a file-sharing layer
+whose hard links and file locks do not behave like a local disk between two
+containers, so a bind-mounted data folder fails the file system gate there. A
+Docker **named volume** lives inside Docker's own Linux VM on its own disk, so
+`init` uses one by default on Docker Desktop and on macOS:
+
+* the volume is `qdt-local-<name>-data`, created by `start` with the labels
+  `io.quadringent.local=<name>` and `io.quadringent.local.id=<store label>`, and
+  mounted at `/data` in every container;
+* short-lived helper containers of the capture image do what the command would
+  otherwise do in the folder: create the marker, and read the capture console
+  snapshot for `status` (`status` never pulls an image and never creates the
+  volume). `reset` removes the labelled volume;
+* the IBM i password and the Snowflake key stay private files on the host,
+  mounted read-only. These single-file mounts (and the optional certificate
+  authority file) still cross Docker Desktop's file-sharing layer, so the
+  ownership and mode mapping there is **unverified**, and the instance
+  directory (`--root`) must be inside a folder that Docker Desktop shares;
+* the gate that `start` runs (hard links, locks between containers, atomic
+  rename, directory sync) still decides. This mode has not been verified here on
+  a real Docker Desktop: if the gate fails, `start` stops and says which check
+  failed. On a Linux host use `--data-location bind`.
+
+The business data stays in **clear text** inside the volume. The commands below
+are illustrative, not a tested procedure: back it up or look inside with a
+throw-away container (stop the instance first for a consistent copy; `alpine`
+is only an example image, pin the one you trust, and pulling it needs a network):
+
+```sh
+quadringent local stop --name sales
+docker run --rm -v qdt-local-sales-data:/data:ro -v "$PWD":/backup alpine \
+  tar czf /backup/sales-data.tgz -C /data .
+docker run --rm -v qdt-local-sales-data:/data:ro alpine ls -la /data
+```
+
+The archive holds the same clear-text rows: protect it like the data directory.
+Restoring a backup into a new instance is not a supported workflow.
 
 ## Limits
 
@@ -196,22 +252,25 @@ database or schemas, read role), and remove the images with `docker image rm`.
 * **One table per instance.** The table needs a primary or unique key and
   journaling with `IMAGES(*BOTH)`. Tables identified only by their physical
   position (RRN) are not supported. Use several instances for several tables.
-* **One machine.** The containers share one data directory. No clustering, no
-  failover.
-* **Clear text on disk.** The data directory holds the rows of the table in
-  clear text, and the instance directory holds the IBM i password and the
-  Snowflake key as 0600 files. Protect the folder, use disk encryption, and
-  delete it when you are done.
-* **Supported file systems only.** Use a local disk. Not supported: NFS, SMB,
-  FUSE and cloud-synced folders (Dropbox, iCloud Drive, OneDrive), FAT and
-  exFAT, `tmpfs`, and `/mnt/c` or other Windows drives under WSL2. `start`
-  runs a gate in a container that checks hard links, locking between
-  containers, atomic rename and directory sync, and refuses to continue if the
-  folder fails it. Docker Desktop on macOS and Windows shares host folders
-  through a virtual file system that has been seen to grant the same file lock
-  to two containers, so the gate refuses it even on APFS or NTFS: run on a
-  Linux host, or inside a Linux VM or WSL2 with the instance on its own Linux
-  disk.
+* **One machine.** The containers share one data directory or one Docker
+  volume. No clustering, no failover.
+* **Clear text on disk.** The data directory (or the Docker volume, which sits
+  in Docker's storage) holds the rows of the table in clear text, and the
+  instance directory holds the IBM i password and the Snowflake key as 0600
+  files. Protect the folder and Docker's disk, use disk encryption, and delete
+  them when you are done.
+* **Supported file systems only.** Use a local disk, or a Docker volume. Not
+  supported: NFS, SMB, FUSE and cloud-synced folders (Dropbox, iCloud Drive,
+  OneDrive), FAT and exFAT, `tmpfs`, and `/mnt/c` or other Windows drives under
+  WSL2. `start` runs a gate in a container that checks hard links, locking
+  between containers, atomic rename and directory sync, and refuses to continue
+  if the data directory or volume fails it. Docker Desktop on macOS and Windows
+  shares host folders through a virtual file system that has been seen to grant
+  the same file lock to two containers, so the gate refuses a bind-mounted
+  folder there even on APFS or NTFS: use the Docker volume (the default there),
+  run on a Linux host, or inside a Linux VM or WSL2 with the instance on its own
+  Linux disk. A Docker volume is still subject to the gate, and the gate, not
+  the platform, decides.
 * **Native Windows is not supported.** Use WSL2 and keep the instance in the
   Linux file system (`~`, not `/mnt/c`).
 * **TLS by default.** `--allow-plaintext-ibmi` exists for isolated networks
@@ -241,7 +300,9 @@ evaluate the product.
 
 | Message | Meaning and action |
 | --- | --- |
-| `unsupported file system` | Move the instance to a local disk, see [limits](#limits). |
+| `unsupported file system` | Move the instance to a local disk, or use a Docker volume, see [limits](#limits). |
+| `Docker volume ... is not labelled`, or `belongs to another instance that has the same name` | A volume with the instance's name exists but was not created by this tool for this instance. `start`, `status` and `reset` refuse to use or delete it: rename or remove it yourself (`docker volume rm`), or use another instance name. |
+| `cannot inspect the Docker volume` | Docker did not answer the volume query. Nothing was created or removed; check the daemon and run the command again. |
 | `IBM i sign-on refused` | Wrong user or password, or a disabled profile. Nothing was retried. Ask the administrator, then run again. |
 | `certificate is not trusted` | Pass the public certificate of the authority with `--ibmi-ca-file` (at `init`: see [Stop and clean up](#stop-and-clean-up) to recreate the instance). |
 | `the table is not ready` | Run the printed CL commands through your IBM i administrator, then `start` again. |

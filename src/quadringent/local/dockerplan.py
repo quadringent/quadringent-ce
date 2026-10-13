@@ -12,9 +12,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 from typing import Mapping
 
-from .config import LocalConfig, LocalPaths, RAW_PREFIX_ROOT
+from .config import LocalConfig, LocalPaths, RAW_PREFIX_ROOT, VOLUME_LABEL
 from .snowflake_setup import validated_scope
 
 RUNTIME_MODULE = "quadringent_control_plane.v2.executor.local_runtime"
@@ -29,12 +30,13 @@ CA_TARGET = "/etc/quadringent/ibmi-ca/ca.pem"
 ADMISSION_TARGET = "/run/quadringent/admission.json"
 CONSOLE_TARGET = f"{DATA_MOUNT}/console/capture.json"
 
-LABEL = "io.quadringent.local"
+LABEL = VOLUME_LABEL  # containers and data volumes carry the same label key, valued with the instance name
 CONTAINER_PREFIX = "qdt-local"
 RESTART_POLICY = "on-failure:3"
 TMPFS = "/tmp:rw,size=512m"
 
-ROLES_ONE_SHOT = ("fs-probe", "probe", "discover", "boundary", "admit", "copy", "verify")
+# init-data and read-status are the helpers that reach a Docker named volume in place of the host folder.
+ROLES_ONE_SHOT = ("init-data", "read-status", "fs-probe", "probe", "discover", "boundary", "admit", "copy", "verify")
 ROLES_SERVICE = ("capture", "loader")
 
 # (memory, cpus, pids) per role.
@@ -59,6 +61,23 @@ class Mount:
         return ("--mount", spec + (",readonly" if self.read_only else ""))
 
 
+_VOLUME_NAME = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{1,127}")
+
+
+@dataclass(frozen=True)
+class VolumeMount:
+    """A Docker named volume (``-v name:target``): never a path, so no host folder is involved."""
+
+    name: str
+    target: str
+    read_only: bool = False
+
+    def argv(self) -> tuple[str, ...]:
+        if _VOLUME_NAME.fullmatch(self.name) is None or ":" in self.target or "," in self.target:
+            raise ValueError("invalid Docker volume mount")
+        return ("-v", f"{self.name}:{self.target}" + (":ro" if self.read_only else ""))
+
+
 @dataclass(frozen=True)
 class ContainerSpec:
     role: str
@@ -66,7 +85,12 @@ class ContainerSpec:
     entrypoint: str
     command: tuple[str, ...]
     env: Mapping[str, str] = field(default_factory=dict)
-    mounts: tuple[Mount, ...] = ()
+    mounts: tuple[Mount | VolumeMount, ...] = ()
+    user: str | None = None  # default: the host uid:gid; init-data runs as root with two capabilities
+    cap_add: tuple[str, ...] = ()
+    no_network: bool = False  # data helpers need no network
+    pull_never: bool = False  # never fetch the image: a helper run by status must not reach the network
+    name_suffix: str = ""  # makes the container name unique so that two concurrent runs do not remove each other
 
     @property
     def service(self) -> bool:
@@ -122,17 +146,23 @@ def checkout_mounts(config: LocalConfig, role: str) -> tuple[Mount, ...]:
 
 
 def run_plan(config: LocalConfig, paths: LocalPaths, spec: ContainerSpec, *, uid: int, gid: int) -> RunPlan:
-    name = container_name(config.name, spec.role)
+    name = container_name(config.name, spec.role) + (f".{spec.name_suffix}" if spec.name_suffix else "")
     memory, cpus, pids = LIMITS.get(spec.role, DEFAULT_LIMITS)
     argv: list[str] = ["docker", "run"]
     argv += ["-d", "--restart", RESTART_POLICY] if spec.service else ["--rm"]
     argv += [
         "--init", "--read-only", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
         "--pids-limit", pids, "--memory", memory, "--cpus", cpus,
-        "--tmpfs", TMPFS, "-e", "HOME=/tmp", "--user", f"{uid}:{gid}",
+        "--tmpfs", TMPFS, "-e", "HOME=/tmp", "--user", spec.user or f"{uid}:{gid}",
         "--label", f"{LABEL}={config.name}", "--label", f"{LABEL}.role={spec.role}",
         "--name", name,
     ]
+    for capability in spec.cap_add:
+        argv += ["--cap-add", capability]
+    if spec.no_network:
+        argv += ["--network", "none"]
+    if spec.pull_never:
+        argv += ["--pull", "never"]
     env_file = paths.env_file(spec.role)
     argv += ["--env-file", str(env_file)]
     for mount in (*spec.mounts, *checkout_mounts(config, spec.role)):
@@ -206,8 +236,11 @@ def _unlinked(path: Path) -> Path:
     return path.resolve()
 
 
-def data_mount(paths: LocalPaths) -> Mount:
-    return Mount(_unlinked(paths.data), DATA_MOUNT, read_only=False)
+def data_mount(config: LocalConfig, paths: LocalPaths, *, read_only: bool = False) -> Mount | VolumeMount:
+    """/data of every container: the instance's Docker volume, or the host data directory (bind)."""
+    if config.uses_volume:
+        return VolumeMount(config.volume_name, DATA_MOUNT, read_only)
+    return Mount(_unlinked(paths.data), DATA_MOUNT, read_only=read_only)
 
 
 def password_mount(paths: LocalPaths) -> Mount:
@@ -242,9 +275,29 @@ def capture_script_command(script: str | None, *child: str) -> tuple[str, ...]:
     return runtime_command("exec-capture", *head, "--", *child)
 
 
+def init_data_spec(config: LocalConfig, paths: LocalPaths, *, uid: int, gid: int) -> ContainerSpec:
+    """Create (or verify) the marker and the sub-directories of the data volume, owned by the host user.
+
+    A new Docker volume is owned by root while every other container runs as the host user, so this one helper
+    runs as root with only CHOWN and DAC_OVERRIDE, no network, and hands the directories over to ``uid:gid``.
+    """
+    command = runtime_command("init-data", "--label", config.label, "--uid", str(uid), "--gid", str(gid))
+    return ContainerSpec("init-data", config.capture_image, CAPTURE_PYTHON, command, storage_env(config),
+                         (data_mount(config, paths),), user="0:0", cap_add=("CHOWN", "DAC_OVERRIDE"), no_network=True)
+
+
+def read_status_spec(config: LocalConfig, paths: LocalPaths, *, evidence_key: str | None = None,
+                     name_suffix: str = "") -> ContainerSpec:
+    """Read the console snapshot (and the copy evidence row count) out of the data volume, read-only."""
+    command = runtime_command("read-status", *(("--evidence-key", evidence_key) if evidence_key else ()))
+    return ContainerSpec("read-status", config.capture_image, CAPTURE_PYTHON, command, storage_env(config),
+                         (data_mount(config, paths, read_only=True),), no_network=True, pull_never=True,
+                         name_suffix=name_suffix)
+
+
 def fs_probe_spec(config: LocalConfig, paths: LocalPaths) -> ContainerSpec:
     return ContainerSpec("fs-probe", config.capture_image, CAPTURE_PYTHON, runtime_command("fs-probe"),
-                         storage_env(config), (data_mount(paths),))
+                         storage_env(config), (data_mount(config, paths),))
 
 
 def probe_spec(config: LocalConfig, paths: LocalPaths, *, port: int | None = None) -> ContainerSpec:
@@ -275,14 +328,14 @@ def admit_spec(config: LocalConfig, paths: LocalPaths, *, boundary_json: str, jo
     command = runtime_command(
         "admit", "--boundary-json", boundary_json, "--source-id", config.source_id,
         "--pipeline-id", config.pipeline_id, "--table-id", config.table_id, "--raw-prefix-root", RAW_PREFIX_ROOT)
-    return ContainerSpec("admit", config.capture_image, CAPTURE_PYTHON, command, env, (data_mount(paths),))
+    return ContainerSpec("admit", config.capture_image, CAPTURE_PYTHON, command, env, (data_mount(config, paths),))
 
 
 def copy_spec(config: LocalConfig, paths: LocalPaths, *, time_zone: str, journal: tuple[str, str]) -> ContainerSpec:
     """The copy handoff comes from the admission document; the runtime derives the job environment itself."""
     env = {**storage_env(config), **ibmi_env(config), **table_env(config, time_zone, journal)}
     command = runtime_command("copy", "--admission-file", ADMISSION_TARGET)
-    mounts = (data_mount(paths), Mount(_unlinked(paths.admission), ADMISSION_TARGET), *ibmi_mounts(config, paths))
+    mounts = (data_mount(config, paths), Mount(_unlinked(paths.admission), ADMISSION_TARGET), *ibmi_mounts(config, paths))
     return ContainerSpec("copy", config.capture_image, CAPTURE_PYTHON, command, env, mounts)
 
 
@@ -294,7 +347,7 @@ def capture_spec(config: LocalConfig, paths: LocalPaths, *, time_zone: str, capt
     }
     command = capture_script_command(None, "--console-snapshot-path", CONSOLE_TARGET)
     return ContainerSpec("capture", config.capture_image, CAPTURE_PYTHON, command,
-                         env, (data_mount(paths), *ibmi_mounts(config, paths)))
+                         env, (data_mount(config, paths), *ibmi_mounts(config, paths)))
 
 
 def loader_spec(config: LocalConfig, paths: LocalPaths, *, table_set_json: str) -> ContainerSpec:
@@ -307,7 +360,7 @@ def loader_spec(config: LocalConfig, paths: LocalPaths, *, table_set_json: str) 
         "QUADRINGENT_HISTORY_MODE": "sql",
     }
     return ContainerSpec("loader", config.loader_image, LOADER_PYTHON, runtime_command("exec-loader"),
-                         env, (data_mount(paths), key_mount(paths)))
+                         env, (data_mount(config, paths), key_mount(paths)))
 
 
 def verify_spec(config: LocalConfig, paths: LocalPaths) -> ContainerSpec:

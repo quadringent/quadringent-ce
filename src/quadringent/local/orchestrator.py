@@ -22,6 +22,7 @@ from .config import (
     ConfigError,
     LocalConfig,
     LocalPaths,
+    VOLUME_ID_LABEL,
     check_layout,
     prepare_data_dir,
 )
@@ -61,6 +62,8 @@ def identity_fingerprint(config: LocalConfig) -> str:
     values = [config.label, config.ibmi.host, config.ibmi.user, config.table_schema, config.table_name,
               config.snowflake.account, config.snowflake.database, config.snowflake.schema or "",
               config.snowflake.role, config.source_id, config.pipeline_id, config.table_id]
+    if config.uses_volume:  # a bind instance keeps the fingerprint it always had
+        values.append(config.data_location)
     return hashlib.sha256(dumps(values).encode()).hexdigest()
 
 
@@ -122,8 +125,11 @@ class Docker:
         if not result.ok:
             raise StartError("the Docker daemon does not answer: start Docker and run the command again")
 
+    def image_present(self, image: str) -> bool:
+        return self.runner.run(("docker", "image", "inspect", image)).ok
+
     def ensure_image(self, image: str, out: TextIO) -> None:
-        if self.runner.run(("docker", "image", "inspect", image)).ok:
+        if self.image_present(image):
             return
         print(f"Pulling {image} ...", file=out)
         if not self.runner.run(("docker", "pull", image)).ok:
@@ -165,6 +171,69 @@ class Docker:
                 states[name] = state.strip()
         return states
 
+    # -- the data volume (data_location "volume")
+
+    def volume_labels(self) -> dict[str, str] | None:
+        """Labels of this instance's data volume, or None when the volume does not exist.
+
+        Only Docker's explicit "no such volume" means absent; any other failure (daemon error, timeout,
+        denied call) raises, so that nothing is created, removed or reported on a guess.
+        """
+        result = self.runner.run(("docker", "volume", "inspect", "--format", "{{json .Labels}}", self.config.volume_name))
+        if not result.ok:
+            if "no such volume" in f"{result.stderr}\n{result.stdout}".lower():
+                return None
+            raise StartError(f"cannot inspect the Docker volume {self.config.volume_name}: {failure_reason(result)}")
+        try:
+            labels = json.loads(result.stdout.strip() or "null")
+        except ValueError:
+            return {}
+        return {str(k): str(v) for k, v in labels.items()} if isinstance(labels, dict) else {}
+
+    def volume_label_args(self) -> tuple[str, ...]:
+        """The labels a data volume is created with: the instance name and this instance's unique store label."""
+        return ("--label", f"{plan.LABEL}={self.config.name}", "--label", f"{VOLUME_ID_LABEL}={self.config.label}")
+
+    def _require_owned_volume(self, labels: dict[str, str]) -> None:
+        if labels.get(plan.LABEL) != self.config.name:
+            raise StartError(
+                f"the Docker volume {self.config.volume_name} exists but is not labelled "
+                f"{plan.LABEL}={self.config.name}: refusing to use or delete a volume this tool did not create. "
+                "Remove or rename it yourself, or use another instance name.")
+        if labels.get(VOLUME_ID_LABEL) != self.config.label:
+            raise StartError(
+                f"the Docker volume {self.config.volume_name} belongs to another instance that has the same name "
+                f"(label {VOLUME_ID_LABEL} differs: another --root, or an instance that was deleted and created "
+                "again): refusing to use or delete it. If that data is no longer needed, remove the volume "
+                f"yourself with docker volume rm {self.config.volume_name}, or use another instance name.")
+
+    def ensure_volume(self) -> None:
+        """Create the labelled data volume if absent; refuse an existing volume that is not this instance's."""
+        labels = self.volume_labels()
+        if labels is not None:
+            self._require_owned_volume(labels)
+            return
+        result = self.runner.run(("docker", "volume", "create", *self.volume_label_args(), self.config.volume_name))
+        if not result.ok:
+            raise StartError(f"cannot create the Docker volume {self.config.volume_name}: {failure_reason(result)}")
+
+    def init_data(self) -> None:
+        """Marker, console/ and scratch/ inside the volume, through a short-lived helper container."""
+        self.ensure_volume()
+        self.local_result(plan.init_data_spec(self.config, self.paths, uid=self.uid, gid=self.gid),
+                          "preparing the data volume")
+
+    def remove_volume(self) -> bool:
+        """Remove the data volume when it carries this instance's label; False when it did not exist."""
+        labels = self.volume_labels()
+        if labels is None:
+            return False
+        self._require_owned_volume(labels)
+        result = self.runner.run(("docker", "volume", "rm", self.config.volume_name))
+        if not result.ok:
+            raise StartError(f"cannot remove the Docker volume {self.config.volume_name}: {failure_reason(result)}")
+        return True
+
     def stop_all(self) -> list[str]:
         names = [plan.container_name(self.config.name, role) for role in (*plan.ROLES_SERVICE, *plan.ROLES_ONE_SHOT)]
         present = self.states()
@@ -204,8 +273,9 @@ class Starter:
     def run(self) -> int:
         config, paths = self.config, self.paths
         try:
-            check_layout(paths)
-            prepare_data_dir(paths, config.label)
+            check_layout(paths, data=not config.uses_volume)
+            if not config.uses_volume:
+                prepare_data_dir(paths, config.label)
             if config.ibmi.allow_plaintext:
                 print(PLAINTEXT_WARNING, file=self.err)
             with InstanceLock(paths.lock):
@@ -225,7 +295,11 @@ class Starter:
         self.say("[1/8] Images")
         for image in dict.fromkeys((self.config.capture_image, self.config.loader_image)):
             self.docker.ensure_image(image, self.out)
-        self.say("[2/8] Data directory file system check")
+        if self.config.uses_volume:
+            self.say(f"[2/8] Data volume {self.config.volume_name}: preparation and file system check")
+            self.docker.init_data()
+        else:
+            self.say("[2/8] Data directory file system check")
         self._fs_probe()
         if "identity" in stages and "table" in stages:
             self.say("[3/8] Resuming: probe, discovery and confirmation are already recorded (no new sign-on for them)")
@@ -253,12 +327,23 @@ class Starter:
             return
         checks = document.get("checks") if isinstance(document.get("checks"), dict) else {}
         failed = sorted(name for name, value in checks.items() if isinstance(value, dict) and value.get("ok") is False)
+        if self.config.uses_volume:
+            raise StartError(
+                f"the Docker volume {self.config.volume_name} did not pass the file system check"
+                + (f" (failed: {', '.join(failed)})" if failed else "")
+                + ". The gate decides, not the platform: check that the Docker storage driver and its disk give hard "
+                "links and file locks between containers, or run on a Linux host with a bind-mounted data directory "
+                "on a local disk. The data location is fixed when an instance is created: to change it, create "
+                "another instance with init --data-location bind (a new Snowflake key and setup script are needed)."
+            )
         raise StartError(
             "the data directory is on an unsupported file system"
             + (f" (failed: {', '.join(failed)})" if failed else "")
             + ". Docker must mount a local Linux disk (ext4, xfs, btrfs) that grants file locks between containers; "
             "not NFS, SMB, FUSE, a cloud-synced folder, FAT/exFAT, tmpfs, /mnt/c under WSL2 or a Docker Desktop "
-            "shared folder on macOS or Windows (run on a Linux host or in a Linux VM)."
+            "shared folder on macOS or Windows. The data location is fixed when an instance is created: create another "
+            "instance with init --data-location volume (a Docker named volume, the default on Docker Desktop; a new "
+            "Snowflake key and setup script are needed), or run on a Linux host or in a Linux VM."
         )
 
     def _probe_and_discover(self, state: dict, stages: dict) -> None:
@@ -339,7 +424,9 @@ class Starter:
             f"  Snowflake  account {config.snowflake.account}, database {config.snowflake.database}, "
             f"schemas {config.history_schema} (history) and {config.mirror_schema} (mirror), role {config.snowflake.role}",
             f"  Warehouse  {config.warehouse} (XSMALL, auto-suspend 60 s): it bills while loading",
-            f"  Data       {self.paths.data} - holds the table rows in CLEAR TEXT, protect this folder",
+            (f"  Data       Docker volume {config.volume_name} - holds the table rows in CLEAR TEXT, protect Docker's storage"
+             if config.uses_volume else
+             f"  Data       {self.paths.data} - holds the table rows in CLEAR TEXT, protect this folder"),
             f"  Images     {config.capture_image}",
             f"             {config.loader_image}",
             "On the IBM i: read-only (catalog, journal receivers, one table snapshot). In Snowflake: the service",
@@ -418,22 +505,27 @@ def stop(config: LocalConfig, paths: LocalPaths, runner: CommandRunner, out: Tex
 
 
 def reset(config: LocalConfig, paths: LocalPaths, runner: CommandRunner, out: TextIO, *, uid: int, gid: int) -> int:
-    """Stop, then delete the data directory and run state. Config, secrets and Snowflake objects stay."""
+    """Stop, then delete the data directory (or the data volume) and run state. Config, secrets and Snowflake stay."""
     docker = Docker(runner, config, paths, uid=uid, gid=gid)
     try:
         docker.ready()
-        check_layout(paths)
+        check_layout(paths, data=not config.uses_volume)
         with InstanceLock(paths.lock):
             docker.stop_all()
-            if paths.data.is_symlink() or not paths.marker.is_file():
-                raise StartError("the data directory has no Quadringent marker: refusing to delete it")
-            shutil.rmtree(paths.data)
+            if config.uses_volume:
+                # Only a volume that carries this instance's label is ever removed; no host path is touched.
+                docker.remove_volume()
+            else:
+                if paths.data.is_symlink() or not paths.marker.is_file():
+                    raise StartError("the data directory has no Quadringent marker: refusing to delete it")
+                shutil.rmtree(paths.data)
             for leftover in (paths.run_json, paths.admission, *(paths.env_file(role) for role in (*plan.ROLES_SERVICE, *plan.ROLES_ONE_SHOT))):
                 leftover.unlink(missing_ok=True)
-            prepare_data_dir(paths, config.label)
+            if not config.uses_volume:  # a volume is created again by the next start, which also needs the image
+                prepare_data_dir(paths, config.label)
     except (StartError, ConfigError, PrivateFileError, OSError) as error:
         print(f"Reset failed: {error}", file=out)
         return 1
-    print("Data directory and run state deleted. Snowflake tables are not touched: drop them yourself "
-          "before copying the same table again.", file=out)
+    print(("Data volume and run state deleted. " if config.uses_volume else "Data directory and run state deleted. ")
+          + "Snowflake tables are not touched: drop them yourself before copying the same table again.", file=out)
     return 0

@@ -14,6 +14,7 @@ from ..diagnostics.render import render_text
 from ..installer.runner import CommandRunner
 from . import config as cfg
 from .check import CheckOptions, LocalChecker
+from .datalocation import default_data_location
 from .images import resolve_images
 from .orchestrator import PLAINTEXT_WARNING, Starter, reset as reset_instance, stop as stop_instance
 from .secrets import PrivateFileError, ensure_private_dir, read_password, write_private_file
@@ -31,7 +32,7 @@ check           diagnose prerequisites (--signon, --discover, --snowflake contac
 start           probe, discover, copy once, then run capture and loader containers
 status          show containers, stages and the capture console snapshot
 stop            stop the containers; checkpoints are kept
-reset --yes     delete the data directory and run state (config and secrets are kept)"""
+reset --yes     delete the data directory or volume and run state (config and secrets are kept)"""
 
 
 def add_local_subcommand(subparsers) -> None:
@@ -65,6 +66,9 @@ def add_local_subcommand(subparsers) -> None:
     init.add_argument("--command-port", type=int, default=None)
     init.add_argument("--capture-image", default=None, help="Capture image (default: the published image of this version)")
     init.add_argument("--loader-image", default=None, help="Control-plane image used by the loader")
+    init.add_argument("--data-location", choices=cfg.DATA_LOCATIONS, default=None,
+                      help="Where the data directory lives: bind (a host folder; default on Linux) or volume "
+                           "(a Docker named volume; default on Docker Desktop and macOS)")
     init.add_argument("--from-checkout", default=None, metavar="REPO",
                       help="DEVELOPER ONLY, not reproducible: bind-mount this checkout over the images")
 
@@ -91,7 +95,7 @@ def add_local_subcommand(subparsers) -> None:
     status.add_argument("--json", action="store_true")
     status.add_argument("--logs", action="store_true", help="Include the last log lines of the containers")
 
-    reset = commands.add_parser("reset", allow_abbrev=False, help="Delete the data directory and run state.")
+    reset = commands.add_parser("reset", allow_abbrev=False, help="Delete the data directory (or volume) and run state.")
     common(reset)
     reset.add_argument("--yes", action="store_true", help="Required: this deletes the copied data")
 
@@ -114,7 +118,7 @@ def _copy_ca(source: str, destination: Path) -> None:
 
 
 def _init(args: argparse.Namespace, runner: CommandRunner, stdout: TextIO, stderr: TextIO, stdin: TextIO,
-          prompt: Callable[[str], str] | None) -> int:
+          prompt: Callable[[str], str] | None, host_platform: str | None = None) -> int:
     root = cfg.resolve_root(args.root)
     paths = cfg.LocalPaths(root, cfg.validate_name(args.name))
     if cfg.instance_exists(paths):
@@ -130,6 +134,10 @@ def _init(args: argparse.Namespace, runner: CommandRunner, stdout: TextIO, stder
         if not (checkout_path / "src" / "quadringent" / "storage_backend.py").is_file():
             raise cfg.ConfigError("--from-checkout: not a Quadringent repository checkout")
         checkout = str(checkout_path)
+    if args.data_location:
+        data_location, reason = args.data_location, "from --data-location"
+    else:
+        data_location, reason = default_data_location(runner, host_platform)
     role, user = new_service_identities()
     plaintext = bool(args.allow_plaintext_ibmi)
     config = cfg.validate(cfg.LocalConfig(
@@ -144,7 +152,7 @@ def _init(args: argparse.Namespace, runner: CommandRunner, stdout: TextIO, stder
         table_schema=library, table_name=table, capture_image=capture_image, loader_image=loader_image,
         source_id=os.urandom(16).hex(), pipeline_id=os.urandom(16).hex(), table_id=os.urandom(16).hex(),
         source_time_zone=cfg.validate_source_time_zone(args.source_time_zone) if args.source_time_zone else None,
-        from_checkout=checkout,
+        from_checkout=checkout, data_location=data_location,
     ))
     password = read_password(password_file=args.ibmi_password_file, stdin=stdin,
                              **({"prompt": prompt} if prompt else {}))
@@ -155,7 +163,8 @@ def _init(args: argparse.Namespace, runner: CommandRunner, stdout: TextIO, stder
         created = True
         ensure_private_dir(paths.secrets)
         ensure_private_dir(paths.state)
-        cfg.prepare_data_dir(paths, config.label)
+        if not config.uses_volume:
+            cfg.prepare_data_dir(paths, config.label)
         write_private_file(paths.ibmi_password, password.encode("utf-8"))
         public_key = create_key_pair(paths.snowflake_key, runner)
         script_text = build_setup_script(
@@ -176,6 +185,10 @@ def _init(args: argparse.Namespace, runner: CommandRunner, stdout: TextIO, stder
         print("NOTE: --from-checkout is developer-only and not reproducible: the containers run your checkout, "
               "not the published code.", file=stderr)
     print(f"Instance {config.name!r} created in {paths.directory}", file=stdout)
+    if config.uses_volume:
+        print(f"Data location: Docker volume {config.volume_name} ({reason}); start creates it and its marker.", file=stdout)
+    else:
+        print(f"Data location: host folder {paths.data} ({reason}).", file=stdout)
     print("The IBM i password and the Snowflake private key are stored there as private files (0600).", file=stdout)
     print("", file=stdout)
     print("Next:", file=stdout)
@@ -203,14 +216,19 @@ def run_local_command(
     handshake: Callable | None = None,
     prompt: Callable[[str], str] | None = None,
     confirm: Callable[[str], bool] | None = None,
+    host_platform: str | None = None,
 ) -> int:
     stderr = stderr if stderr is not None else sys.stderr
     stdin = stdin if stdin is not None else sys.stdin
+    if uid is None and not hasattr(os, "getuid"):
+        print("Native Windows is not supported: run quadringent local inside WSL2, on the Linux file system "
+              "(Docker Desktop with the WSL2 backend can be the engine).", file=stderr)
+        return EXIT_USAGE
     uid = os.getuid() if uid is None else uid
     gid = os.getgid() if gid is None else gid
     try:
         if args.local_command == "init":
-            return _init(args, runner, stdout, stderr, stdin, prompt)
+            return _init(args, runner, stdout, stderr, stdin, prompt, host_platform)
         paths, config = _load(args, stderr)
         if args.local_command == "snowflake-script":
             stdout.write(cfg.read_private_text(paths.setup_script))

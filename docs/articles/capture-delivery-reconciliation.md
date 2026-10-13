@@ -149,8 +149,9 @@ and [qualification](../qualification.md).
 
 You can see how the evidence looks without any IBM i or Snowflake: the
 [synthetic demo](../product/synthetic-demo.md) runs the real cockpit with generated
-data and makes no network connection. Quadringent is a DEV/INT preview and no
-production qualification is claimed.
+data and makes no network connection. To test the same questions on your own
+tables, start with a proof of concept on a non-production IBM i; the
+[evidence page](../evidence.md) lists what we have measured.
 <!-- source: docs/product/synthetic-demo.md -->
 
 ## Sources

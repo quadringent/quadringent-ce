@@ -1,6 +1,6 @@
 # Operator guide
 
-A short path through a DEV/INT installation, from the first install to a
+A short path through a proof-of-concept installation, from the first install to a
 controlled stop. Each step links to the guide that holds the details. Nothing
 here qualifies production; a ready pod, a reachable API or an accepted action
 does not prove delivery.

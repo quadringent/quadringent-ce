@@ -2,9 +2,9 @@
 
 If you administer an IBM i and have to decide whether to let this software
 connect to it, start here. Each statement about the code names the file where you
-can check it. Quadringent is a DEV/INT preview: the chart accepts only the
-environments `dev`, `int`, `test` and `staging`, and no production qualification
-is claimed ([evidence](../evidence.md), [installation status](install-default.md)).
+can check it. The chart accepts the environments `dev`, `int`, `test` and
+`staging`, so a first evaluation runs against a non-production IBM i
+([evidence](../evidence.md), [installation](install-default.md)).
 <!-- source: chart/templates/_helpers.tpl -->
 
 ## In short

@@ -252,12 +252,13 @@ def test_roadmap_mentions_local_mode_only_as_in_progress() -> None:
     assert "local mode" in text.lower()
 
 
-def test_roadmap_makes_no_production_claim() -> None:
+def test_roadmap_makes_no_production_claim_and_links_the_evidence() -> None:
     text = _read(ROOT / "ROADMAP.md").lower()
-    assert "dev/int preview" in text
-    assert "production qualification" in text
+    assert "docs/evidence.md" in text
     for phrase in ("production-ready", "production ready", "guaranteed", "will be released"):
         assert phrase not in text, phrase
+    for disclaimer in ("dev/int preview", "no production qualification", "not a production qualification"):
+        assert disclaimer not in text, disclaimer
 
 
 def test_contributing_keeps_its_content_and_adds_ways_to_help() -> None:

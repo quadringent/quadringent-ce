@@ -9,15 +9,18 @@ cluster. The [expert guide](install-client.md) covers sites managing their own
 Helm values. See [backup and restore](backup-restore.md) before upgrading or
 rebuilding a site.
 
+Start with a proof of concept on a non-production IBM i. We help with pilots
+([pilot guide](positioning-and-offer.md)). What we have measured, and on which
+version, is on the [evidence page](../evidence.md).
+
 The source prepares **0.4.3**. Installation links target the published
-**0.4.2 DEV/INT prerelease**, with native receiver bindings and selected replay
-recovery. Use only available, admitted release
-assets; this preview has no native continuity or full-site recovery verdict.
-The published [0.3.5 scoped receipt](../../site/runtime-0.3.5.json) covers initial
+**0.4.2 prerelease**, with native receiver bindings and selected replay
+recovery. Use only available, admitted release assets. The published
+[0.3.5 scoped receipt](../../site/runtime-0.3.5.json) covers initial
 copy and an EKS application cycle. The
 [0.3.4 recovery receipt](../../site/recovery-0.3.4.json) remains historical. A ready
-pod or accessible API does not prove IBM i → Snowflake delivery, CDC continuity,
-a maximum latency of 10 seconds, or production readiness.
+pod or accessible API proves the installation only; read delivery and
+reconciliation per table in the cockpit.
 
 Native capture now requires its original admitted receiver binding; legacy v1
 checkpoints cannot be adopted automatically. Keep the previous admitted version

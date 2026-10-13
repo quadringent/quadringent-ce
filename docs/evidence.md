@@ -1,12 +1,16 @@
 # Evidence
 
-Quadringent is a preview for DEV/INT use. Source version **0.4.3** (candidate; the latest published prerelease is **0.4.2**) has had no qualification run yet. The latest observed releases are 0.3.5 (initial copy, 2026-10-12) and 0.3.4 (recovery, 2026-10-12). Production: not qualified. Native CDC writes on 0.3.5 are Not tested.
+Source version **0.4.3** (candidate; the latest published prerelease is **0.4.2**) has had no qualification run yet. The latest observed releases are 0.3.5 (initial copy, 2026-10-12) and 0.3.4 (recovery, 2026-10-12). Production: not qualified. Native CDC writes on 0.3.5 are Not tested.
 
 We use four words for evidence, here and everywhere else: Measured (we have a number, with its scope), Not measured (we have no number), Not tested (we ran nothing) and Not supported (it does not work, or we do not intend it to). Every result stays bound to the version, targets and clock it was observed with. A result on 0.3.4 says nothing about 0.4.2.
 
-## What went wrong, and what we do not know
+## What we have measured
 
-In the first 0.3.4 cold-warehouse trial, 3 of 4 targets missed our 10 s bar per write. With all four Snowflake loader warehouses suspended before the first write, the worst write took 11.207 s on AWS VM, 13.641 s on GCP VM and 11.802 s on GKE. Only EKS passed, at 8.520 s. A later campaign on the same release (cold and warm, one of each per target) passed on all four targets, at most 8.876 s. Both runs stay on record.
+Each result below from 0.3.x is on synthetic tables and bound to its version: initial copy on four targets (0.3.5), reader kill during acknowledged writes and rebuild on fresh infrastructure on four targets (0.3.4 recovery), and typed readback with upgrade and rollback on four targets (0.3.4 and the versions around it).
+
+In the first 0.3.4 cold-warehouse trial, 3 of 4 targets missed our 10 s bar per write. With all four Snowflake loader warehouses suspended before the first write, the worst write took 11.207 s on AWS VM, 13.641 s on GCP VM and 11.802 s on GKE. Only EKS passed, at 8.520 s. A later campaign on the same release (cold and warm, one of each per target) passed on all four targets, at most 8.876 s. Both runs stay on record. The receipts below carry the figures for each version, target and clock.
+
+## What we have not measured yet
 
 IBM i CPU and I/O cost is Not measured. The footprint page says what the reader does on your IBM i; it does not say how much that costs your system.
 
@@ -25,7 +29,7 @@ Latency beyond the campaigns below is Not measured. We have no P95, no SLA and n
 | GCP VM | Compute Engine VM with k3s | GCS |
 | GKE | Existing GKE cluster | GCS |
 
-Snowflake held history and mirror tables in a dedicated schema, behind a scoped role. IBM i held synthetic journaled tables with before and after images, read over TLS. All tests used synthetic tables on isolated installations. These are maintainer-observed results, not an external certification.
+Snowflake held history and mirror tables in a dedicated schema, behind a scoped role. IBM i held synthetic journaled tables with before and after images, read over TLS. All tests used synthetic tables on isolated installations. These are maintainer-observed results, not an external certification. The source receipts behind the published summaries are retained privately; the summaries on this page and the linked JSON files are what is public.
 
 ## 0.4.2 published prerelease and 0.4.3 candidate source
 

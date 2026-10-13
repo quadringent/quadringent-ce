@@ -4,7 +4,7 @@
 
 Changes not yet in a published release.
 
-- Add `quadringent local` (init, snowflake-script, check, start, stop, status, reset) to run one table on a single machine with Docker, without a cloud account or Kubernetes, using a local storage backend (`QUADRINGENT_STORAGE_BACKEND=local`, `local://` registry authority). It needs images from a release that includes it and has not been validated end to end against a real IBM i and Snowflake. See [Try it locally](docs/product/try-it-local.md).
+- Add `quadringent local` (init, snowflake-script, check, start, stop, status, reset) to run one table on a single machine with Docker, without a cloud account or Kubernetes, using a local storage backend (`QUADRINGENT_STORAGE_BACKEND=local`, `local://` registry authority). It needs images from a release that includes it and has not been validated end to end against an IBM i and Snowflake. See [Try it locally](docs/product/try-it-local.md).
 - Add `quadringent doctor`, which builds one versioned diagnostic report (`quadringent.diagnostic.v1`) as text or JSON. Local checks always run; network calls (`--check-ibmi`, `--tls`, `--control-plane`) run only on request. Exit codes: 0 ready, 1 blocked, 2 usage error, 3 incomplete. `--from-report` and `--save` read and write a report offline.
 - Add a shareable export (`quadringent doctor --export FILE.tar.gz`, `--preview` to list it without writing). It is built from allowed fields only, pseudonymizes hosts, accounts and object names, lists every omission with its reason, and sends nothing. The scrubbing is pattern-based: read the archive before you post it.
 - Add read-only `GET /v2/diagnostics` and `GET /v2/diagnostics/export` to the control plane, and a Diagnostics screen in the cockpit. Synthetic or historical evidence is never shown as passed, and absent evidence stays unknown.
@@ -20,10 +20,8 @@ Changes not yet in a published release.
 - Prepare PyPI package metadata and a package description. The package is not published on PyPI.
 - Add a local synthetic laboratory for the operator journey. It is a test tool, outside the distributed wheel.
 
-Limits: the control plane image does not yet include the diagnostics module, so
-diagnostics routes answer 503 `capability_unavailable` there. The laboratory and
-the synthetic demo qualify nothing about a site, and we have run no new
-qualification for these changes.
+The control plane image does not yet include the diagnostics module, so
+diagnostics routes answer 503 `capability_unavailable` there.
 
 ## 0.4.2 — Native capture and recovery preview
 

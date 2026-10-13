@@ -5,8 +5,7 @@ Quadringent is maintained under a pseudonymous project identity.
 You can check our releases without knowing who we are. This page covers what
 you can verify, how decisions and releases are made, and what stays available to
 you if the project stops being maintained. It makes no promise about the future
-of the maintainers or of the project. Quadringent is a DEV/INT preview and no
-production qualification is claimed; the [evidence page](evidence.md) lists what
+of the maintainers or of the project. The [evidence page](evidence.md) lists what
 was observed.
 
 ## What you can verify instead

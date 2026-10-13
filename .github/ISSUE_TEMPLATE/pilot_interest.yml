@@ -1,12 +1,12 @@
 name: Pilot interest (public)
-description: Discuss a scoped DEV/INT pilot on your infrastructure. This issue is publicly visible.
+description: Discuss a scoped pilot on a non-production environment of your infrastructure. This issue is publicly visible.
 title: "Pilot interest: "
 body:
   - type: markdown
     attributes:
       value: |
         **This issue is publicly visible**, together with your GitHub account name.
-        To discuss privately, without a GitHub account, email [quadringent@proton.me](mailto:quadringent@proton.me?subject=DEV%2FINT%20pilot) instead.
+        To discuss privately, without a GitHub account, email [quadringent@proton.me](mailto:quadringent@proton.me?subject=Pilot%20request) instead.
 
         Do not include credentials, access, hostnames, account IDs, customer names, business data or attachments.
         A request is never accepted automatically and creates no service commitment. There is no response-time commitment.
@@ -58,7 +58,7 @@ body:
     attributes:
       label: Before submitting
       options:
-        - label: "The proposed first evaluation is in DEV/INT."
+        - label: "The proposed first evaluation uses a non-production IBM i."
           required: true
         - label: "I understand this issue is public and contains no credentials, hostnames, customer data or attachments."
           required: true

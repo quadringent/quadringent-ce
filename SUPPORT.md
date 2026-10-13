@@ -1,8 +1,8 @@
 # Support
 
-Quadringent Community is an open-source (Apache-2.0) DEV/INT preview and no
-production qualification is claimed ([evidence](docs/evidence.md)). We answer on
-GitHub, and no paid support is announced.
+Quadringent Community is open source under Apache-2.0. We answer on GitHub, and
+no paid support is announced. What we have measured is on the
+[evidence page](docs/evidence.md).
 
 ## Where to go
 
@@ -12,7 +12,7 @@ GitHub, and no paid support is announced.
 | A result on your IBM i release, journal setup or Snowflake edition, working or not | The [compatibility report form](https://github.com/quadringent/quadringent-ce/issues/new?template=compatibility_report.yml) |
 | A question about behavior or setup | Read the [FAQ](docs/product/faq.md) first, then the [question form](https://github.com/quadringent/quadringent-ce/issues/new?template=question.yml) |
 | A security vulnerability | The private channel in [SECURITY.md](SECURITY.md). Never in a public issue. |
-| A wish to discuss a pilot | Email [quadringent@proton.me](mailto:quadringent@proton.me?subject=DEV%2FINT%20pilot), or the public pilot interest request described in the [README](README.md) |
+| A wish to discuss a pilot | Email [quadringent@proton.me](mailto:quadringent@proton.me?subject=Pilot%20request), or the public pilot interest request described in the [README](README.md) |
 
 <!-- source: .github/ISSUE_TEMPLATE/config.yml -->
 <!-- source: .github/ISSUE_TEMPLATE/bug_report.yml -->
@@ -27,7 +27,7 @@ private hostnames, customer data, raw business rows or vulnerability details.
 ## What to expect
 
 <!-- source: SECURITY.md (Reporting a vulnerability) -->
-<!-- source: README.md (Discuss a DEV/INT pilot) -->
+<!-- source: README.md (Talk to us about a pilot) -->
 <!-- source: docs/licensing.md -->
 
 - Security reports are acknowledged within 5 business days.

@@ -7,9 +7,19 @@ We build open-source change data capture from IBM i (formerly AS/400 and iSeries
 <!-- The thesis line also opens docs/pypi.md; tests/test_pypi_metadata.py checks that they match. -->
 <!-- source: docs/architecture.md, docs/licensing.md, docs/evidence.md, docs/product/your-data.md, docs/product/quadringent-destination-proof-contract.md, docs/product/synthetic-demo.md, docs/product/operator-guide.md, docs/product/try-it-local.md, site/runtime-0.3.5.json, site/recovery-0.3.4.json, site/qualification-0.3.4.json, CHANGELOG.md, pyproject.toml -->
 
-Status: Preview, DEV/INT only. We claim no production qualification. Source version 0.4.3 (candidate; latest published prerelease 0.4.2) needs fresh qualification; the latest observed releases are 0.3.5 (initial copy) and 0.3.4 (recovery), both 2026-10-12. Dates, tables and limits: [docs/evidence.md](docs/evidence.md).
+Version 0.4 · Apache-2.0. Source 0.4.3, latest published prerelease 0.4.2.
 
-In the 0.3.4 cold-warehouse trial, 3 of 4 targets missed our 10 s latency bar; a later run passed on all four. The IBM i CPU and I/O cost of the reader is Not measured. Only IBM i 7.5, on one shared server, has been tested, in a historical measurement on one table, and no published summary names the release.
+Initial copy of synthetic tables tested against a real IBM i and a real Snowflake account on four cloud targets (release 0.3.5, 2026-10-12), plus reader-kill recovery with source writes on 0.3.4. Receipt summaries are public. Limits (latency, IBM i CPU and I/O cost, IBM i 7.5 as the only release tested) and figures: [evidence page](docs/evidence.md).
+
+What a proof of concept touches:
+
+- The reader installs nothing on your IBM i. It runs in your cloud account and reads the journal with `SELECT` statements and IBM-supplied table functions and APIs ([what it does on your IBM i](docs/product/ibm-i-footprint.md)).
+- Your data stays in your own AWS or GCP account and your own Snowflake account ([your data](docs/product/your-data.md)).
+- `quadringent doctor` (Unreleased, see below) reports what blocks before you install, and changes nothing.
+- `quadringent uninstall` removes the Helm release. The bucket, checkpoints and identities stay until you review and destroy them with Terraform ([uninstall](docs/product/install-default.md#uninstall)).
+- Apache-2.0, with no license key.
+
+[Run a POC on your DEV IBM i](docs/product/install-default.md): the installation guide is the path that exists today. `quadringent local`, one machine with Docker, is not in a published release yet. Or [talk to us about a pilot](#talk-to-us-about-a-pilot). The synthetic demo below needs no IBM i.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="site/assets/cockpit-evidence-dark.png">
@@ -37,7 +47,7 @@ Quadringent doctor: BLOCKED  (10 failed, 1 unknown, 1 skipped, 0 passed)
 [... 11 more checks omitted]
 ~~~
 
-`quadringent local` copies one table on one machine with Docker ([guide](docs/product/try-it-local.md)). Both commands are listed under Unreleased in the [changelog](CHANGELOG.md), and `quadringent local` has not been validated end to end against a real IBM i and Snowflake.
+`quadringent local` copies one table on one machine with Docker ([guide](docs/product/try-it-local.md)). Both commands are listed under Unreleased in the [changelog](CHANGELOG.md), and `quadringent local` has not been validated end to end against an IBM i and Snowflake.
 
 The empty local control plane needs Python 3.12+ and Node 24 or 26:
 
@@ -51,9 +61,9 @@ sh scripts/start_local.sh
 
 Open <http://127.0.0.1:8844>. It starts empty, `examples/local.env` is fictional, and nothing contacts IBM i, AWS or Snowflake. A connection created in Installation is saved as configured, not active yet, and `.local-state/` keeps it across restarts.
 
-## Install on a real site
+## Run a proof of concept on your DEV IBM i
 
-Read the [compatibility page](docs/product/compatibility.md) first, then follow the [installation guide](docs/product/install-default.md) or, if you manage your own values, the [Helm guide](docs/product/install-client.md). The v1 cockpit listens on loopback without authentication by default; read [Security](SECURITY.md) before exposing it.
+Start with a proof of concept on a non-production IBM i. We help with pilots. Read the [compatibility page](docs/product/compatibility.md) first, then follow the [installation guide](docs/product/install-default.md) or, if you manage your own values, the [Helm guide](docs/product/install-client.md). What we have measured, and what we have not yet, is on the [evidence page](docs/evidence.md). The v1 cockpit listens on loopback without authentication by default; read [Security](SECURITY.md) before exposing it.
 
 Moving to 0.4.2 changes native capture configuration and checkpoint semantics. Keep the previous version and its state until a migration is verified ([native capture guide](docs/product/native-qualification.md)).
 
@@ -76,13 +86,13 @@ Moving to 0.4.2 changes native capture configuration and checkpoint semantics. K
 
 ## License and the first pilot
 
-The engine, API and cockpit are open source under [Apache-2.0](LICENSE), with no license key or commercial table limit. You pay your own infrastructure costs. Paid services or extensions may come later; rights on published versions stay in place. See the [project model](docs/licensing.md), the [dependency notices](THIRD_PARTY_NOTICES.md) and [Releases](https://github.com/quadringent/quadringent-ce/releases) for preview or stable.
+The engine, API and cockpit are open source under [Apache-2.0](LICENSE), with no license key or commercial table limit. You pay your own infrastructure costs. Paid services or extensions may come later; rights on published versions stay in place. See the [project model](docs/licensing.md), the [dependency notices](THIRD_PARTY_NOTICES.md) and [Releases](https://github.com/quadringent/quadringent-ce/releases) for the published versions.
 
-We propose a fixed-scope pilot first: installation and validation on your infrastructure. No paid offering, price or SLA is announced.
+We propose a fixed-scope pilot first: installation and validation on your infrastructure. No paid offering or price is announced.
 
-### Discuss a DEV/INT pilot
+### Talk to us about a pilot
 
-Email [quadringent@proton.me](mailto:quadringent@proton.me?subject=DEV%2FINT%20pilot) to talk privately, without a GitHub account, or open a [public pilot interest request](https://github.com/quadringent/quadringent-ce/issues/new?template=pilot_interest.yml); the issue and your account name are publicly visible. Send no credentials, access, private hostnames, customer data or attachments.
+Email [quadringent@proton.me](mailto:quadringent@proton.me?subject=Pilot%20request) to talk privately, without a GitHub account, or open a [public pilot interest request](https://github.com/quadringent/quadringent-ce/issues/new?template=pilot_interest.yml); the issue and your account name are publicly visible. Send no credentials, access, private hostnames, customer data or attachments.
 
 We never accept a request automatically and commit to no response time. The [pilot preparation guide](docs/product/positioning-and-offer.md) lists the next steps and what to prepare.
 

@@ -104,12 +104,9 @@ Snowflake, so you may have to add one.
 
 ## Option 4: Quadringent
 
-Start with what you give up, which is a lot for some buyers. Quadringent is a
-DEV/INT preview: the chart accepts only `dev`, `int`, `test` and `staging`
-environments, and no production qualification is claimed ([evidence](../evidence.md)).
-Only IBM i 7.5, on one shared server, has been tested, and the CPU and I/O cost
-on the IBM i is Not measured. In the first 0.3.4 cold-warehouse trial, three of
-four targets missed our 10 s bar; a later run passed on all four.
+Start with a proof of concept on a non-production IBM i; we help with pilots.
+What we have measured, and what we have not yet, is on the
+[evidence page](../evidence.md). What you take on:
 
 - There is no support contract: issues are answered on a best-effort basis, with
   no response-time commitment ([support](../../SUPPORT.md)). We maintain the
@@ -149,7 +146,7 @@ measured ([Capture is not delivery](capture-delivery-reconciliation.md)).
 | Who runs it | You | Vendor, you, or both | You | You |
 | Support | None | Check with the vendor | Check with the project | Best effort on public issues |
 | Licensing | Your tools | Check with the vendor | Apache-2.0 for the connector, according to its README | Apache-2.0 |
-| Maturity | Established method | Check with the vendor | Incubating connector, according to its README | Preview |
+| Maturity | Established method | Check with the vendor | Incubating connector, according to its README | Version 0.4, dated receipts |
 
 ## Questions to ask before you choose
 
@@ -164,13 +161,13 @@ measured ([Capture is not delivery](capture-delivery-reconciliation.md)).
    warehouse?
 8. What happens if the vendor or the maintainers stop?
 
-Start from the answers. If you need production support today,
-a commercial product may be the better fit, and
+Start from the answers. If you want a vendor support contract today, ask the
+commercial vendors what support they offer;
 [How Quadringent compares](../product/comparison.md) can help you ask the right
-questions. If you want to run an open-source, Kafka-free copy in your own account
-and can accept a preview, read
-[Questions for a first call](../product/faq.md) and the
-[pilot preparation guide](../product/positioning-and-offer.md).
+questions. If you want to run an open-source, Kafka-free copy in your own account,
+read [Questions for a first call](../product/faq.md) and the
+[pilot preparation guide](../product/positioning-and-offer.md), then start a
+proof of concept on a non-production IBM i.
 
 ## Sources
 

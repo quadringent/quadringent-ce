@@ -12,11 +12,11 @@ quadringent local start
 from your laptop or one VM, with Docker. There is no cloud account to create, no
 Kubernetes and no control plane to install.
 
-This is a DEV/INT preview ([evidence](../evidence.md)), meant to let you see the
-product work on a real table. It is not a site qualification and it does not
-prove continuity, latency or production readiness for your site. The managed
-install ([default installer](install-default.md)) remains the supported way to
-run Quadringent for real.
+It is meant to let you see the product work on a real table of your DEV IBM i.
+It is listed under Unreleased in the [changelog](../../CHANGELOG.md), and we
+have not yet validated it end to end ([evidence](../evidence.md)). For more than
+one table, or a setup hosted in your cloud account, use the
+[default installer](install-default.md).
 
 ## What you need
 

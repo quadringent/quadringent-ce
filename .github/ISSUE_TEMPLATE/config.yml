@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Discuss a DEV/INT pilot privately
-    url: mailto:quadringent@proton.me?subject=DEV%2FINT%20pilot
+  - name: Talk to us about a pilot privately
+    url: mailto:quadringent@proton.me?subject=Pilot%20request
     about: Start a private technical discussion without posting access or customer data.
   - name: Report a security vulnerability privately
     url: https://github.com/quadringent/quadringent-ce/security/advisories/new

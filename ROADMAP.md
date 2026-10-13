@@ -8,10 +8,9 @@ is a statement of direction, not a commitment.
 - There are no dates. Nothing here is scheduled and nothing is promised for
   a release.
 - Items move, change or are dropped when the evidence changes.
-- Quadringent Community is a DEV/INT preview. No item on this page, finished or
-  not, is a production qualification; the [evidence page](docs/evidence.md) lists
-  what was observed, and [Verify a release](docs/product/verify-a-release.md)
-  says what a release does and does not show.
+- The [evidence page](docs/evidence.md) lists what was observed, and
+  [Verify a release](docs/product/verify-a-release.md) says what a release does
+  and does not show.
 
 ## How priorities are chosen
 
@@ -36,8 +35,8 @@ or send a compatibility report. [CONTRIBUTING](CONTRIBUTING.md) and
 
 Work in progress or being prepared at the time of writing.
 
-- Local mode is in progress: `quadringent local` runs one table on a single machine with Docker ([Try it locally](docs/product/try-it-local.md)). It is not released and has not been validated end to end against a real IBM i and Snowflake; no date is given. Until then the install path is [Install on AWS or GCP](docs/product/install-default.md).
-- The 0.4 line needs a fresh qualification. Native continuity, complete site recovery and the operator path each need their own evidence (see the Status section of the [README](README.md)).
+- Local mode is in progress: `quadringent local` runs one table on a single machine with Docker ([Try it locally](docs/product/try-it-local.md)). It is not released and has not been validated end to end against an IBM i and Snowflake; no date is given. Until then the install path is [Install on AWS or GCP](docs/product/install-default.md).
+- The 0.4 line is next to qualify. Native continuity, complete site recovery and the operator path each need their own evidence ([evidence](docs/evidence.md)).
 - Package metadata for PyPI is prepared ([PyPI page text](docs/pypi.md)), but the package is not published there today.
 - We are collecting compatibility reports for IBM i releases and setups other than the one tested ([compatibility page](docs/product/compatibility.md)).
 
@@ -58,7 +57,7 @@ Gaps that the documentation and changelog already mark as "Not tested", "Not mea
 
 Possible directions with no work started. They depend on reports and pilot feedback.
 
-- No latency bound is claimed today. Measurements on larger tables and sustained write rates would be the first step ([FAQ](docs/product/faq.md)).
+- Latency on larger tables and at sustained write rates is Not measured. Measuring it would be the first step ([FAQ](docs/product/faq.md)).
 - No loader exists for a destination other than Snowflake ([FAQ](docs/product/faq.md)).
 - No Terraform modules exist for clouds other than AWS and GCP ([FAQ](docs/product/faq.md)).
 - The release workflow produces no provenance attestations today ([Verify a release](docs/product/verify-a-release.md)).

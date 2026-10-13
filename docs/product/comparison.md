@@ -4,8 +4,8 @@
 
 Quadringent copies changes from IBM i journals to Snowflake, in your own AWS or
 GCP account, and shows what was read, what arrived and whether the two agree as
-separate evidence. It is a DEV/INT preview and no production qualification is
-claimed ([evidence](../evidence.md), [compatibility](compatibility.md)).
+separate evidence. Its measurements are on the [evidence page](../evidence.md),
+and what it needs is on [compatibility](compatibility.md).
 <!-- source: README.md, docs/product/compatibility.md, docs/product/operator-guide.md -->
 
 Below, we put it next to the products a buyer is likely to consider for
@@ -86,7 +86,7 @@ No price figures are given here.
 
 | Product | What the documentation says | Source |
 |---|---|---|
-| Quadringent | Apache-2.0. No license key, no commercial table limit, no expiry. You pay your own IBM i, cloud and Snowflake costs. No paid offering, price or service level is announced. | [Project model](../licensing.md), [LICENSE](../../LICENSE) |
+| Quadringent | Apache-2.0. No license key, no commercial table limit, no expiry. You pay your own IBM i, cloud and Snowflake costs. No paid offering or price is announced. | [Project model](../licensing.md), [LICENSE](../../LICENSE) |
 | Qlik Replicate | Check with the vendor for Qlik Replicate. For the Qlik Talend Cloud connector, a different product, Qlik documents that the IBM DB2 for iSeries connector is supported with Standard and Enterprise subscriptions. | [Cloud connector](https://help.qlik.com/en-US/cloud-services/Subsystems/Hub/Content/Sense_Hub/DataIntegration/SourcesConnections/IBM4DB2-iseries/IBM4DB2-iseries-source.htm) |
 | Fivetran | According to Fivetran documentation, pricing is usage-based, measured in Monthly Active Rows, counted per distinct primary key. Usage is tracked per connection, and connections also carry a base charge except on the Free plan. | [Usage-based pricing](https://fivetran.com/docs/usage-based-pricing) |
 | Precisely Connect CDC | The pages read state no licensing terms: check with the vendor. | [Connect product page](https://www.precisely.com/product/precisely-connect/connect/) |
@@ -120,7 +120,7 @@ above, on your own tables.
 
 | Product | What the documentation says | Source |
 |---|---|---|
-| Quadringent | A preview, with no production reference and no service level. Qualification receipts are dated and cover only the version and scope they name. We maintain it under a pseudonymous identity; the [governance page](../governance.md) says what you can verify instead. The reader uses the journal-parsing library from the Debezium project. | [README](../../README.md), [governance](../governance.md), [support](../../SUPPORT.md), [third-party notices](../../THIRD_PARTY_NOTICES.md) |
+| Quadringent | Version 0.4. Qualification receipts are dated and cover only the version and scope they name. We maintain it under a pseudonymous identity; the [governance page](../governance.md) says what you can verify instead. The reader uses the journal-parsing library from the Debezium project. | [README](../../README.md), [governance](../governance.md), [support](../../SUPPORT.md), [third-party notices](../../THIRD_PARTY_NOTICES.md) |
 | Qlik Replicate | Commercial product. The May 2026 support matrix lists IBM i 7.4 and 7.5 for the IBM DB2 for iSeries source, with Replicate on Windows or Red Hat Linux. Production references: check with the vendor. | [Supported source endpoints](https://help.qlik.com/en-US/replicate/May2026/Content/Replicate/Main/Support%20Matrix/supported_source_endpoints.htm) |
 | Fivetran | Commercial service. The Db2 for i connector page lists IBM i 7.2 to 7.5 and does not state a lifecycle status, so check with the vendor. | [Db2 for i connector](https://fivetran.com/docs/connectors/databases/hva-db2i) |
 | Precisely Connect CDC | Commercial product. The product page says Connect and the support portal says Connect CDC (formerly MIMIX Share); the pages do not tie the two together. Supported IBM i releases: check with the vendor. | [Support portal](https://support.precisely.com/products/connect-cdc-formerly-mimix-share/) |
@@ -131,11 +131,11 @@ above, on your own tables.
 
 ## Where the alternatives are stronger
 
-Read this before you spend time on a pilot.
+Read this before you choose.
 
 | Area | What the alternatives offer that Quadringent does not |
 |---|---|
-| Maturity and production use | Quadringent has no production reference. Ask each vendor whether its product is used in production for IBM i to Snowflake, and for a reference on your IBM i release. |
+| Maturity and references | Quadringent publishes dated receipts, not production references. Ask each vendor for a reference on your IBM i release. |
 | Support | Quadringent offers best-effort answers on public issues, with no response-time commitment ([support](../../SUPPORT.md)). Ask each vendor what support it offers and on what terms. |
 | Breadth of sources and targets | According to Qlik documentation, its May 2026 support matrix has about fifty source endpoint rows, some of them variants of the same system. According to IBM documentation, its product page lists many sources and targets. According to Precisely documentation, its product page lists databases, streaming platforms and cloud analytics systems. Quadringent supports IBM i as a source and Snowflake as a destination, and nothing else. |
 | IBM i capture performance options | According to Qlik documentation, an optional component on the IBM i filters changes there, for up to 300 tables per task. Quadringent has no such option and reads at most 32 tables per capture session. Throughput on your tables: Not measured for Quadringent. |
@@ -153,7 +153,7 @@ Read this before you spend time on a pilot.
 | Runs in your account | The reader, the loaders and the control plane run in your AWS or GCP account. The running software sends nothing to a project-run endpoint unless you turn on the opt-in telemetry, which is off by default ([your data](your-data.md#what-leaves-your-accounts)). |
 | Nothing installed on the IBM i | The reader path runs no write statement or CL command of its own. This is not unique: Qlik basic capture also appears to need nothing on the IBM i. The backlog path calls IBM retrieval APIs through a third-party library, and whether that library uses the remote command server is Not tested. One class in the Java archive, used only for qualification runs, can change data and run `CHGJRN` ([IBM i footprint](ibm-i-footprint.md)). |
 | Evidence per table | The cockpit keeps the counts apart and says Not measured when nothing was measured. In the synthetic demo, one table shows 120 events at journal capture, 118 at Snowflake delivery and destination reconciliation Not measured, all generated data ([operator guide](operator-guide.md#4-read-the-evidence)). |
-| A preview with dated qualification | The qualification is small and each receipt names its version and scope. See [qualification](../qualification.md) and [evidence](../evidence.md). |
+| Dated receipts | Each receipt names its version and scope. See [qualification](../qualification.md) and [evidence](../evidence.md). |
 
 <!-- source: LICENSE, docs/licensing.md, docs/product/your-data.md, docs/product/ibm-i-footprint.md, docs/product/operator-guide.md, README.md, docs/qualification.md, docs/product/synthetic-demo.md -->
 

@@ -244,8 +244,8 @@ Fields differ between receipts. In `runtime-0.3.5.json`, check:
   The underlying evidence is retained privately, so you cannot reproduce it from
   the receipt. It is not an external certification.
 
-We make no production qualification claim; see the [evidence page](../evidence.md),
-[releasing](../releasing.md) and [native qualification](native-qualification.md).
+What has been measured, and on which release, is on the [evidence page](../evidence.md);
+see also [releasing](../releasing.md) and [native qualification](native-qualification.md).
 
 ## 7. Check the synthetic demo archive
 

@@ -175,8 +175,8 @@ sequence gap instead of skipping it. Receiver rotation is Not tested. The
 retention rule and the authority per operation, and marks what was not tested. Only IBM i 7.5, on one shared server, has been
 tested. How a reader that works can still leave Snowflake behind is the subject of
 [Capture is not delivery](capture-delivery-reconciliation.md).
-Quadringent is a DEV/INT preview and no production qualification is claimed; see
-the [evidence page](../evidence.md).
+What we have measured, and on which version, is on the
+[evidence page](../evidence.md).
 <!-- source: docs/product/compatibility.md, src/quadringent/table_discovery.py, docs/product/ibm-i-footprint.md -->
 
 ## Sources

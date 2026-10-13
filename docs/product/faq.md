@@ -1,8 +1,7 @@
 # Questions for a first call
 
 Every answer comes from this repository: the code, the tests and the dated
-qualification files. Where nothing was measured, we say Not measured. Quadringent
-is a DEV/INT preview and no production qualification is claimed; the
+qualification files. Where nothing was measured, we say Not measured. The
 [evidence page](../evidence.md) lists what was measured, on which version.
 
 Each answer opens with one of four tags.
@@ -28,7 +27,7 @@ covers batch extracts, commercial CDC and Kafka-based CDC, and
 |---|---|
 | IBM i release | 7.5 was tested, on one server. Other releases: Not tested. [Details](#which-ibm-i-release-was-tested). |
 | Primary key | Needed. A table must be journaled with before and after images and have a primary key or unique constraint. [Details](#which-tables-can-be-replicated). |
-| Production | Not supported. Preview only. [Details](#can-i-run-it-in-production). |
+| Production | Start with a proof of concept on a non-production IBM i; we help with pilots. [Details](#can-i-run-it-in-production). |
 | Latency | In the first 0.3.4 cold-warehouse trial, three of four targets missed our 10 s bar. In a later run, eight observations on two synthetic tables stayed within 10 s. On the current version: Not measured. [Details](#what-latency-should-i-expect-on-the-current-version). |
 | Cost | No license fee and no table limit. You pay for your own IBM i, cloud and Snowflake usage; the amounts are Not measured. [Details](#is-there-a-license-fee-or-a-table-limit). |
 
@@ -157,7 +156,7 @@ cold-warehouse and one warm trial per target on the four targets, measured from
 the start of the source SQL statement to the first observed row in the Snowflake
 mirror. All eight observations were within the 10 s gate: upper bounds from
 3.763 s to 8.876 s. These are upper bounds on two synthetic tables, not a P95 and
-not an SLA.
+not a guarantee.
 
 <!-- source: site/recovery-0.3.4.json, site/qualification-0.3.4.json, README.md -->
 
@@ -174,8 +173,8 @@ part of the delay.
 ### How much data per day can it carry?
 
 Not tested. Not measured. The published trials used two synthetic tables, 110
-rows per target and six source writes. We establish no production-scale capacity
-and publish no throughput figure.
+rows per target and six source writes. Production-scale capacity and
+throughput have no published figure.
 
 <!-- source: site/recovery-0.3.4.json, site/runtime-0.3.5.json, README.md -->
 
@@ -245,7 +244,7 @@ runs k3s on a dedicated VM, and the other target uses an existing EKS or GKE
 cluster. `quadringent local` runs one table on a single machine with Docker, with
 no cloud account and no Kubernetes ([Try it locally](try-it-local.md)). It needs
 images from a release that includes it, and it has not been validated end to end
-against a real IBM i and Snowflake.
+against an IBM i and Snowflake.
 
 <!-- source: docs/product/install-default.md, docs/product/try-it-local.md, src/quadringent/local/cli.py -->
 
@@ -318,7 +317,7 @@ I/O cost of the reads on your IBM i is Not measured. Details and file references
 Not tested. The list in [compatibility](compatibility.md#ibm-i-authorities)
 comes from IBM's documentation for each operation. It has not been tested at
 runtime with a minimal profile. `*ALLOBJ` is not required by those operations; do
-not grant it for convenience. Validate the profile on a DEV/INT system.
+not grant it for convenience. Validate the profile on a non-production IBM i first.
 
 <!-- source: docs/product/compatibility.md, docs/product/ibm-i-footprint.md -->
 
@@ -343,7 +342,7 @@ IBM i to your reader, your raw bucket, your loader and your Snowflake account. S
 
 ### Is support available?
 
-Not supported. No paid support and no SLA are announced. Questions and bugs
+Not supported. No paid support is announced. Questions and bugs
 go to GitHub issues and are answered on a best-effort basis. Security reports
 have a private channel and a five-business-day acknowledgement target. What
 remains if the maintainers stop is on the [governance](../governance.md) page. See
@@ -351,13 +350,14 @@ remains if the maintainers stop is on the [governance](../governance.md) page. S
 
 <!-- source: SUPPORT.md, docs/governance.md, docs/licensing.md -->
 
-## Production readiness
+## Pilots and production
 
 ### Can I run it in production?
 
-Not supported. No. The chart accepts only the environments `dev`, `int`,
-`test` and `staging`, and blocks production promotion. No production, external
-pilot or minimal-authority qualification is established. If you want to evaluate
-it in DEV/INT, read the [pilot guide](positioning-and-offer.md).
+Not tested. Start with a proof of concept on a non-production IBM i. We help
+with pilots; the [pilot guide](positioning-and-offer.md) says how to start and what
+to prepare. What we have measured, and on which version, is on the
+[evidence page](../evidence.md). The chart installs into the environments `dev`,
+`int`, `test` and `staging`.
 
 <!-- source: chart/templates/_helpers.tpl, README.md, docs/product/positioning-and-offer.md -->

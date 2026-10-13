@@ -197,10 +197,11 @@ def test_page_carries_no_private_identity(page: Path) -> None:
 
 
 @pytest.mark.parametrize("page", PAGES, ids=lambda p: p.name)
-def test_page_keeps_the_preview_status_visible(page: Path) -> None:
+def test_page_links_the_evidence_page_and_carries_no_disclaimer_banner(page: Path) -> None:
     text = " ".join(_read(page).split())
-    assert "DEV/INT preview" in text
-    assert "no production qualification is claimed" in text.lower()
+    assert "](../evidence.md)" in text, "measurements and limits are one link away"
+    for disclaimer in ("DEV/INT preview", "no production qualification is claimed", "is a preview"):
+        assert disclaimer not in text, disclaimer
 
 
 @pytest.mark.parametrize("page", PAGES, ids=lambda p: p.name)
@@ -330,7 +331,7 @@ def test_comparison_says_where_the_alternatives_are_stronger_and_where_quadringe
     for needle in ("Maturity", "Support", "Breadth", "Ecosystem"):
         assert needle in stronger, needle
     differs = section(COMPARISON, "Where Quadringent differs")
-    for needle in ("Apache-2.0", "No Kafka", "Runs in your account", "Evidence per table", "preview"):
+    for needle in ("Apache-2.0", "No Kafka", "Runs in your account", "Evidence per table", "Dated receipts"):
         assert needle in differs, needle
 
 

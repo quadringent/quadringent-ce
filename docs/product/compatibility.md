@@ -9,9 +9,8 @@ qualification covers it; it may work, and nothing here says so.
 
 Sources are the public code at the commit you read, the
 [dated qualification summary](../../site/qualification-0.3.4.json) and the
-IBM and Snowflake documentation linked below. Quadringent is a DEV/INT preview
-and nothing on this page is a production qualification; see the
-[evidence page](../evidence.md).
+IBM and Snowflake documentation linked below. The measurements behind the
+Tested rows are on the [evidence page](../evidence.md).
 
 ## IBM i source
 
@@ -28,7 +27,7 @@ and nothing on this page is a production qualification; see the
 | Other types: SMALLINT, BIGINT, TIME, GRAPHIC, BINARY, LOB, DECFLOAT, XML | Not tested | Mapped or rejected by the loader (`docs/product/snowflake-destination.md`); an unmapped type stops with `UnsupportedColumnTypeError`. |
 | CCSID 65535 columns | Required | Must be reclassified as binary at discovery, otherwise the column is rejected. Other CCSIDs than the test server's: Not tested. |
 | Writes under commitment control | Not tested | Measurements used isolated writes without commitment control. Rollback entries stop the window without advancing the checkpoint (`JournalSession.java`); uncommitted changes are not filtered by commit cycle. |
-| `RGZPFM`, `CLRPFM` | Not tested | Plan a manual resynchronization of the table after either command. The backlog reader stops on file-level journal entries, but the tail reader only reads row entries (`JOURNAL_CODES => 'R'` in `JournalSession.java`), so detection is not guaranteed. |
+| `RGZPFM`, `CLRPFM` | Not tested | Plan a manual resynchronization of the table after either command. The backlog reader stops on file-level journal entries, but the tail reader only reads row entries (`JOURNAL_CODES => 'R'` in `JournalSession.java`), so detection is Not tested. |
 | `CHGPF`, `ALTER TABLE`, `DROP TABLE` | Not tested | No specific handling is documented; plan a resynchronization. |
 | Receiver rotation (`CHGJRN`) | Not tested | The reader follows receivers in attach order and stops on a sequence gap. Rotation was not qualified (`rotation_qualified=false` in the native qualification). |
 | TLS host servers 9471, 9475, 9476 | Required | Database, remote command and sign-on servers over TLS; the chart and installer refuse plaintext (the engine-level opt-out is described in [IBM i footprint](ibm-i-footprint.md#ports-and-tls)). The site supplies its CA. `quadringent doctor --check-ibmi <host>` tests TCP reachability, and `--tls` a verified handshake. |
@@ -41,7 +40,7 @@ Quadringent only reads on IBM i: the product path runs no INSERT, UPDATE,
 DELETE, DDL or CL command (CL commands are suggested for an administrator,
 never executed). The list below derives from the operations in the public code
 and from IBM's documented authority for each one. It has **not been tested at
-runtime with a minimal profile**; validate it on a DEV/INT system.
+runtime with a minimal profile**; validate it on a non-production IBM i first.
 
 | Operation (code) | Documented authority | IBM source |
 |---|---|---|

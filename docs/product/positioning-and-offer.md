@@ -9,7 +9,7 @@ infrastructure and retains control of access and data.
 
 Historical DEV/INT qualifications cover AWS VM, EKS, GCP VM and GKE depending
 on version and scenario. The [README](../../README.md) separates measurements,
-limitations and simulations. They provide no SLA, PROD qualification or
+limitations and simulations. They provide no service commitment, PROD qualification or
 admission of future artifacts. Check the current version and its dated
 qualification in the README; earlier evidence remains bound to its original
 artifacts. Check Releases for actual availability.
@@ -27,12 +27,12 @@ Later support could be agreed separately. Managed hosting would be considered
 only after a real need is confirmed.
 
 This offer is not available for purchase. No price, contractual lead time,
-reference customer or SLA is announced.
+reference customer or service commitment is announced.
 
-## Discuss a DEV/INT pilot
+## Talk to us about a pilot
 
 **Private, without a GitHub account:** email
-[quadringent@proton.me](mailto:quadringent@proton.me?subject=DEV%2FINT%20pilot).
+[quadringent@proton.me](mailto:quadringent@proton.me?subject=Pilot%20request).
 Messages are read by the Quadringent maintainers.
 
 **Public, with a GitHub account:** open a
@@ -40,7 +40,7 @@ Messages are read by the Quadringent maintainers.
 The issue and your GitHub account name are publicly visible.
 
 Your first message needs only your role, the outcome you are looking for,
-whether IBM i, Snowflake and a DEV/INT environment are available, and an
+whether a non-production IBM i, Snowflake and a cloud account are available, and an
 approximate timeline. Do not send credentials, access, private hostnames,
 customer data, business data or attachments in a first request, by email or
 on GitHub.

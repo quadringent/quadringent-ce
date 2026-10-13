@@ -3,10 +3,9 @@
 Your data travels from the IBM i, through a reader and a bucket in your cloud
 account, to your Snowflake account. The sections below follow that path, then
 list every outbound connection the code in this repository makes, where the
-secrets live, and how to stop, uninstall and keep what you have. Quadringent is a
-DEV/INT preview: the chart accepts only the environments `dev`, `int`, `test` and
-`staging`, and no production qualification is claimed ([evidence](../evidence.md),
-[installation status](install-default.md)).
+secrets live, and how to stop, uninstall and keep what you have. The chart
+accepts the environments `dev`, `int`, `test` and `staging`
+([evidence](../evidence.md), [installation](install-default.md)).
 <!-- source: chart/templates/_helpers.tpl, chart/values.yaml -->
 
 What the software does on the IBM i itself is on

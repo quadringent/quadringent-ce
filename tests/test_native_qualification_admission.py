@@ -103,7 +103,8 @@ def fixture(tmp_path, override_label=None, duplicate_arch=False, config_arch=Non
             'head_branch':TAG,'path':'.github/workflows/release.yml','status':'completed','conclusion':'success',
             'repository':{'id':7,'full_name':repository,'private':True},'head_repository':{'id':7,'full_name':repository}},
         base+'/git/ref/tags/'+TAG: {'ref':'refs/tags/'+TAG,'object':{'type':'commit','sha':SOURCE}},
-        base+'/releases/tags/'+TAG: {'id':456,'tag_name':TAG,'draft':True},
+        base+'/releases?per_page=100&page=1': [{'id':456,'tag_name':TAG,'draft':True}],
+        base+'/releases/456': {'id':456,'tag_name':TAG,'draft':True},
         base+'/contents/.github/workflows/release.yml?ref='+SOURCE: {'encoding':'base64','content':base64.b64encode(workflow).decode()},
         base+'/actions/runs/123/attempts/1/jobs?per_page=100&page=1': {'total_count':4,'jobs':[
             {'id':i,'name':name,'run_id':123,'run_attempt':1,'status':'completed','conclusion':'success',
@@ -147,6 +148,161 @@ def test_pass_explicitly_separates_ci_seal_from_local_metadata(tmp_path):
     assert proof['revision']==SOURCE
 
 
+@pytest.mark.parametrize('draft', [True, False])
+def test_release_lookup_supports_draft_and_published_without_by_tag(tmp_path, draft):
+    f = fixture(tmp_path); base = 'repos/' + a.REPO
+    f[3].values[base + '/releases?per_page=100&page=1'][0]['draft'] = draft
+    f[3].values[base + '/releases/456']['draft'] = draft
+    original = f[3].get
+    def get(endpoint):
+        if endpoint == base + '/releases/tags/' + TAG:
+            raise RuntimeError('HTTP404 published-only lookup')
+        return original(endpoint)
+    f[3].get = get
+    proof, _ = execute(f)
+    assert proof['authenticated_ci']['release_id'] == 456
+    assert base + '/releases?per_page=100&page=1' in f[3].calls
+    assert base + '/releases/456' in f[3].calls
+    assert not any('/releases/tags/' in endpoint for endpoint in f[3].calls)
+
+
+def release_listing(tmp_path, pages):
+    f = fixture(tmp_path); client = f[3]; base = 'repos/' + a.REPO
+    for page, items in enumerate(pages, 1):
+        client.values[base + f'/releases?per_page=100&page={page}'] = items
+    return f[0], client
+
+
+def other_releases(start, count):
+    return [{'id': i, 'tag_name': f'other-{i}', 'draft': False} for i in range(start, start + count)]
+
+
+def test_release_lookup_reads_later_page_and_complete_inventory(tmp_path):
+    expected, client = release_listing(tmp_path, [
+        other_releases(1000, 100), [{'id': 456, 'tag_name': TAG, 'draft': True}],
+    ])
+    assert a.release_for_tag(expected, client)['id'] == 456
+    assert client.calls == ['repos/' + a.REPO + '/releases?per_page=100&page=1',
+                            'repos/' + a.REPO + '/releases?per_page=100&page=2',
+                            'repos/' + a.REPO + '/releases/456']
+
+
+@pytest.mark.parametrize('change', ['same_tag_new_id', 'same_id_same_tag', 'same_id_other_tag'])
+def test_release_lookup_does_not_accept_first_match_before_later_duplicates(tmp_path, change):
+    first = [{'id': 456, 'tag_name': TAG, 'draft': True}, *other_releases(1000, 99)]
+    second = {'id': 457 if change == 'same_tag_new_id' else 456,
+              'tag_name': 'other-tag' if change == 'same_id_other_tag' else TAG, 'draft': True}
+    expected, client = release_listing(tmp_path, [first, [second]])
+    with pytest.raises(ValueError):
+        a.release_for_tag(expected, client)
+    assert not any(endpoint.endswith('/releases/456') for endpoint in client.calls)
+
+
+@pytest.mark.parametrize('listing', [
+    None, {}, 'not-an-array', [None], ['not-an-object'], [{}],
+    [{'id': True, 'tag_name': TAG, 'draft': True}],
+    [{'id': False, 'tag_name': TAG, 'draft': True}],
+    [{'id': 0, 'tag_name': TAG, 'draft': True}],
+    [{'id': -1, 'tag_name': TAG, 'draft': True}],
+    [{'id': 456.0, 'tag_name': TAG, 'draft': True}],
+    [{'id': '456', 'tag_name': TAG, 'draft': True}],
+    [{'id': 456, 'tag_name': None, 'draft': True}],
+    [{'id': 456, 'tag_name': '', 'draft': True}],
+    [{'id': 456, 'tag_name': 2, 'draft': True}],
+    [{'id': 456, 'tag_name': TAG}],
+    [{'id': 456, 'tag_name': TAG, 'draft': 1}],
+    [{'id': 456, 'tag_name': TAG, 'draft': 'true'}],
+    other_releases(1000, 101),
+])
+def test_release_lookup_malformed_listing_is_refused(tmp_path, listing):
+    expected, client = release_listing(tmp_path, [listing])
+    with pytest.raises(ValueError):
+        a.release_for_tag(expected, client)
+
+
+@pytest.mark.parametrize('listing', [[], other_releases(1000, 1)])
+def test_release_lookup_absence_is_not_an_admission(tmp_path, listing):
+    expected, client = release_listing(tmp_path, [listing])
+    with pytest.raises(ValueError, match='release_absent_or_ambiguous'):
+        a.release_for_tag(expected, client)
+
+
+def test_release_lookup_duplicate_unrelated_id_is_invalid_inventory(tmp_path):
+    expected, client = release_listing(tmp_path, [
+        [{'id': 456, 'tag_name': TAG, 'draft': True}, *other_releases(1000, 1), *other_releases(1000, 1)],
+    ])
+    with pytest.raises(ValueError, match='release_duplicate_id'):
+        a.release_for_tag(expected, client)
+
+
+def test_release_lookup_last_permitted_short_page_is_complete(tmp_path, monkeypatch):
+    monkeypatch.setattr(a, 'MAX_RELEASE_PAGES', 2)
+    expected, client = release_listing(tmp_path, [
+        other_releases(1000, 100), [{'id': 456, 'tag_name': TAG, 'draft': True}],
+    ])
+    assert a.release_for_tag(expected, client)['id'] == 456
+    assert not any('page=3' in endpoint for endpoint in client.calls)
+
+
+def test_release_lookup_full_page_requires_and_accepts_empty_terminal_page(tmp_path):
+    expected, client = release_listing(tmp_path, [
+        [{'id': 456, 'tag_name': TAG, 'draft': True}, *other_releases(1000, 99)], [],
+    ])
+    assert a.release_for_tag(expected, client)['id'] == 456
+    assert any('page=2' in endpoint for endpoint in client.calls)
+
+
+def test_release_lookup_full_last_page_is_truncation_even_with_a_match(tmp_path, monkeypatch):
+    monkeypatch.setattr(a, 'MAX_RELEASE_PAGES', 2)
+    expected, client = release_listing(tmp_path, [
+        [{'id': 456, 'tag_name': TAG, 'draft': True}, *other_releases(1000, 99)],
+        other_releases(2000, 100), [],
+    ])
+    with pytest.raises(ValueError, match='release_pagination_incomplete'):
+        a.release_for_tag(expected, client)
+    assert len(client.calls) == 2 and not any('page=3' in endpoint for endpoint in client.calls)
+
+
+def test_release_lookup_missing_continuation_is_not_absence(tmp_path):
+    f = fixture(tmp_path); expected, client = f[0], f[3]
+    client.values['repos/' + a.REPO + '/releases?per_page=100&page=1'] = other_releases(1000, 100)
+    with pytest.raises(KeyError):
+        a.release_for_tag(expected, client)
+
+
+@pytest.mark.parametrize('target', ['first_page', 'second_page', 'id'])
+def test_release_lookup_api_error_is_not_a_fallback(tmp_path, target):
+    pages = (other_releases(1000, 100), [{'id': 456, 'tag_name': TAG, 'draft': True}])
+    expected, client = release_listing(tmp_path, pages); original = client.get
+    suffix = {'first_page': '/releases?per_page=100&page=1',
+              'second_page': '/releases?per_page=100&page=2', 'id': '/releases/456'}[target]
+    def get(endpoint):
+        if endpoint.endswith(suffix):
+            raise RuntimeError('HTTP404 or HTTP403 must remain failures')
+        return original(endpoint)
+    client.get = get
+    with pytest.raises(RuntimeError):
+        a.release_for_tag(expected, client)
+    assert not any('/releases/tags/' in endpoint for endpoint in client.calls)
+
+
+@pytest.mark.parametrize('details', [
+    None, [], {},
+    {'id': 457, 'tag_name': TAG, 'draft': True},
+    {'id': True, 'tag_name': TAG, 'draft': True},
+    {'id': 456.0, 'tag_name': TAG, 'draft': True},
+    {'id': 456, 'tag_name': 'v0.2.1', 'draft': True},
+    {'id': 456, 'tag_name': TAG, 'draft': False},
+    {'id': 456, 'tag_name': TAG, 'draft': 1},
+    {'id': 456, 'tag_name': TAG},
+])
+def test_release_lookup_id_read_refuses_identity_or_state_drift(tmp_path, details):
+    expected, client = release_listing(tmp_path, [[{'id': 456, 'tag_name': TAG, 'draft': True}]])
+    client.values['repos/' + a.REPO + '/releases/456'] = details
+    with pytest.raises(ValueError, match='release_identity_drift'):
+        a.release_for_tag(expected, client)
+
+
 @pytest.mark.parametrize('change', ['private','run_failure','wrong_repo','source','tag','attempt','workflow',
  'scan_failed','scan_missing','sign_missing','duplicate_step','job_attempt','expiry','artifact_source',
  'artifact_run','zip_digest','artifact_name','artifact_old_attempt','artifact_expired_date','release_tag'])
@@ -172,7 +328,7 @@ def test_authenticated_evidence_drift_refused(tmp_path,change):
     elif change=='artifact_name':artifact['name']='other'
     elif change=='artifact_old_attempt':artifact['created_at']='2026-09-29T16:00:00Z'
     elif change=='artifact_expired_date':artifact['expires_at']='2026-09-30T16:00:00Z'
-    else:v[b+'/releases/tags/'+TAG]['tag_name']='v0.2.1'
+    else:v[b+'/releases/456']['tag_name']='v0.2.1'
     with pytest.raises(ValueError):execute(f)
 
 

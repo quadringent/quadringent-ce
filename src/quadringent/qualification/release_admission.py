@@ -48,6 +48,8 @@ MAX_METADATA_BYTES = 2 * 1024 * 1024
 MAX_METADATA_TOTAL_BYTES = 42 * 1024 * 1024
 MAX_METADATA_ZIP_BYTES = 48 * 1024 * 1024
 METADATA_UPLOAD_STEP = "Temporarily retain original OCI metadata"
+RELEASE_PAGE_SIZE = 100
+MAX_RELEASE_PAGES = 10
 DIGEST = re.compile(r'sha256:[0-9a-f]{64}\Z')
 HEX = re.compile(r'[0-9a-f]{64}\Z')
 
@@ -108,6 +110,36 @@ class GitHub:
                                 timeout=remaining, check=False)
         require(result.returncode == 0, 'github_api_failure')
         return document(result.stdout)
+
+
+def release_for_tag(expected, client):
+    base = 'repos/' + expected.repository
+    seen = set()
+    matches = []
+    # Require a terminal page before accepting any matching draft or published release.
+    for page in range(1, MAX_RELEASE_PAGES + 1):
+        listing = client.get(base + f'/releases?per_page={RELEASE_PAGE_SIZE}&page={page}')
+        require(isinstance(listing, list) and len(listing) <= RELEASE_PAGE_SIZE, 'release_list_shape')
+        for release in listing:
+            require(isinstance(release, dict) and type(release.get('id')) is int and release['id'] > 0
+                    and isinstance(release.get('tag_name'), str) and bool(release['tag_name'])
+                    and type(release.get('draft')) is bool, 'release_entry_shape')
+            require(release['id'] not in seen, 'release_duplicate_id')
+            seen.add(release['id'])
+            if release['tag_name'] == expected.tag:
+                matches.append(release)
+        if len(listing) < RELEASE_PAGE_SIZE:
+            break
+    else:
+        raise ValueError('release_pagination_incomplete')
+    require(len(matches) == 1, 'release_absent_or_ambiguous')
+    selected = matches[0]
+    release = client.get(base + f'/releases/{selected["id"]}')
+    require(isinstance(release, dict) and type(release.get('id')) is int
+            and release['id'] == selected['id'] and release.get('tag_name') == expected.tag
+            and type(release.get('draft')) is bool and release['draft'] is selected['draft'],
+            'release_identity_drift')
+    return release
 
 
 def receipt_bytes(archive, artifact):
@@ -226,8 +258,7 @@ def authenticated_evidence(expected, artifact_id, metadata_artifact_id, client, 
         if target['type'] != 'tag': break
         target = client.get(base + '/git/tags/' + target['sha'])['object']
     require(target.get('type') == 'commit' and target.get('sha') == expected.source, 'tag_source_drift')
-    release = client.get(base + '/releases/tags/' + expected.tag)
-    require(release.get('tag_name') == expected.tag and isinstance(release.get('id'), int), 'release_identity')
+    release = release_for_tag(expected, client)
     content = client.get(base + '/contents/.github/workflows/release.yml?ref=' + expected.source)
     require(content.get('encoding') == 'base64', 'workflow_encoding')
     workflow_raw = base64.b64decode(''.join(content['content'].split()), validate=True)

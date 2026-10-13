@@ -78,7 +78,8 @@ def date(value):
 def read_regular(path, maximum):
     path = Path(path)
     require(not any(p.is_symlink() for p in [path, *path.parents]), 'local_symlink')
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    # Avoid waiting on a FIFO before checking its file type.
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, 'rb') as stream:
         before = os.fstat(stream.fileno())
         require(stat.S_ISREG(before.st_mode) and before.st_size <= maximum, 'local_file_size_or_type')

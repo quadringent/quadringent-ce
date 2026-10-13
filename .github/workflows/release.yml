@@ -560,7 +560,7 @@ jobs:
     # a blocking scan prevents any release announcement.
     needs: [images, chart, validate]
     environment: publication-approved
-    if: ${{ success() && (!(github.event.repository.private && vars.PRIVATE_RUNNER_LABELS != '') || (github.event_name == 'workflow_dispatch' && github.ref == format('refs/tags/{0}', vars.PRIVATE_APPROVED_TAG) && github.workflow_ref == format('{0}/.github/workflows/release.yml@refs/tags/{1}', github.repository, vars.PRIVATE_APPROVED_TAG) && inputs.version == vars.PRIVATE_APPROVED_TAG && github.sha == vars.PRIVATE_APPROVED_SHA)) }}
+    if: ${{ success() && (vars.PUBLICATION_APPROVED == 'true') && (!(github.event.repository.private && vars.PRIVATE_RUNNER_LABELS != '') || (github.event_name == 'workflow_dispatch' && github.ref == format('refs/tags/{0}', vars.PRIVATE_APPROVED_TAG) && github.workflow_ref == format('{0}/.github/workflows/release.yml@refs/tags/{1}', github.repository, vars.PRIVATE_APPROVED_TAG) && inputs.version == vars.PRIVATE_APPROVED_TAG && github.sha == vars.PRIVATE_APPROVED_SHA)) }}
     runs-on: ${{ fromJSON(github.event.repository.private && github.event_name == 'workflow_dispatch' && github.ref == format('refs/tags/{0}', vars.PRIVATE_APPROVED_TAG) && github.workflow_ref == format('{0}/.github/workflows/release.yml@refs/tags/{1}', github.repository, vars.PRIVATE_APPROVED_TAG) && inputs.version == vars.PRIVATE_APPROVED_TAG && github.sha == vars.PRIVATE_APPROVED_SHA && vars.PRIVATE_RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 10
     permissions:

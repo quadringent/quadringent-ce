@@ -72,6 +72,15 @@ def test_release_builds_local_and_scans_before_any_registry_upload():
     assert "release_oci.py verify" in promote
 
 
+@pytest.mark.parametrize("job_name", ("images", "chart", "release"))
+def test_publication_writers_require_approval_even_after_dependencies_succeed(job_name):
+    jobs = yaml.safe_load(Path(".github/workflows/release.yml").read_text())["jobs"]
+    job = jobs[job_name]
+    assert job["environment"] == "publication-approved"
+    assert job["if"].startswith("${{ success() && (vars.PUBLICATION_APPROVED == 'true') && (")
+    assert job["if"] == jobs["images"]["if"]
+
+
 def test_scan_receipts_use_the_same_version_as_all_six_sbom_outputs():
     steps = yaml.safe_load(Path(".github/workflows/release.yml").read_text())["jobs"]["images"]["steps"]
     seal = next(step for step in steps if "release_oci.py seal" in step.get("run", ""))
@@ -619,6 +628,33 @@ def test_export_total_size_is_bounded(tmp_path, monkeypatch):
     monkeypatch.setattr(release_oci, "MAX_METADATA_TOTAL_BYTES", 1)
     with pytest.raises(ValueError, match="too large"):
         release_oci.export_metadata(root, receipt, tmp_path / "metadata", "a" * 40, "0.2.2", "example/quadringent")
+
+
+@pytest.mark.parametrize("kind", ("regular", "symlink", "fifo"))
+def test_read_metadata_accepts_regular_and_refuses_other_types_without_blocking(tmp_path, kind):
+    path = tmp_path.resolve() / "input"
+    if kind == "fifo":
+        os.mkfifo(path, 0o600)
+    elif kind == "symlink":
+        target = path.with_name("target")
+        target.write_bytes(b"public-marker")
+        path.symlink_to(target)
+    else:
+        path.write_bytes(b"public-marker")
+    code = """
+import sys
+from pathlib import Path
+from scripts.release_oci import read_metadata
+try:
+    content = read_metadata(Path(sys.argv[1]), 64)
+except ValueError:
+    assert sys.argv[2] != 'regular'
+else:
+    assert sys.argv[2] == 'regular' and content == b'public-marker'
+"""
+    result = subprocess.run([sys.executable, "-c", code, str(path), kind],
+                            capture_output=True, timeout=2, check=False)
+    assert result.returncode == 0, result.stderr.decode()
 
 
 def test_export_cli_uses_native_workflow_arguments(tmp_path):

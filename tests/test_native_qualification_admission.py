@@ -4,7 +4,10 @@ from datetime import datetime, timezone
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 import zipfile
 
 import pytest
@@ -262,6 +265,33 @@ def test_output_private_exclusive_and_no_symlinks(tmp_path):
     link=tmp_path/'link';link.symlink_to(target)
     with pytest.raises(ValueError):a.write_private(link,b'changed')
     assert target.read_bytes()==b'private'
+
+
+@pytest.mark.parametrize('kind', ['regular', 'symlink', 'fifo'])
+def test_read_regular_accepts_regular_and_refuses_other_types_without_blocking(tmp_path, kind):
+    path = tmp_path.resolve() / 'input'
+    if kind == 'fifo':
+        os.mkfifo(path, 0o600)
+    elif kind == 'symlink':
+        target = path.with_name('target')
+        target.write_bytes(b'public-marker')
+        path.symlink_to(target)
+    else:
+        path.write_bytes(b'public-marker')
+    code = """
+import sys
+from quadringent.qualification.release_admission import read_regular
+try:
+    content = read_regular(sys.argv[1], 64)
+except ValueError:
+    assert sys.argv[2] != 'regular'
+else:
+    assert sys.argv[2] == 'regular' and content == b'public-marker'
+"""
+    result = subprocess.run([sys.executable, '-c', code, str(path), kind],
+                            env={**os.environ, 'PYTHONPATH': str(Path('src').resolve())},
+                            capture_output=True, timeout=2, check=False)
+    assert result.returncode == 0, result.stderr.decode()
 
 
 @pytest.mark.parametrize('change',['no_ci','pr','sha','branch','failed','queued','job_skipped','job_missing','job_duplicate','latest_failed','validate_step','ci_workflow_jobs'])

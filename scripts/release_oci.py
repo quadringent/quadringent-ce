@@ -241,7 +241,8 @@ MAX_METADATA_TOTAL_BYTES = 42 * 1024 * 1024
 def read_metadata(path: Path, maximum: int = MAX_METADATA_BYTES) -> bytes:
     if any(parent.is_symlink() for parent in (path, *path.parents)):
         raise ValueError("link in local metadata")
-    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW), "rb") as source:
+    # Avoid waiting on a FIFO before checking its file type.
+    with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), "rb") as source:
         before = os.fstat(source.fileno())
         if not stat.S_ISREG(before.st_mode) or before.st_size > maximum:
             raise ValueError("metadata outside the type or limit")

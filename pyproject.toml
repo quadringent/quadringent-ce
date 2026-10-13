@@ -6,11 +6,31 @@ build-backend = "setuptools.build_meta"
 name = "quadringent"
 version = "0.4.2"
 description = "IBM i change capture into Snowflake with evidence of progress"
-readme = "README.md"
+readme = "docs/pypi.md"
 requires-python = ">=3.12"
+keywords = ["ibm-i", "as400", "cdc", "snowflake", "change-data-capture", "replication"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Operating System :: POSIX",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Database",
+    "Topic :: System :: Archiving :: Mirroring",
+]
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_NOTICES.md", "licenses/*"]
 dependencies = ["boto3>=1.40,<2", "PyYAML>=6,<7"]
+
+[project.urls]
+Homepage = "https://quadringent.github.io/quadringent-ce/"
+Source = "https://github.com/quadringent/quadringent-ce"
+Documentation = "https://quadringent.github.io/quadringent-ce/docs/getting-started/"
+Changelog = "https://github.com/quadringent/quadringent-ce/blob/main/CHANGELOG.md"
+Issues = "https://github.com/quadringent/quadringent-ce/issues"
+"Security policy" = "https://github.com/quadringent/quadringent-ce/blob/main/SECURITY.md"
 
 [project.optional-dependencies]
 site = ["Markdown==3.11"]

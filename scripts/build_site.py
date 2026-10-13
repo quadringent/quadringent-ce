@@ -23,6 +23,16 @@ DOC_PAGES = {
     "SECURITY.md": ("security", "Security and access boundaries"),
     "docs/licensing.md": ("community", "Community Edition and Apache-2.0"),
     "docs/product/positioning-and-offer.md": ("pilot", "Prepare an IBM i to Snowflake pilot"),
+    "docs/product/ibm-i-footprint.md": ("ibm-i-footprint", "What Quadringent installs and does on your IBM i"),
+    "docs/product/your-data.md": ("your-data", "Where your IBM i data goes and how to stop"),
+    "docs/product/verify-a-release.md": ("verify-a-release", "Verify a Quadringent release against the public code"),
+    "docs/governance.md": ("governance", "Governance and continuity of an open-source IBM i CDC project"),
+    "SUPPORT.md": ("support", "Support for Quadringent Community"),
+    "docs/product/faq.md": ("faq", "Questions for a first call about IBM i to Snowflake CDC"),
+    "docs/product/comparison.md": ("comparison", "How Quadringent compares with other IBM i to Snowflake options"),
+    "docs/articles/ibm-i-journals-for-cdc.md": ("ibm-i-journals-for-cdc", "How IBM i journals work for change data capture"),
+    "docs/articles/capture-delivery-reconciliation.md": ("capture-delivery-reconciliation", "Capture is not delivery: proving IBM i data reached Snowflake"),
+    "docs/articles/as400-to-snowflake-options.md": ("as400-to-snowflake-options", "Options to replicate AS/400 (IBM i) data to Snowflake"),
 }
 
 # Search snippets: what each page lets a reader do, not a shared template.
@@ -41,6 +51,16 @@ DOC_DESCRIPTIONS = {
     "SECURITY.md": "Quadringent security boundaries: authentication, network flows, TLS, identities, data retention and vulnerability reporting.",
     "docs/licensing.md": "Quadringent Community Edition under Apache-2.0: what is free, what may be offered later and what stays granted.",
     "docs/product/positioning-and-offer.md": "Prepare and request a DEV/INT pilot of IBM i to Snowflake replication, privately or on GitHub.",
+    "docs/product/ibm-i-footprint.md": "Check what Quadringent installs and runs on your IBM i, which authorities each part needs, what it changes and what it never does, before you approve access.",
+    "docs/product/your-data.md": "Follow your IBM i data from the journal to Snowflake, see what leaves your accounts, and follow the steps to stop, uninstall and keep your data.",
+    "docs/product/verify-a-release.md": "Verify image signatures, SBOMs and pinned digests of a published Quadringent release on your own machine, and learn what a passing check does not prove.",
+    "docs/governance.md": "How the pseudonymous Quadringent project is run, how decisions are made and what remains available if the maintainers stop.",
+    "SUPPORT.md": "Find out what support exists for Quadringent Community, where to ask for help and what is not offered.",
+    "docs/product/faq.md": "Answers to the questions a data or IBM i team asks on a first call: scope, IBM i impact, data location, status, cost and support.",
+    "docs/product/comparison.md": "Compare Quadringent with other ways to move IBM i data to Snowflake, with sourced vendor facts and the trade-offs on both sides.",
+    "docs/articles/ibm-i-journals-for-cdc.md": "How IBM i journals and journal receivers record changes, and what a change data capture reader must handle: retention, keys and recovery.",
+    "docs/articles/capture-delivery-reconciliation.md": "Why reading a journal does not prove Snowflake is current, and how to separate capture, delivery and reconciliation evidence.",
+    "docs/articles/as400-to-snowflake-options.md": "Compare the main ways to replicate AS/400 (IBM i) data to Snowflake: batch extracts, commercial CDC, Kafka-based CDC and Quadringent.",
 }
 
 # Python-Markdown passes unknown inline tags through; placeholders such as

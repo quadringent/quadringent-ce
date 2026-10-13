@@ -204,9 +204,11 @@ def test_hero_uses_latest_scoped_observations_without_transferring_versions():
     runtime = scoped_summary("runtime-0.3.5")
     recovery = scoped_summary("recovery-0.3.4")
     facts = text_of(re.search(r'<dl class="release-facts".*?</dl>', read("site/index.html"), re.S)[0])
-    source_version = tomllib.loads(read("pyproject.toml"))["project"]["version"]
-    assert release_version() == source_version
-    assert f'{source_version}: native CDC, outage, latency and complete cloud-loss recovery need fresh qualification' in facts
+    published_version = "0.4.2"
+    assert release_version() == published_version
+    readme = flat(read("README.md"))
+    assert f'latest published prerelease remains **{published_version}**' in readme
+    assert f'{published_version}: native CDC, outage, latency and complete cloud-loss recovery need fresh qualification' in facts
     assert f'Historical {runtime["version"]}: fresh initial copy on 4 targets' in facts
     assert f'{recovery["version"]} recovery' in facts
     assert "8 cold/warm observations within 10 s" in facts
@@ -314,7 +316,7 @@ def test_readme_matches_scoped_receipts_and_preserves_historical_results():
     recovery = scoped_summary("recovery-0.3.4")
     readme = flat(read("README.md"))
     source_version = tomllib.loads(read("pyproject.toml"))["project"]["version"]
-    assert f'Current source is **{source_version}**' in readme
+    assert f'Source version is **{source_version} candidate**' in readme
     assert f'The published **{runtime["version"]}**' in readme
     assert "need fresh qualification" in readme
     assert "Historical measurements apply only to their original artifacts and scopes" in readme

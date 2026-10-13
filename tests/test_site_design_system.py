@@ -218,4 +218,6 @@ def test_site_has_no_coloured_rail_eyebrow_card_or_callout():
     html = (SITE / "index.html").read_text()
     for class_name in ("eyebrow", "card", "callout", "badge", "pill", "tile"):
         assert not re.search(rf'class="[^"]*\b{class_name}\b', html), class_name
-    assert " · " not in re.sub(r"<[^>]+>", " ", html).replace("Cockpit · ", ""), "no dot separators in labels"
+    labels = re.sub(r"<[^>]+>", " ", html).replace("Cockpit · ", "")
+    assert labels.count(" · ") == 1 and re.search(r"Version \d+\.\d+ · Apache-2\.0", labels), (
+        "no dot separators in labels, except the single status line Version X.Y · Apache-2.0")

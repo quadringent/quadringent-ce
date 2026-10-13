@@ -67,30 +67,51 @@ def test_readme_leads_with_the_thesis_and_the_value_statement():
     assert "does not compare business values by key" in top
 
 
-def test_readme_states_the_status_once_and_points_to_the_evidence_page():
+def test_readme_states_version_and_licence_once_and_points_to_the_evidence_page():
     text = read("README.md")
     top = flat(readme_first_screen())
-    assert "Status: Preview, DEV/INT only. We claim no production qualification." in top
-    assert len(re.findall(r"no production qualification", text, re.I)) == 1
-    assert text.count("DEV/INT") <= 2, "the status line and the pilot call to action"
-    assert "[docs/evidence.md](docs/evidence.md)" in top
-    source_version = tomllib.loads(read("pyproject.toml"))["project"]["version"]
-    assert f"Source version {source_version} (candidate; latest published prerelease" in top and "needs fresh qualification" in top
+    assert top.count("Version 0.4 \u00b7 Apache-2.0") == 1
+    for disclaimer in ("Preview, DEV/INT only", "no production qualification", "claim no production", "needs fresh qualification"):
+        assert disclaimer.lower() not in text.lower(), disclaimer
+    assert "(docs/evidence.md)" in top
+    project = tomllib.loads(read("pyproject.toml"))["project"]
+    assert project["version"].startswith("0.4."), "the status line says Version 0.4"
+    source_version = project["version"]
+    published = re.search(r"latest published prerelease (\d+\.\d+\.\d+)", top)[1]
+    assert f"Source {source_version}, latest published prerelease {published}" in top
+    assert set(re.findall(r"\b0\.4\.\d+\b", text)) <= {source_version, published}, "no stale source version"
     runtime = json.loads(read("site/runtime-0.3.5.json"))
     recovery = json.loads(read("site/recovery-0.3.4.json"))
-    assert f'{runtime["version"]} (initial copy)' in top and f'{recovery["version"]} (recovery)' in top
-    assert "2026-10-12" in top
-    published = re.search(r"latest published prerelease (\d+\.\d+\.\d+)", top)[1]
-    assert set(re.findall(r"\b0\.4\.\d+\b", text)) <= {source_version, published}, "no stale source version"
+    assert f'(release {runtime["version"]}, {runtime["date_utc"]})' in top
+    assert f'reader-kill recovery with source writes on {recovery["version"]}' in top and "four cloud targets" in top
+    assert "Initial copy of synthetic tables tested against a real IBM i" in top and "end to end" not in top
+    assert len(runtime["initial_copy"]["sites"]) == 4 == len(recovery["sites"])
 
 
-def test_readme_names_the_uncomfortable_facts_first():
+def test_readme_first_screen_is_thesis_status_proof_risk_reversal_and_a_poc_call_to_action():
     top = flat(readme_first_screen())
-    assert "3 of 4 targets missed our 10 s latency bar" in top and "a later run passed on all four" in top
-    assert "CPU and I/O cost of the reader is Not measured" in top
-    assert "Only IBM i 7.5, on one shared server, has been tested, in a historical measurement on one table" in top
-    assert "no published summary names the release" in top
-    assert top.index("3 of 4 targets") < top.index("Only IBM i 7.5")
+    order = ["A running reader doesn't mean your data arrived.", "Version 0.4 \u00b7 Apache-2.0",
+             "tested against a real IBM i and a real Snowflake account",
+             "What a proof of concept touches", "[Run a POC on your DEV IBM i]",
+             "[talk to us about a pilot]"]
+    positions = [top.index(item) for item in order]
+    assert positions == sorted(positions)
+    # The risk-reversal items are facts that the cited pages and tests back.
+    for item in ("installs nothing on your IBM i", "docs/product/ibm-i-footprint.md", "docs/product/your-data.md",
+                 "`quadringent doctor`", "`quadringent uninstall` removes the Helm release",
+                 "bucket, checkpoints and identities stay", "docs/product/install-default.md#uninstall",
+                 "Apache-2.0, with no license key"):
+        assert item in top, item
+    assert "installation guide is the path that exists today" in top
+    assert "`quadringent local`" in top and "is not in a published release yet" in top
+    # The uncomfortable facts moved to the evidence page, where they stay complete.
+    evidence = flat(read("docs/evidence.md"))
+    for fact in ("3 of 4 targets missed our 10 s bar", "IBM i CPU and I/O cost is Not measured",
+                 "Only IBM i 7.5 has been tested, on one shared qualification server",
+                 "The published summaries do not name the release"):
+        assert fact in evidence, fact
+    assert "uninstall" in flat(read("docs/product/install-default.md")).lower()
+    assert "## Uninstall" in read("docs/product/install-default.md")
 
 
 def test_readme_shows_the_synthetic_evidence_and_a_real_doctor_transcript():
@@ -108,8 +129,8 @@ def test_readme_shows_the_synthetic_evidence_and_a_real_doctor_transcript():
 def test_readme_offers_the_next_steps_in_order():
     text = flat(read("README.md"))
     demo = text.index("node ui/scripts/build-demo.mjs --serve")
-    doctor = text.index("`quadringent doctor`")
-    local = text.index("`quadringent local`")
+    doctor = text.index("`quadringent doctor` ([preflight and diagnosis]")
+    local = text.index("`quadringent local` copies one table")
     compatibility = text.index("(docs/product/compatibility.md)")
     assert demo < doctor < local < compatibility
     assert "(docs/product/synthetic-demo.md)" in text
@@ -127,7 +148,7 @@ def test_readme_offers_the_next_steps_in_order():
 def test_readme_keeps_the_trust_section_and_the_licence_statement():
     text = read("README.md")
     assert "## Trust and verification" in text
-    assert text.index("Status: Preview, DEV/INT only.") < text.index("## Trust and verification")
+    assert text.index("Version 0.4 \u00b7 Apache-2.0") < text.index("## Trust and verification")
     assert "with no license key or commercial table limit" in flat(text)
     assert "[project model](docs/licensing.md)" in text
 
@@ -174,39 +195,143 @@ def test_hero_leads_with_the_thesis_and_one_sentence_of_value():
         assert "AS/400" in re.search(pattern, head, re.S)[1], pattern
 
 
-def test_hero_has_one_status_line_and_states_the_uncomfortable_fact():
+def minor_version() -> str:
+    return ".".join(source_version().split(".")[:2])
+
+
+# Disclaimers retired by W8. The evidence page keeps every limit factually; front pages do not apologise.
+RETIRED_DISCLAIMERS = ("Preview, DEV/INT only", "DEV/INT preview", "no production qualification",
+                       "We claim no production", "not a release qualification", "nothing here is a production claim",
+                       "not yet run in production", "No paid offer")
+
+
+def test_hero_has_a_version_line_and_no_disclaimer():
     section = hero()
     status = text_of_home(re.search(r'<p class="status-line">.*?</p>', section, re.S)[0])
-    for phrase in ("Preview, DEV/INT only", "No production qualification", "no SLA", f"Source {source_version()}"):
-        assert phrase in status, phrase
-    runtime = json.loads(read("site/runtime-0.3.5.json"))
-    assert f'last observed release {runtime["version"]} ({runtime["date_utc"]})' in status
-    assert 'data-repo-path="docs/evidence.md" href="../docs/evidence.md"' in section
-    fact = status
-    targets = json.loads(read("site/qualification-0.3.4.json"))["cold_warehouse_latency"]["targets"]
-    missed = [name for name, values in targets.items() if not values["SQL_and_ACK_threshold_passed"]]
-    assert f"{len(missed)} of {len(targets)} targets missed our 10 s bar" in fact
-    assert "later 0.3.4 run passed on all four" in fact
-    assert "hero__fact" not in section, "the fact lives in the status line, not in a third paragraph"
-    # The worst figure and the P95 / SLA disclaimer sit in the evidence ledger.
-    ledger = text_of_home(re.search(r'<ul class="ledger">.*?</ul>', home(), re.S)[0])
-    assert f"{historical_worst_sql_start():.3f} s" in ledger and "P95" in ledger and "SLA" in ledger
-    # Order: thesis, value, status (with the fact), action, then the product on the right.
-    order = [section.index(token) for token in ("<h1", 'class="hero__lead"', 'class="status-line"',
+    assert status.startswith(f"Version {minor_version()} \u00b7 Apache-2.0")
+    published = re.search(r"latest published prerelease (\d+\.\d+\.\d+)", status)[1]
+    assert f"Source {source_version()} candidate, latest published prerelease {published}" in status
+    for retired in (*RETIRED_DISCLAIMERS, "no SLA", "No production"):
+        assert retired not in text_of_home(section), retired
+    assert "hero__fact" not in section and "release-facts" not in section
+    # Order: thesis, value, version, proof, actions, then the product on the right.
+    order = [section.index(token) for token in ("<h1", 'class="hero__lead"', 'class="status-line"', 'class="proof-line"',
                                                   'class="actions"', "<figure")]
     assert order == sorted(order)
-    assert "release-facts" not in section, "the spec card is gone"
 
 
-def test_hero_has_one_primary_action_and_one_secondary_link():
+def test_hero_proof_line_matches_the_receipts_and_claims_nothing_more():
+    """What the page says was tested is what the receipts show: versions, dates, targets, and no more."""
+    section = hero()
+    raw = re.search(r'<p class="proof-line">.*?</p>', section, re.S)[0]
+    proof = text_of_home(raw)
+    runtime = json.loads(read("site/runtime-0.3.5.json"))
+    recovery = json.loads(read("site/recovery-0.3.4.json"))
+    assert runtime["public_ready"] and recovery["public_ready"]
+    assert runtime["production_qualified"] is False and runtime["external_pilot_validated"] is False
+    # The 0.3.5 campaign was an initial copy with no new source write: the sentence says so and names nothing else.
+    assert runtime["initial_copy"]["new_source_writes"] == 0
+    # No "end to end": 0.3.5 wrote nothing new at the source, and tests/test_no_overclaim.py forbids it in a proof line.
+    assert "end to end" not in proof
+    assert proof.startswith("Initial copy of two synthetic tables tested against a real IBM i and a real Snowflake account ")
+    assert f'(release {runtime["version"]}, {runtime["date_utc"]})' in proof
+    sites = runtime["initial_copy"]["sites"]
+    assert len(sites) == 4 and "on each of four cloud targets" in proof
+    assert runtime["initial_copy"]["tables_per_target"] == 2 and "two synthetic tables" in proof
+    assert len(recovery["sites"]) == 4 and f'recovery on {recovery["version"]}' in proof
+    assert all(site["passed"] for site in sites.values())
+    assert all(site["actual_reader_SIGKILL_and_ACK_inside_stop_passed"] for site in recovery["sites"].values())
+    assert recovery["observed_at_utc"].startswith(runtime["date_utc"]), "both campaigns are dated 2026-10-12"
+    # Volumes, the IBM i release and the receipt scope are one link away, on the evidence page.
+    evidence_page = flat(read("docs/evidence.md"))
+    assert {site["mirror_rows"] for site in sites.values()} == {110} and "110" in evidence_page
+    assert "Only IBM i 7.5 has been tested" in evidence_page and "7.5" not in proof
+    release = re.compile(r"(?<![\d.])7\.5(?!\d)")
+    assert not release.search(json.dumps(runtime)) and not release.search(json.dumps(recovery)), "no receipt names the release"
+    published = re.search(r"latest published prerelease (\d+\.\d+\.\d+)", text_of_home(hero()))[1]
+    assert published not in proof, "the proof line claims nothing for the published prerelease"
+    assert not [path for path in (ROOT / "site").glob("*.json") if published in path.name], "no receipt exists for the prerelease"
+    assert published != runtime["version"] != recovery["version"]
+    for word in ("production", "customer", "pilot", "SLA", "latency", "P95", "guarantee", "certif"):
+        assert word.lower() not in proof.lower(), word
+    # One link, to the evidence page (limits and figures); the receipts themselves are linked in the evidence section.
+    assert raw.count("<a ") == 1 and 'data-repo-path="docs/evidence.md" href="../docs/evidence.md">Receipt summaries, volumes and limits</a>' in raw
+    evidence = re.search(r'<section class="section" id="evidence".*?</section>', home(), re.S)[0]
+    for receipt in ("runtime-0.3.5.json", "recovery-0.3.4.json"):
+        assert f'href="{receipt}"' in evidence and (ROOT / "site" / receipt).is_file()
+    assert 'data-repo-path="docs/evidence.md" href="../docs/evidence.md"' in evidence
+
+
+def test_the_uncomfortable_10_s_fact_stays_on_the_page_in_the_evidence_ledger():
+    targets = json.loads(read("site/qualification-0.3.4.json"))["cold_warehouse_latency"]["targets"]
+    passed = [name for name, values in targets.items() if values["SQL_and_ACK_threshold_passed"]]
+    ledger = text_of_home(re.search(r'<ul class="ledger">.*?</ul>', home(), re.S)[0])
+    assert f"passed our 10 s bar on {len(passed)} of {len(targets)} targets" in ledger
+    assert f"{historical_worst_sql_start():.3f} s" in ledger and "P95" in ledger
+    assert "The later run above passed on all four" in ledger
+
+
+def test_hero_has_one_poc_call_to_action_one_text_link_and_reaches_the_zero_setup_demo():
     section = hero()
     actions = re.search(r'<div class="actions">.*?</div>', section, re.S)[0]
     assert actions.count("action-button--primary") == 1
-    assert actions.count("<a ") == 2
-    assert 'href="#try"' in actions and "Try the synthetic demo" in actions
-    assert f'data-repo-path="{FAQ}"' in actions
+    assert actions.count("<a ") == 2, "W7: one call to action and one text link"
+    assert re.search(r'action-button--primary" data-repo-path="docs/product/install-default.md" '
+                     r'href="\.\./docs/product/install-default\.md">Run a POC on your DEV IBM i</a>', actions)
+    assert 'href="#pilot-contact">Talk to us about a pilot</a>' in actions
     assert "mailto:" not in actions, "the pilot contact stays lower on the page"
     assert "mailto:" in home()
+    assert (ROOT / "docs/product/install-default.md").is_file()
+    # The zero-setup demo stays one click from the hero, in the screenshot caption, and is the second column of #try.
+    figure = re.search(r"<figcaption>(.*?)</figcaption>", section, re.S)[1]
+    assert '<a href="#try">Run it yourself, no setup</a>' in figure
+    assert "node ui/scripts/build-demo.mjs --serve" in home()
+
+
+def test_hero_lists_five_verified_short_assurances_and_the_preconditions():
+    """The risk-reversal list: plain, short, scoped, and each item is backed by a page of this repository."""
+    block = re.search(r'<ul class="poc__list">.*?</ul>', hero(), re.S)[0]
+    items = re.findall(r"<li>(.*?)</li>", block, re.S)
+    assert len(items) == 5
+    for item in items:
+        assert len(text_of_home(item).split()) <= 30, item
+        assert "<strong" not in item
+    text = text_of_home(block)
+    footprint, your_data = flat(read("docs/product/ibm-i-footprint.md")), flat(read("docs/product/your-data.md"))
+    compatibility = flat(read("docs/product/compatibility.md"))
+    # "Only reads" is scoped to the reader, as the footprint page scopes it.
+    assert "Read-only on your IBM i: SELECT and IBM journal APIs, nothing installed" in text
+    assert "Nothing is installed on the IBM i" in footprint and "The reader code issues `SELECT` statements" in footprint
+    assert 'data-repo-path="docs/product/ibm-i-footprint.md"' in block
+    # The precondition is on the list: journaling with *BOTH images is switched on by an administrator, receivers pile up.
+    assert "Needs the POC tables journaled with before and after images" in text and "Prerequisites and retention" in text
+    assert "STRJRNPF" in footprint and "IMAGES(*BOTH)" in footprint and "they accumulate until you delete them" in footprint
+    assert "Journaled tables, `*BOTH` images | Required" in compatibility
+    assert "stays in your own AWS or GCP and Snowflake accounts" in text
+    assert "The reader, the loaders and the control plane run in the Kubernetes cluster" in your_data
+    assert 'data-repo-path="docs/product/your-data.md"' in block
+    # The doctor and local mode are in the source, not in a published release: the page says so.
+    assert "`quadringent doctor`" in changelog_unreleased() and "`quadringent local`" in changelog_unreleased()
+    assert "(next release)" in text
+    assert "never signs on" in footprint and "without signing on" in text
+    # Uninstall: the install guide's own words, including the Terraform resources that keep running and billing.
+    install = flat(read("docs/product/install-default.md"))
+    assert "removes only the Helm release" in install
+    assert "Terraform resources, raw data, checkpoints and identities remain" in install
+    assert "quadringent uninstall removes the release; cloud resources, raw data and checkpoints stay, and bill, until you destroy them" in text
+    assert "terraform destroy" in install
+    assert "Snowflake tables" not in text, "no page states what happens to Snowflake tables on uninstall"
+    # No unscoped limit claim: the capture session holds at most 32 tables.
+    assert "no table limit" not in home()
+    assert "ISERIES_TABLES must have at most 32 tables" in read("java/src/main/java/io/quadringent/as400/JournalSession.java")
+    assert "at most 32 tables per capture session" in compatibility
+    assert "commercial table limit" in flat(read("README.md")) and "commercial table limit" in text_of_home(home())
+
+
+def changelog_unreleased() -> str:
+    match = re.search(r"^## Unreleased\n(.*?)(?=^## )", read("CHANGELOG.md"), re.S | re.M)
+    assert match
+    return match[1]
 
 
 def test_hero_shows_the_current_cockpit_captioned_as_synthetic():
@@ -251,11 +376,21 @@ def test_home_is_a_hero_then_five_sections():
     assert len(home()) < 30000, "the landing page stays short"
 
 
+def words(fragment: str) -> int:
+    return len(text_of_home(re.sub(r"<(script|style|svg)\b.*?</\1>", "", fragment, flags=re.S)).split())
+
+
 def test_landing_page_stays_concise():
-    """W7: at least 30% fewer words than the 1551-word landing page it replaced; doc rows are a title and a few words."""
+    """W7 asked for 1085 words (30% under the 1551-word page it replaced). W8 adds three things that reviewers asked for
+    and that a buyer decides on: the scoped proof line, the IBM i preconditions (journaling, receiver growth, billable
+    resources after uninstall) and the short list of what a POC needs. That is about 100 words more, so the page cap is
+    1200 and the hero is capped on its own; doc rows stay a title and a few words."""
     html = home()
     body = re.search(r"<body>.*</body>", html, re.S)[0]
-    assert len(text_of_home(re.sub(r"<(script|style|svg)\b.*?</\1>", "", body, flags=re.S)).split()) <= 1085
+    assert words(body) <= 1200
+    assert words(hero()) <= 290, "the hero: lead, status, proof, two links, list of five, screenshot caption"
+    assert words(re.search(r'<div class="hero__copy">.*?</div>\s*<div class="hero__aside">', hero(), re.S)[0]) <= 160
+    assert words(re.search(r'<div class="needs">.*?</ul>', html, re.S)[0]) <= 75
     hero_text = text_of_home(hero())
     figure = text_of_home(re.search(r"<figcaption>(.*?)</figcaption>", hero(), re.S)[1])
     assert len(figure.split()) <= 25, "one-line caption"
@@ -264,17 +399,55 @@ def test_landing_page_stays_concise():
     assert hero_text
 
 
-def test_caveats_are_stated_once_on_the_home_page():
+OVERCLAIM_TERMS = ("production-ready", "production-grade", "enterprise-grade", "battle-tested", "used in production",
+                   "in production at", "customers", "trusted by", "guaranteed", "sla", "zero data loss", "100%")
+
+
+def test_try_section_lists_what_a_poc_needs_with_sources():
+    """A buyer can see what to bring: needs only, each backed by the compatibility and install pages."""
+    html = home()
+    block = re.search(r'<div class="needs">.*?</div>', html, re.S)[0]
+    items = [text_of_home(item) for item in re.findall(r"<li>(.*?)</li>", block, re.S)]
+    assert len(items) == 4 and all(len(item.split()) <= 20 for item in items), items
+    text = text_of_home(block)
+    compatibility, install = flat(read("docs/product/compatibility.md")), flat(read("docs/product/install-default.md"))
+    assert "A non-production IBM i with a journaled table that has a primary key" in text
+    assert "Primary key or unique constraint | Required" in compatibility and "Journaled tables" in compatibility
+    assert "read authority on the journal, its receivers and the tables" in text and "`*USE` on the journal" in compatibility
+    assert "An AWS or GCP account, with Terraform, Helm and kubectl on the machine that installs" in text
+    assert "terraform, helm and kubectl must be on PATH" in install
+    assert "A Snowflake account, and an administrator to run the setup script once" in text
+    assert "Runs the script generated by the wizard once" in compatibility
+    assert 'data-repo-path="docs/product/compatibility.md"' in block
+    assert not re.search(r"\b\d+ (?:minutes?|hours?|days?)\b", text), "no time estimate was measured"
+    assert html.index('class="needs"') < html.index('<div class="try">')
+
+
+def test_pilot_offer_is_forward_looking_and_keeps_the_no_commitment_statement():
+    section = text_of_home(re.search(r'<section class="section" id="services".*?</section>', home(), re.S)[0])
+    assert "We offer to help you run a pilot" in section and "We help with pilots" not in section
+    assert "We never accept a request automatically and make no response-time commitment" in section
+    support = flat(read("SUPPORT.md"))
+    assert "We never accept a request automatically, and there is no response-time commitment" in support
+    positioning = flat(read("docs/product/positioning-and-offer.md"))
+    assert "This offer is not available for purchase" in positioning
+    assert json.loads(read("site/runtime-0.3.5.json"))["external_pilot_validated"] is False
+
+
+def test_home_has_no_disclaimer_no_overclaim_term_and_no_retired_word():
     html = home()
     text = text_of_home(html)
-    assert html.count("DEV/INT") <= 2, "the status line and the pilot call to action"
-    assert len(re.findall(r"no production qualification", text, re.I)) <= 2
+    for phrase in (*RETIRED_DISCLAIMERS, "DEV/INT", "Preview", "no SLA", "No production"):
+        assert phrase.lower() not in html.lower(), phrase
+    for term in OVERCLAIM_TERMS:
+        assert not re.search(rf"(?<![\w-]){re.escape(term)}(?![\w-])", text.lower()), term
     for retired in ("Not established", "Not executed", "To establish", "Bounded trials", "Limited path", "Not qualified"):
         assert retired not in text, retired
     assert len(re.findall(r'class="eyebrow', html)) <= 2
     for paragraph in re.findall(r"<(?:p|li|dd)[ >].*?</(?:p|li|dd)>", html, re.S):
         assert paragraph.count("<strong") <= 1, paragraph[:80]
     assert "<strong>" not in re.search(r'<ul class="ledger">.*?</ul>', html, re.S)[0]
+    assert "preview" not in re.search(r'<meta name="description" content="([^"]+)"', html)[1].lower()
 
 
 def test_how_it_works_draws_the_receiver_chain_with_the_demo_readings():
@@ -289,8 +462,7 @@ def test_how_it_works_draws_the_receiver_chain_with_the_demo_readings():
     assert "text-wrap" not in chain and "gradient" not in chain
     how = text_of_home(re.search(r'<section class="section" id="how-it-works".*?</section>', html, re.S)[0])
     for phrase in ("IBM i (formerly AS/400 and iSeries)", "Db2 for i", "change data capture", "Java/JTOpen",
-                   "needs human approval", "MCP", "every call is audited", "never a zero or a silent estimate",
-                   "verified on historical versions only"):
+                   "needs human approval", "MCP", "every call is audited", "never a zero or a silent estimate"):
         assert phrase in how, phrase
 
 
@@ -324,11 +496,15 @@ def test_evidence_section_links_the_evidence_page_and_every_receipt():
     for receipt in ("runtime-0.3.5.json", "recovery-0.3.4.json", "qualification-0.3.4.json"):
         assert f'href="{receipt}"' in section and (ROOT / "site" / receipt).is_file()
     text = text_of_home(section)
+    assert text_of_home(re.search(r"<h2[^>]*>(.*?)</h2>", section, re.S)[1]) == "What we have measured"
     for word in ("Measured", "Not tested", "Not measured"):
         assert word in text
-    assert f"On the {source_version()} candidate source and the published" in text
-    assert "prerelease: native CDC, reader outage, latency and complete cloud-loss recovery need fresh qualification" in text
-    assert "not a P95 and not an SLA" in text
+    published = re.search(r"the published (\d+\.\d+\.\d+) prerelease", text)[1]
+    assert (f"Native CDC, reader outage, latency and complete cloud-loss recovery on the {source_version()} candidate "
+            f"source and the published {published} prerelease") in text
+    assert "need fresh qualification" not in text, "a scope, not an apology"
+    assert "Upper bounds, not a P95" in text
+    assert "SLA" not in text, "no SLA wording on a front page; the evidence page keeps it"
     from build_site import DOC_PAGES
     assert DOC_PAGES["docs/evidence.md"][0] == "evidence"
     assert (ROOT / "docs/evidence.md").is_file()
@@ -371,6 +547,37 @@ def faq_questions() -> list[tuple[str, str]]:
     return questions
 
 
+POC_ADVICE = "Start with a proof of concept on a non-production IBM i"
+
+
+def test_production_guidance_is_poc_first_advice_where_a_deployer_decides():
+    install = flat(read("docs/product/install-default.md"))
+    assert POC_ADVICE in install and "We help with pilots" in install and "(../evidence.md)" in install
+    answers = {title: flat(body) for title, body in faq_questions()}
+    production = answers["Can I run it in production?"]
+    assert POC_ADVICE in production and "We help with pilots" in production and "(../evidence.md)" in production
+    assert not re.search(r"\bNo\.|not supported|no production|blocks production", production, re.I), "no denial phrasing"
+    short = flat(read(FAQ))
+    assert f"| Production | {POC_ADVICE}" in short
+    # The factual limits the old answer carried stay findable on the evidence page.
+    evidence = flat(read("docs/evidence.md"))
+    assert "blocks production promotion" in evidence and "Production use | Not tested" in evidence
+
+
+def test_removed_disclaimers_do_not_come_back_on_the_front_pages():
+    banned = ("Preview, DEV/INT only", "We claim no", "no production qualification", "No production qualification",
+              "is a DEV/INT preview", "nothing on this page is a production", "claimed production")
+    for path in ("README.md", "docs/pypi.md", "docs/product/faq.md", "docs/product/try-it-local.md",
+                 "docs/governance.md", "SUPPORT.md", "ROADMAP.md", "docs/product/comparison.md",
+                 "docs/product/compatibility.md", "docs/product/install-default.md", "docs/evidence.md",
+                 *sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "docs/articles").glob("*.md"))):
+        text = flat(read(path))
+        for phrase in banned:
+            assert phrase not in text, (path, phrase)
+    unreleased = read("CHANGELOG.md").split("\n## 0.", 1)[0]
+    assert "qualify nothing" not in unreleased and "no new qualification" not in unreleased
+
+
 def test_faq_covers_what_a_buyer_asks_first():
     titles = " ".join(title.lower() for title, _ in faq_questions())
     for topic in ("ibm i release", "key", "column types", "ccsid", "initial", "add a column", "latency",
@@ -407,7 +614,7 @@ def test_faq_gives_published_figures_only_with_their_scope_or_says_not_measured(
     values = [v for site in recovery["sites"].values()
               for v in (site["cold_SQL_to_mirror_upper_bound_s"], site["warm_SQL_to_mirror_upper_bound_s"])]
     assert f"{min(values):.3f} s to {max(values):.3f} s" in latency
-    assert "not a P95 and not an SLA" in latency and "0.3.4" in latency
+    assert "not a P95 and not a guarantee" in latency and "0.3.4" in latency
     for question in ("What latency should I expect on the current version?",
                      "How much data per day can it carry?",
                      "How long does the copy of a large table take?",

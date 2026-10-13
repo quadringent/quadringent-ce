@@ -421,6 +421,25 @@ code, .mono {
 
 .status-line .status-word { margin-right: var(--space-1); }
 
+.proof-line { color: var(--text-main); font-size: var(--t-small); line-height: 1.7; }
+.proof-line a { text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 3px; }
+
+.hero__aside { display: grid; gap: var(--space-6); }
+
+.poc { display: grid; gap: var(--space-3); }
+.poc__title { color: var(--text-strong); font-size: var(--t-lead); font-weight: 560; letter-spacing: -0.015em; line-height: 1.3; }
+.poc__list { display: grid; }
+.poc__list li { padding-block: var(--space-3); border-top: 1px solid var(--line-subtle); color: var(--text-main); font-size: var(--t-small); }
+.poc__list li:first-child { border-top: 1px solid var(--line-strong); }
+.poc__list li:last-child { border-bottom: 1px solid var(--line-subtle); }
+.needs { display: grid; gap: var(--space-3); max-width: 760px; }
+.needs h3 { color: var(--text-strong); font-size: var(--t-lead); font-weight: 560; letter-spacing: -0.015em; line-height: 1.3; }
+.needs-list { display: grid; }
+.needs-list li { padding-block: var(--space-3); border-top: 1px solid var(--line-subtle); color: var(--text-main); font-size: var(--t-small); }
+.needs-list li:first-child { border-top: 1px solid var(--line-strong); }
+.needs-list li:last-child { border-bottom: 1px solid var(--line-subtle); }
+.poc__list a, .needs-list a { text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 3px; }
+
 .text-link { color: var(--signal-live); font-size: var(--t-small); font-weight: var(--w-medium); text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor 40%, transparent); text-underline-offset: 3px; }
 
 /* --- Capture produit --- */
@@ -701,8 +720,11 @@ h3 { color: var(--text-strong); font-size: var(--t-lead); font-weight: 560; lett
   .hero h1 { order: 1; }
   .hero__lead { order: 2; font-size: 16px; }
   .status-line { order: 3; }
-  .hero .actions { order: 4; }
-  .hero__figure { order: 5; }
+  .proof-line { order: 4; }
+  .hero .actions { order: 5; }
+  .hero__aside { display: contents; }
+  .poc { order: 6; }
+  .hero__figure { order: 7; }
   .product-frame__bar { flex-wrap: wrap; }
   .ledger li, .readings { grid-template-columns: minmax(0, 1fr); }
   .index li { grid-template-columns: minmax(0, 1fr); gap: 2px; }

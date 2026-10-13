@@ -62,7 +62,7 @@ def test_readme_has_a_short_trust_section_with_one_link_per_bullet():
 
 def test_readme_comes_after_the_status_line_and_links_the_licensing_page():
     text = read("README.md")
-    assert text.index("Status: Preview, DEV/INT only.") < text.index("## Trust and verification")
+    assert text.index("Version 0.4 \u00b7 Apache-2.0") < text.index("## Trust and verification")
     assert "[project model](docs/licensing.md)" in text
 
 

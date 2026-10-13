@@ -10,7 +10,8 @@ from build_site import DOC_PAGES, build
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTACT = "quadringent@proton.me"
-CTA = "Discuss a DEV/INT pilot"
+CTA = "Talk to us about a pilot"  # the heading of the pilot guide
+CTAS = (CTA, "Talk to us about a pilot")  # the pilot call to action on the README and the site
 PILOT_GUIDE = "docs/product/positioning-and-offer.md"
 PILOT_TEMPLATE = ".github/ISSUE_TEMPLATE/pilot_interest.yml"
 ENTRY_POINTS = ["site/index.html", PILOT_GUIDE, "README.md"]
@@ -56,9 +57,15 @@ def site(tmp_path_factory) -> Path:
 @pytest.mark.parametrize("path", ENTRY_POINTS)
 def test_each_entry_point_offers_the_same_cta_and_a_private_contact(path):
     text = read(path)
-    assert CTA in text
+    assert any(cta in text for cta in CTAS)
     assert f"mailto:{CONTACT}" in text
     assert "without a GitHub account" in flat(text)
+
+
+def test_home_offers_the_pilot_call_to_action_in_the_charter_words():
+    html = read("site/index.html")
+    assert "Talk to us about a pilot" in html and "Run a POC on your DEV IBM i" in html
+    assert "Discuss a DEV/INT pilot" not in html and "DEV%2FINT" not in html
 
 
 @pytest.mark.parametrize("page", ["index.html", "docs/pilot/index.html", "docs/getting-started/index.html"])
@@ -230,17 +237,19 @@ def test_status_line_and_evidence_section_use_latest_scoped_observations_without
     source_version = tomllib.loads(read("pyproject.toml"))["project"]["version"]
     assert release_version() == source_version
     status = text_of(re.search(r'<p class="status-line">.*?</p>', html, re.S)[0])
-    assert f'last observed release {runtime["version"]} ({runtime["date_utc"]})' in status
+    assert status.startswith("Version " + ".".join(source_version.split(".")[:2]) + " \u00b7 Apache-2.0")
+    proof = text_of(re.search(r'<p class="proof-line">.*?</p>', html, re.S)[0])
+    assert f'release {runtime["version"]}, {runtime["date_utc"]})' in proof and f'recovery on {recovery["version"]}' in proof
     evidence = text_of(homepage_section(html, "evidence"))
-    assert (f'On the {source_version} candidate source and the published {published_version()} prerelease: native CDC, reader outage, '
-            'latency and complete cloud-loss recovery need fresh qualification') in evidence
+    assert (f'Native CDC, reader outage, latency and complete cloud-loss recovery on the {source_version} candidate source '
+            f'and the published {published_version()} prerelease') in evidence
     assert f'{runtime["version"]}, {runtime["date_utc"]}' in evidence and "110 mirror rows and 110 history C images" in evidence
     assert f'{recovery["version"]}, 2026-10-12, 18:13 UTC' in evidence
     assert "8 cold/warm observations within 10 s" in evidence
     values = [v for site in recovery["sites"].values()
               for v in (site["cold_SQL_to_mirror_upper_bound_s"], site["warm_SQL_to_mirror_upper_bound_s"])]
     assert f"from {min(values):.3f} s to {max(values):.3f} s" in evidence
-    assert "not a P95 and not an SLA" in evidence and "1 of 4 targets" in evidence
+    assert "Upper bounds, not a P95" in evidence and "1 of 4 targets" in evidence
 
 
 def test_current_runtime_copy_numbers_and_upgrade_paths_match_receipt():
@@ -348,8 +357,10 @@ def test_readme_points_to_the_evidence_page_that_matches_scoped_receipts_and_pre
     recovery = scoped_summary("recovery-0.3.4")
     readme = flat(read("README.md"))
     source_version = tomllib.loads(read("pyproject.toml"))["project"]["version"]
-    assert f"Source version {source_version} (candidate; latest published prerelease {published_version()}) needs fresh qualification" in readme
-    assert "[docs/evidence.md](docs/evidence.md)" in readme
+    assert f"Source {source_version}, latest published prerelease " in readme
+    assert f'(release {runtime["version"]}, {runtime["date_utc"]})' in readme
+    assert f'reader-kill recovery with source writes on {recovery["version"]}' in readme
+    assert "(docs/evidence.md)" in readme
     evidence = flat(read("docs/evidence.md"))
     assert f"Source version **{source_version}**" in evidence
     assert f'## {runtime["version"]}, 2026-10-12' in evidence and "need fresh qualification" in evidence

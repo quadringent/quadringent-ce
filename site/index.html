@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Quadringent — IBM i (AS/400) CDC replication to Snowflake</title>
-<meta name="description" content="Open-source CDC engine, API and cockpit for replicating IBM i (AS/400) journals to Snowflake on your AWS or GCP infrastructure. Apache-2.0 Community edition, in preview.">
+<meta name="description" content="Open-source CDC engine, API and cockpit for replicating IBM i (AS/400) journals to Snowflake on your AWS or GCP infrastructure. Apache-2.0 Community edition. Run a proof of concept on your non-production IBM i.">
 <meta name="color-scheme" content="light dark">
 <meta name="google-site-verification" content="pyK_XDNhLhI1W2LiFLH90aWQMGz5TiLilfTiwPnAuB8">
 <meta name="msvalidate.01" content="4BDA52F28F3CFFE2B4DBE9503DE47701">
@@ -39,16 +39,29 @@
     <div class="hero__copy">
       <h1 id="title">A running reader doesn’t mean your data arrived.</h1>
       <p class="hero__lead">Open-source change data capture from IBM&nbsp;i (AS/400) to Snowflake, in your own AWS or GCP account, with no Kafka and no license key. We report journal reading, Snowflake delivery and event-count reconciliation separately for each table.</p>
-      <p class="status-line"><span class="status-word">Preview, DEV/INT only.</span> No production qualification, no SLA. Source <span class="mono" data-source-version>0.4.3</span> candidate, latest published prerelease <span class="mono">0.4.2</span>, last observed release <span class="mono">0.3.5</span> (<time datetime="2026-10-12">2026-10-12</time>). In the 0.3.4 cold-warehouse trial, 3 of 4 targets missed our 10&nbsp;s bar; a later 0.3.4 run passed on all four. <a data-repo-path="docs/evidence.md" href="../docs/evidence.md">Evidence</a></p>
+      <p class="status-line"><span class="status-word">Version 0.4 · Apache-2.0</span> Source <span class="mono" data-source-version>0.4.3</span> candidate, latest published prerelease <span class="mono">0.4.2</span>.</p>
+      <p class="proof-line">Initial copy of two synthetic tables tested against a real IBM&nbsp;i and a real Snowflake account (release <span class="mono">0.3.5</span>, <time datetime="2026-10-12">2026-10-12</time>) on each of four cloud targets, and reader-kill recovery on <span class="mono">0.3.4</span>. <a data-repo-path="docs/evidence.md" href="../docs/evidence.md">Receipt summaries, volumes and limits</a></p>
       <div class="actions">
-        <a class="action-button action-button--primary" href="#try">Try the synthetic demo</a>
-        <a class="text-link" data-repo-path="docs/product/faq.md" href="../docs/product/faq.md">Read the FAQ</a>
+        <a class="action-button action-button--primary" data-repo-path="docs/product/install-default.md" href="../docs/product/install-default.md">Run a POC on your DEV IBM i</a>
+        <a class="text-link" href="#pilot-contact">Talk to us about a pilot</a>
       </div>
     </div>
-    <figure class="product-frame hero__figure">
-      <picture><source srcset="assets/cockpit-evidence-strip-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/cockpit-evidence-strip-light.png" width="1220" height="420" fetchpriority="high" alt="Quadringent cockpit, Evidence tab of a synthetic demo table, cropped to its three readings: journal capture shows 120 events and Snowflake delivery 118 events, both marked Synthetic, and destination reconciliation is marked Not measured."></picture>
-      <figcaption>Demonstration, synthetic data, source <span class="mono">0.4.3</span>. <a href="assets/cockpit-evidence-light.png">Full capture</a></figcaption>
-    </figure>
+    <div class="hero__aside">
+      <figure class="product-frame hero__figure">
+        <picture><source srcset="assets/cockpit-evidence-strip-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/cockpit-evidence-strip-light.png" width="1220" height="420" fetchpriority="high" alt="Quadringent cockpit, Evidence tab of a synthetic demo table, cropped to its three readings: journal capture shows 120 events and Snowflake delivery 118 events, both marked Synthetic, and destination reconciliation is marked Not measured."></picture>
+        <figcaption>Demonstration, synthetic data, source <span class="mono">0.4.3</span>. <a href="assets/cockpit-evidence-light.png">Full capture</a>. <a href="#try">Run it yourself, no setup</a>.</figcaption>
+      </figure>
+      <div class="poc">
+        <h2 class="poc__title">What a POC touches</h2>
+        <ul class="poc__list">
+          <li>Read-only on your IBM&nbsp;i: <code>SELECT</code> and IBM journal APIs, nothing installed. <a data-repo-path="docs/product/ibm-i-footprint.md" href="../docs/product/ibm-i-footprint.md">What it does there.</a></li>
+          <li>Needs the POC tables journaled with before and after images. <a data-repo-path="docs/product/compatibility.md" href="../docs/product/compatibility.md">Prerequisites and retention.</a></li>
+          <li>Your data stays in your own AWS or GCP and Snowflake accounts. <a data-repo-path="docs/product/your-data.md" href="../docs/product/your-data.md">Where it goes.</a></li>
+          <li><code>quadringent doctor</code> reports what blocks before you install, without signing on (next release).</li>
+          <li><code>quadringent uninstall</code> removes the release; cloud resources, raw data and checkpoints stay, and bill, until you destroy them. <a data-repo-path="docs/product/install-default.md" href="../docs/product/install-default.md">Uninstall.</a></li>
+        </ul>
+      </div>
+    </div>
   </section>
 
   <section class="section" id="how-it-works" aria-labelledby="how-it-works-title">
@@ -101,35 +114,44 @@
     </figure>
 
     <div class="cockpit-notes">
-      <p>Each table shows its state (Capture enabled, Copying, Paused, Attention or Stopped), lag, throughput and row counts. A missing value shows “—”, never a zero or a silent estimate. “Not measured” means no evidence; Measured means recorded and timestamped. Capture enabled does not prove delivery. The <a data-repo-path="docs/product/operator-guide.md" href="../docs/product/operator-guide.md">operator guide</a> lists the tabs.</p>
-      <p>Pause and resume are in the cockpit. Removing a table, restarting an initial copy, replaying a journal range or suspending the organization needs human approval; an agent connected through MCP cannot approve its own action without administrator preauthorization, and every call is audited. Retention of RAW data and checkpoints after complete site loss was verified on historical versions only (<a href="#evidence">Evidence</a>).</p>
+      <p>Each table shows its state (Capture enabled, Copying, Paused, Attention or Stopped), lag, throughput and row counts. A missing value shows “—”, never a zero or a silent estimate. Capture enabled does not prove delivery. The <a data-repo-path="docs/product/operator-guide.md" href="../docs/product/operator-guide.md">operator guide</a> lists the tabs.</p>
+      <p>Pause and resume are in the cockpit. Removing a table, restarting an initial copy, replaying a journal range or suspending the organization needs human approval; an agent connected through MCP cannot approve its own action without administrator preauthorization, and every call is audited.</p>
     </div>
   </section>
 
   <section class="section" id="try" aria-labelledby="try-title">
     <div class="section__head">
       <h2 id="try-title">Try it</h2>
-      <p>Start with <a data-repo-path="docs/product/compatibility.md" href="../docs/product/compatibility.md">compatibility and prerequisites</a>; the cockpit is unauthenticated on loopback by default, so read the <a data-repo-path="SECURITY.md" href="../SECURITY.md">security policy</a> before exposing it.</p>
+      <p>The cockpit is unauthenticated on loopback by default; read the <a data-repo-path="SECURITY.md" href="../SECURITY.md">security policy</a> before exposing it.</p>
+    </div>
+    <div class="needs">
+      <h3>What you need for a POC</h3>
+      <ul class="needs-list">
+        <li>A non-production IBM&nbsp;i with a journaled table that has a primary key. <a data-repo-path="docs/product/compatibility.md" href="../docs/product/compatibility.md">Compatibility.</a></li>
+        <li>One user profile with read authority on the journal, its receivers and the tables.</li>
+        <li>An AWS or GCP account, with Terraform, Helm and kubectl on the machine that installs.</li>
+        <li>A Snowflake account, and an administrator to run the setup script once.</li>
+      </ul>
     </div>
     <div class="try">
       <div class="try__col">
-        <h3>The cockpit with generated data</h3>
-        <pre class="screen" tabindex="0" aria-label="Synthetic demo commands"><code>git clone https://github.com/quadringent/quadringent-ce.git
-cd quadringent-ce
-npm ci --prefix ui
-node ui/scripts/build-demo.mjs --serve</code></pre>
-        <p>Needs Node 24 or 26; open <code>http://127.0.0.1:8870/#/cockpit</code>. A <strong>Synthetic demo</strong>: no IBM i, Snowflake or cloud connection, network requests blocked. Not a release qualification.</p>
-        <p class="try__links"><a data-repo-path="docs/product/synthetic-demo.md" href="../docs/product/synthetic-demo.md">Demo guide</a></p>
-      </div>
-      <div class="try__col">
-        <h3>AWS or GCP, on a VM or a cluster</h3>
-        <pre class="screen" tabindex="0" aria-label="Cloud installation preview command"><code><span class="screen__dim"># Complete plan, without executing it</span>
+        <h3>Your DEV IBM i, from AWS or GCP</h3>
+        <pre class="screen" tabindex="0" aria-label="Cloud installation dry-run command"><code><span class="screen__dim"># Complete plan, without executing it</span>
 quadringent install --cloud gcp --target cluster \
   --region europe-west1 --project my-project \
   --name my-site --release-manifest release-manifest.json \
   --assets-dir ./quadringent-0.4.2 --dry-run</code></pre>
-        <p>CLI from the wheel; chart and Terraform modules from the extracted sdist (<code>--assets-dir</code>); three images from the manifest, pinned by digest. Alternatives: <code>--cloud aws</code>, <code>--target vm</code>.</p>
-        <p class="try__links"><a data-repo-path="docs/product/install-default.md" href="../docs/product/install-default.md">Installation guide</a><a data-repo-path="docs/product/install-client.md" href="../docs/product/install-client.md">Expert Helm guide</a></p>
+        <p>The path available today, with a dry run first: CLI from the wheel, chart and Terraform from the extracted sdist (<code>--assets-dir</code>), three images pinned by digest. Alternatives: <code>--cloud aws</code>, <code>--target vm</code>. <code>quadringent local</code>, one table on one machine with Docker, is in the source and not in a published release.</p>
+        <p class="try__links"><a data-repo-path="docs/product/install-default.md" href="../docs/product/install-default.md">Installation guide</a><a data-repo-path="docs/product/install-client.md" href="../docs/product/install-client.md">Expert Helm guide</a><a data-repo-path="docs/product/try-it-local.md" href="../docs/product/try-it-local.md">Local mode</a></p>
+      </div>
+      <div class="try__col">
+        <h3>No setup: the cockpit with generated data</h3>
+        <pre class="screen" tabindex="0" aria-label="Synthetic demo commands"><code>git clone https://github.com/quadringent/quadringent-ce.git
+cd quadringent-ce
+npm ci --prefix ui
+node ui/scripts/build-demo.mjs --serve</code></pre>
+        <p>Needs Node 24 or 26; open <code>http://127.0.0.1:8870/#/cockpit</code>. A <strong>Synthetic demo</strong>: no IBM i, Snowflake or cloud connection, network requests blocked.</p>
+        <p class="try__links"><a data-repo-path="docs/product/synthetic-demo.md" href="../docs/product/synthetic-demo.md">Demo guide</a></p>
       </div>
     </div>
 
@@ -140,18 +162,18 @@ quadringent install --cloud gcp --target cluster \
 <span class="screen__dim">[... "Generated" line and every "Next:" line omitted ...]</span>
 
 <span class="fail">[FAIL]</span> local_tools.helm [tool helm]: helm is not found on PATH.
-<span class="screen__dim">[... 9 more [FAIL] lines omitted: kubectl, terraform, the 4 TCP ports and the 3 TLS handshakes ...]</span>
+<span class="screen__dim">[... 9 more [FAIL] lines omitted ...]</span>
 <span class="unkn">[UNKN]</span> authentication.ibmi_signon [host ibmi.example.test]: IBM i sign-on was not tested; configured credentials are not proof of authentication.
        Limits: The doctor never sends IBM i credentials. (observed 2026-10-13T12:51:28Z, doctor:not-tested)
 <span class="skip">[SKIP]</span> control_plane.api [control_plane v2]: The control plane was not read; capture, delivery and evidence are not observed.
 exit 1</code></pre>
-      <p class="terminal__note">Real output, cut where marked, against a placeholder host that does not resolve, on a machine without helm, kubectl or terraform.</p>
+      <p class="terminal__note">Real output, cut where marked, against a placeholder host, on a machine without helm, kubectl or terraform.</p>
     </figure>
   </section>
 
   <section class="section" id="evidence" aria-labelledby="evidence-title">
     <div class="section__head">
-      <h2 id="evidence-title">What we have measured, and what we have not</h2>
+      <h2 id="evidence-title">What we have measured</h2>
     </div>
     <ul class="ledger">
       <li>
@@ -160,22 +182,22 @@ exit 1</code></pre>
       </li>
       <li>
         <span class="status-word">Measured</span>
-        <p><span class="mono">0.3.4</span>, <time datetime="2026-10-12T18:13:31.648212+00:00">2026-10-12, 18:13 UTC</time>. Reconstruction on new PostgreSQL PVCs, 4 reader SIGKILL recoveries and 8 cold/warm observations within 10 s, from 3.763 s to 8.876 s between the SQL statement and the mirror row. Upper bounds, not a P95 and not an SLA. Receipt: <a href="recovery-0.3.4.json">recovery-0.3.4.json</a>.</p>
+        <p><span class="mono">0.3.4</span>, <time datetime="2026-10-12T18:13:31.648212+00:00">2026-10-12, 18:13 UTC</time>. Reconstruction on new PostgreSQL PVCs, 4 reader SIGKILL recoveries and 8 cold/warm observations within 10 s, from 3.763 s to 8.876 s between the SQL statement and the mirror row. Upper bounds, not a P95. Receipt: <a href="recovery-0.3.4.json">recovery-0.3.4.json</a>.</p>
       </li>
       <li>
         <span class="status-word">Measured</span>
-        <p>The earlier <span class="mono">0.3.4</span> trial passed our 10 s bar on 1 of 4 targets; the worst took 13.641 s from SQL start to mirror. Neither trial is a P95 or an SLA. Summary: <a href="qualification-0.3.4.json">qualification-0.3.4.json</a>.</p>
+        <p>The first <span class="mono">0.3.4</span> trial, with cold warehouses, passed our 10 s bar on 1 of 4 targets; the worst took 13.641 s from SQL start to mirror. The later run above passed on all four. Summary: <a href="qualification-0.3.4.json">qualification-0.3.4.json</a>.</p>
       </li>
       <li>
         <span class="status-word status-word--absent">Not tested</span>
-        <p>On the <span class="mono">0.4.3</span> candidate source and the published <span class="mono">0.4.2</span> prerelease: native CDC, reader outage, latency and complete cloud-loss recovery need fresh qualification; history does not stand in for them.</p>
+        <p>Native CDC, reader outage, latency and complete cloud-loss recovery on the <span class="mono">0.4.3</span> candidate source and the published <span class="mono">0.4.2</span> prerelease.</p>
       </li>
       <li>
         <span class="status-word status-word--absent">Not measured</span>
         <p>Snowflake cost per 24 h, and the CPU and I/O cost of the reads on your IBM i.</p>
       </li>
     </ul>
-    <p class="evidence-more"><a data-repo-path="docs/evidence.md" href="../docs/evidence.md">Full evidence page</a>: all versions, 0.2.x history, open limits.</p>
+    <p class="evidence-more"><a data-repo-path="docs/evidence.md" href="../docs/evidence.md">Full evidence page</a>: all versions, earlier history, open limits.</p>
   </section>
 
   <section class="section" id="docs" aria-labelledby="docs-title">
@@ -213,14 +235,14 @@ exit 1</code></pre>
     </div>
     <div class="about">
       <div class="about__text">
-        <p>Community is free: engine, API, cockpit and chart under Apache-2.0, with no activation key or commercial table limit. IBM i, cloud and Snowflake costs stay yours. No paid offer is launched or priced.</p>
-        <p>If there is demand, we would offer installation and a pilot first, with scope and acceptance criteria agreed beforehand. Support would be a separate agreement after the pilot, managed hosting only once a real need is confirmed.</p>
+        <p>Community is free: engine, API, cockpit and chart under Apache-2.0, with no activation key or commercial table limit. IBM i, cloud and Snowflake costs stay yours.</p>
+        <p>We offer to help you run a pilot: installation and validation on your non-production IBM&nbsp;i, with scope and acceptance criteria agreed beforehand.</p>
       </div>
       <div class="about__contact" id="pilot-contact">
-        <p>Email <a href="mailto:quadringent@proton.me?subject=DEV%2FINT%20pilot">quadringent@proton.me</a> to discuss a pilot privately, without a GitHub account, or file a <a href="https://github.com/quadringent/quadringent-ce/issues/new?template=pilot_interest.yml">public pilot interest request</a> (the issue and your account name are publicly visible). Send no credentials, access, private hostnames, customer data or attachments.</p>
+        <p>Email <a href="mailto:quadringent@proton.me?subject=Pilot%20request">quadringent@proton.me</a> to talk about a pilot privately, without a GitHub account, or file a <a href="https://github.com/quadringent/quadringent-ce/issues/new?template=pilot_interest.yml">public pilot interest request</a> (the issue and your account name are publicly visible). Send no credentials, access, private hostnames, customer data or attachments.</p>
         <p>Next: technical discovery, written scope, separate pilot decision. We never accept a request automatically and make no response-time commitment.</p>
         <div class="actions">
-          <a class="action-button action-button--primary" href="mailto:quadringent@proton.me?subject=DEV%2FINT%20pilot">Discuss a DEV/INT pilot</a>
+          <a class="action-button action-button--primary" href="mailto:quadringent@proton.me?subject=Pilot%20request">Talk to us about a pilot</a>
           <a class="text-link" data-repo-path="docs/product/positioning-and-offer.md" href="../docs/product/positioning-and-offer.md">Pilot guide</a>
           <a class="text-link" data-repo-path="docs/licensing.md" href="../docs/licensing.md">License</a>
         </div>
@@ -231,7 +253,7 @@ exit 1</code></pre>
 
 <footer class="site-footer">
   <div class="wrap site-footer__inner">
-    <p>Quadringent Community, Apache-2.0, preview</p>
+    <p>Quadringent Community, Apache-2.0</p>
     <ul aria-label="References">
       <li><a href="#pilot-contact">Pilot contact</a></li>
       <li><a data-repo-path="LICENSE" href="../LICENSE">License</a></li>

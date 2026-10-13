@@ -58,6 +58,38 @@ function fakeFetch(handler: (input: string, init?: RequestInit) => Response) {
   return async (input: string, init?: RequestInit) => handler(input, init);
 }
 
+test('diagnostic capability and download are explicit authenticated reads', async () => {
+  const requests: string[] = [];
+  const client = new ControlPlaneV2Client({ fetchFn: fakeFetch((url, init) => {
+    requests.push(url);
+    assert.equal(init?.method, 'GET');
+    assert.equal(init?.headers?.['Idempotency-Key' as keyof HeadersInit], undefined);
+    return jsonResponse(200, url.endsWith('/export')
+      ? { format_version: 'quadringent-diagnostic-v1', generated_at: '2026-10-13T12:00:00Z', collection: { mode: 'local_database_snapshot', live_checks_performed: false }, counts: { pipelines: 0 }, pipeline_inventory: { items: [], complete: true }, not_collected: ['delivery_evidence'] }
+      : { export: { state: 'available', format_version: 'quadringent-diagnostic-v1', collection: 'local_database_snapshot' } });
+  }) });
+  assert.equal(await client.getDiagnosticExportCapability(), true);
+  assert.deepEqual(requests, ['/v2/diagnostics']);
+  const blob = await client.getDiagnosticExport();
+  assert.equal(blob.type, 'application/json');
+  assert.equal(JSON.parse(await blob.text()).collection.live_checks_performed, false);
+  assert.deepEqual(requests, ['/v2/diagnostics', '/v2/diagnostics/export']);
+});
+
+test('unknown or unavailable diagnostic capability never enables the download', async () => {
+  for (const body of [{}, { export: { state: 'unavailable' } }, { export: { state: 'available', format_version: 'future-format' } }]) {
+    const client = new ControlPlaneV2Client({ fetchFn: fakeFetch(() => jsonResponse(200, body)) });
+    assert.equal(await client.getDiagnosticExportCapability(), false);
+  }
+});
+
+test('diagnostic download rejects an unexpected format or a live-check claim', async () => {
+  for (const body of [{ format_version: 'unknown' }, { format_version: 'quadringent-diagnostic-v1', collection: { live_checks_performed: true } }]) {
+    const client = new ControlPlaneV2Client({ fetchFn: fakeFetch(() => jsonResponse(200, body)) });
+    await assert.rejects(() => client.getDiagnosticExport(), /Invalid diagnostic export/);
+  }
+});
+
 test('every write request carries a generated Idempotency-Key header, unique per call', async () => {
   const seen: string[] = [];
   const client = new ControlPlaneV2Client({

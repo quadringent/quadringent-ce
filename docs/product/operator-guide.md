@@ -8,9 +8,12 @@ does not prove delivery.
 ## 1. First installation
 
 Check [compatibility and prerequisites](compatibility.md) first. Download the
-wheel, sdist and release manifest from the same release, verify their hashes,
-then run the installer with `--dry-run` and review the plan, cloud identity and
-kubectl context before applying. See [installation](install-default.md).
+wheel, sdist and release manifest from the same release. Verify the image
+digests as described in [Verify a release](verify-a-release.md); it also lists
+the files that have no published signature or checksum, so compare those with
+the tag yourself. Then run the installer with `--dry-run` and review the plan,
+cloud identity and kubectl context before applying. See
+[installation](install-default.md).
 With `--admin-email`, the installer prints a single-use activation link: open
 it through the private tunnel it describes and choose the administrator
 password.
@@ -31,6 +34,8 @@ unless every port is set explicitly, the 449 server mapper), `--tls` (a TLS
 handshake that always verifies the certificate and host name) and
 `--control-plane` (reads `GET /v2/diagnostics` through the tunnel). The doctor
 never signs on to IBM i, never connects to Snowflake and never changes anything.
+For what the software itself does on your IBM i, see
+[What Quadringent does on your IBM i](ibm-i-footprint.md).
 
 | State | Meaning |
 |---|---|

@@ -3,6 +3,9 @@
 Quadringent copies changes from IBM i to Snowflake and shows evidence of
 progress: journal reading, raw storage, loading and reconciliation. It is
 designed for data teams running their own IBM i, AWS or GCP, and Snowflake.
+To check what the software does on your IBM i, start with
+[What Quadringent does on your IBM i](docs/product/ibm-i-footprint.md); the
+other [trust and verification](#trust-and-verification) pages follow.
 
 Active capture does not guarantee that the destination is up to date. The
 cockpit distinguishes these states and shows **Not measured** when evidence
@@ -40,6 +43,18 @@ Contributions use the same license. Separate services or advanced extensions
 may be paid offerings in the future; rights granted on published versions
 remain in place. See the [project model](docs/licensing.md) and
 [dependency notices](THIRD_PARTY_NOTICES.md).
+
+## Trust and verification
+
+These pages describe what the software does and how to check it yourself.
+Suggested reading order: the IBM i footprint, your data, release verification, governance.
+
+- [What Quadringent does on your IBM i](docs/product/ibm-i-footprint.md) (start here): the footprint of the software on your IBM i.
+- [Your data: where it goes and how to leave](docs/product/your-data.md): the destinations of your data and the steps to stop using the software.
+- [Verify a release](docs/product/verify-a-release.md): how to check a published release against the public code.
+- [Governance and continuity](docs/governance.md): how the project is run and what remains if the maintainers stop.
+- [Support](SUPPORT.md): what support exists and what is not offered.
+- [Security policy](SECURITY.md): how to report a vulnerability and the response target.
 
 ## Community and the proposed first pilot
 

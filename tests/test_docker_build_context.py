@@ -8,9 +8,13 @@ par Docker : dernière règle correspondante gagnante, ``!`` pour réinclure.
 """
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 import shlex
+import shutil
 import subprocess
+import sys
+from types import SimpleNamespace
 
 import pathspec
 import pytest
@@ -136,3 +140,95 @@ def test_capture_image_ships_modules_imported_by_continuous_reader():
     copied = {source for source in _copy_sources(dockerfile) if source.startswith("src/quadringent/")}
     needed = _quadringent_imports(ROOT / "scripts/as400_continuous_capture.py")
     assert sorted(needed - copied) == [], "capture image omits a reader runtime dependency"
+
+
+def _runtime_python_tree(dockerfile: Path, ignore: Path, image: Path) -> Path:
+    """Reconstruct source COPY operations from the final stage and its context."""
+    spec = pathspec.PathSpec.from_lines("gitignore", ignore.read_text().splitlines())
+    lines = dockerfile.read_text().replace("\\\n", " ").splitlines()
+    final_stage = max(i for i, line in enumerate(lines) if line.startswith("FROM "))
+    tracked = _tracked_files()
+    python_path = None
+    for raw in lines[final_stage + 1:]:
+        line = raw.strip()
+        if line.startswith("ENV "):
+            for value in shlex.split(line[4:]):
+                if value.startswith("PYTHONPATH="):
+                    python_path = image / value.split("=", 1)[1].lstrip("/")
+        if not line.startswith("COPY ") or "--from=" in line:
+            continue
+        parts = [part for part in shlex.split(line[5:]) if not part.startswith("--")]
+        destination = image / parts[-1].lstrip("/")
+        for source in parts[:-1]:
+            if not source.startswith("src/"):
+                continue
+            source_path = ROOT / source
+            for relative in tracked:
+                if spec.match_file(relative):
+                    continue
+                if source_path.is_dir() and relative.startswith(source.rstrip("/") + "/"):
+                    target = destination / Path(relative).relative_to(source)
+                elif relative == source:
+                    target = destination / source_path.name if parts[-1].endswith("/") else destination
+                else:
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / relative, target)
+    assert python_path is not None, "runtime stage does not declare its Python import root"
+    return python_path
+
+
+def _native_remote_project_imports() -> str:
+    from quadringent.qualification.collect import LiveCollector
+    from quadringent.qualification.proof import NativeProbe
+
+    args = SimpleNamespace(
+        pipeline="pipeline", table="LIB.TABLE", table_id="table", copy_run_id="run",
+        copy_boundary="copy", journal_library="LIB", journal_name="JOURNAL",
+        expected_revision="a" * 40, database="DB", schema="SCHEMA", pk="ID",
+        history="HISTORY", mirror="MIRROR", expected_gcs_bucket="example-bucket",
+        expected_gcp_project="example-project", expected_gcp_service_account="example@example.invalid",
+        gcs_read_key="copy.json", expected_gcp_instance_id="123", expected_gcp_instance_name="example",
+        expected_gcp_zone="example-zone", expected_gcp_machine_type="example-type",
+    )
+    probe = object.__new__(NativeProbe)
+    probe.args, probe.library, probe.table, probe.columns = args, "LIB", "TABLE", {"ID": "int"}
+    scripts = [probe.gke_identity_script(), probe.gcp_vm_identity_script()]
+    probe.exec_json = lambda pod, container, script: scripts.append(script)
+    loader = ({"pod": "loader", "container": "loader"}, {})
+    LiveCollector(probe).copy(loader)
+    probe.checkpoint(({}, {
+        "QUADRINGENT_STORAGE_BACKEND": "aws", "AS400_STREAM_KEY": "stream",
+        "AS400_RAW_BUCKET": "example-bucket", "AS400_CHECKPOINT_TABLE": "checkpoints",
+        "AS400_CAPTURE_BINDING_JSON": "{}",
+    }), loader)
+    imports = set()
+    for script in scripts:
+        for node in ast.walk(ast.parse(script)):
+            if isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("quadringent."):
+                imports.add(ast.unparse(node))
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if alias.name.startswith("quadringent."):
+                        imports.add(ast.unparse(ast.Import(names=[alias])))
+    return "\n".join(sorted(imports))
+
+
+@pytest.mark.parametrize("dockerfile,ignore", PAIRS[:2], ids=lambda path: path.name)
+def test_native_remote_imports_work_in_isolated_runtime_tree(dockerfile, ignore, tmp_path):
+    python_path = _runtime_python_tree(dockerfile, ignore, tmp_path / "image")
+    script = f'''import pathlib,sys
+sys.path.insert(0,sys.argv[1])
+{_native_remote_project_imports()}
+assert callable(read_binding) and callable(read_copy_boundary)
+root=pathlib.Path(sys.argv[1]).resolve()
+for name,module in list(sys.modules.items()):
+    if name == 'quadringent' or name.startswith(('quadringent.','quadringent_control_plane')):
+        assert pathlib.Path(module.__file__).resolve().is_relative_to(root),name
+assert sorted(p.name for p in (root/'quadringent'/'qualification').glob('*.py')) == ['__init__.py','boundary.py']
+'''
+    result = subprocess.run(
+        [sys.executable, "-I", "-S", "-B", "-c", script, str(python_path)],
+        cwd=tmp_path, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr

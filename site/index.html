@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Quadringent — IBM i CDC replication to Snowflake</title>
-<meta name="description" content="Open-source CDC engine, API and cockpit for replicating IBM i journals to Snowflake on your AWS or GCP infrastructure. Apache-2.0 Community edition, DEV/INT preview.">
+<title>Quadringent — IBM i (AS/400) CDC replication to Snowflake</title>
+<meta name="description" content="Open-source CDC engine, API and cockpit for replicating IBM i (AS/400) journals to Snowflake on your AWS or GCP infrastructure. Apache-2.0 Community edition, DEV/INT preview.">
 <meta name="color-scheme" content="light dark">
 <meta name="google-site-verification" content="pyK_XDNhLhI1W2LiFLH90aWQMGz5TiLilfTiwPnAuB8">
 <meta name="msvalidate.01" content="4BDA52F28F3CFFE2B4DBE9503DE47701">
@@ -25,6 +25,7 @@
       <ul>
         <li><a href="#how-it-works">How it works</a></li>
         <li><a href="#cockpit">Cockpit</a></li>
+        <li><a href="#learn">FAQ and guides</a></li>
         <li><a data-repo-path="docs/product/compatibility.md" href="../docs/product/compatibility.md">Compatibility</a></li>
         <li><a href="#install">Install</a></li>
         <li><a href="#trust">Trust</a></li>
@@ -41,13 +42,15 @@
 
   <section class="hero" aria-labelledby="title">
     <div class="hero__copy">
-      <p class="eyebrow">CDC replication · IBM i to Snowflake · Apache-2.0</p>
-      <h1 id="title">Replicate IBM i journals to Snowflake, with separate evidence for reading and delivery.</h1>
-      <p class="hero__lead">For <strong>data teams and IBM i operators</strong> who need a Snowflake mirror of journaled Db2 for i tables on their own AWS or GCP infrastructure. Quadringent uses change data capture on IBM i (formerly AS/400 and iSeries) journals: an open-source engine, API and cockpit observe journal reading, raw storage, durable checkpoints and loading separately. Delivery is checked by reading back the source, history and mirror.</p>
+      <p class="eyebrow">CDC replication · IBM i (AS/400) to Snowflake · DEV/INT preview · Apache-2.0</p>
+      <h1 id="title">Open-source CDC from IBM i (AS/400) to Snowflake, with separate evidence for reading and delivery.</h1>
+      <p class="hero__lead">No Kafka and no license key. Quadringent runs in <strong>your own AWS or GCP account</strong> and shows whether each stage happened: journal reading, raw storage, loading and reconciliation of event counts. Where there is no evidence, it says “Not measured”. This is a <strong>DEV/INT preview</strong>; no production qualification is claimed.</p>
+      <p class="hero__lead">It is for <strong>data teams and IBM i operators</strong> who need a Snowflake mirror of journaled Db2 for i tables.</p>
+      <p class="hero__lead">It uses change data capture on IBM i (formerly AS/400 and iSeries) journals: an open-source engine, API and cockpit observe journal reading, raw storage, durable checkpoints and loading separately. Delivery is checked by reading back the source, history and mirror.</p>
       <div class="actions">
-        <a class="action-button action-button--primary" data-repo-path="docs/product/install-default.md" href="../docs/product/install-default.md">Install Community</a>
-        <a class="action-button" href="mailto:quadringent@proton.me?subject=DEV%2FINT%20pilot">Discuss a DEV/INT pilot</a>
-        <a class="action-button" href="#qualification">View qualification results</a>
+        <a class="action-button action-button--primary" href="#install">Try the synthetic demo</a>
+        <a class="action-button" data-repo-path="docs/product/faq.md" href="../docs/product/faq.md">Read the FAQ</a>
+        <a class="action-button" data-repo-path="docs/product/comparison.md" href="../docs/product/comparison.md">How it compares</a>
       </div>
     </div>
     <dl class="release-facts" aria-label="Release status">
@@ -64,7 +67,7 @@
       <span class="provenance-note"><strong>Demonstration</strong> synthetic data</span>
     </div>
     <picture><source srcset="assets/cockpit-connection-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/cockpit-connection.png" width="1440" height="900" alt="Quadringent cockpit, demonstration connection: four tables with their state, lag, throughput, source and Snowflake row counts, and a banner indicating that one table needs verification."></picture>
-    <figcaption>Cockpit <span class="mono">0.3.1</span> rendered in development mode using its built-in demonstration dataset (fictional “Sales” and “Inventory” connections). None of the figures in this image comes from a deployed installation.</figcaption>
+    <figcaption>Screenshot of an earlier cockpit build (<span class="mono">0.3.1</span>), not the current version, rendered in development mode using its built-in demonstration dataset (fictional “Sales” and “Inventory” connections). None of the figures in this image comes from a deployed installation.</figcaption>
   </figure>
 
   <section class="section" id="how-it-works" aria-labelledby="how-it-works-title">
@@ -239,6 +242,46 @@ quadringent install --cloud gcp --target cluster \
         <h3>Reporting a vulnerability</h3>
         <p>How to report a vulnerability and the response target.</p>
         <div class="actions"><a class="action-button" data-repo-path="SECURITY.md" href="../SECURITY.md">Read the security policy</a></div>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" id="learn" aria-labelledby="learn-title">
+    <div class="section__head">
+      <p class="eyebrow">Questions and reading</p>
+      <h2 id="learn-title">Answers before the first call.</h2>
+      <p>Plain answers about what was tested and what was not, a sourced comparison, and three technical articles on IBM i journals, delivery evidence and replication options.</p>
+    </div>
+    <div class="install">
+      <article class="install__card">
+        <p class="eyebrow">First call</p>
+        <h3>Questions for a first call</h3>
+        <p>Supported IBM i releases, tables, initial load, latency, recovery, costs and production readiness. Each answer says Tested, Required, Not tested or Not supported.</p>
+        <div class="actions"><a class="action-button" data-repo-path="docs/product/faq.md" href="../docs/product/faq.md">Read the FAQ</a></div>
+      </article>
+      <article class="install__card">
+        <p class="eyebrow">Alternatives</p>
+        <h3>How Quadringent compares</h3>
+        <p>A comparison with other ways to move IBM i data to Snowflake, with each claim about another product tied to that vendor’s documentation.</p>
+        <div class="actions"><a class="action-button" data-repo-path="docs/product/comparison.md" href="../docs/product/comparison.md">Read the comparison</a></div>
+      </article>
+      <article class="install__card">
+        <p class="eyebrow">Article</p>
+        <h3>Options to replicate AS/400 (IBM i) data to Snowflake</h3>
+        <p>The approaches available, what each one needs and where each one stops.</p>
+        <div class="actions"><a class="action-button" data-repo-path="docs/articles/as400-to-snowflake-options.md" href="../docs/articles/as400-to-snowflake-options.md">Read the article</a></div>
+      </article>
+      <article class="install__card">
+        <p class="eyebrow">Article</p>
+        <h3>How IBM i journals work for change data capture</h3>
+        <p>What a journal records, how receivers rotate and what that means for a reader.</p>
+        <div class="actions"><a class="action-button" data-repo-path="docs/articles/ibm-i-journals-for-cdc.md" href="../docs/articles/ibm-i-journals-for-cdc.md">Read the article</a></div>
+      </article>
+      <article class="install__card">
+        <p class="eyebrow">Article</p>
+        <h3>Capture is not delivery</h3>
+        <p>Why a running reader does not prove that data reached Snowflake, and how to check.</p>
+        <div class="actions"><a class="action-button" data-repo-path="docs/articles/capture-delivery-reconciliation.md" href="../docs/articles/capture-delivery-reconciliation.md">Read the article</a></div>
       </article>
     </div>
   </section>

@@ -1,15 +1,55 @@
 # Quadringent
 
-Quadringent copies changes from IBM i to Snowflake and shows evidence of
-progress: journal reading, raw storage, loading and reconciliation. It is
-designed for data teams running their own IBM i, AWS or GCP, and Snowflake.
+**Open-source change data capture from IBM i journals to Snowflake.** It is a
+DEV/INT preview and no production qualification is claimed. It needs no Kafka and
+no license key, runs in your own AWS or GCP account, and shows separate evidence
+for reading, delivery to Snowflake and reconciliation of events: with evidence, or
+marked "Not measured".
+
+<!-- source: docs/architecture.md, docs/licensing.md, docs/product/your-data.md, docs/product/quadringent-destination-proof-contract.md -->
+
+Quadringent copies changes from IBM i (formerly AS/400 and iSeries) to Snowflake and
+records evidence at each stage: journal reading, raw storage, loading and
+reconciliation of event counts. The destination proof counts events; it does not
+reconcile business values by key. Active capture does not guarantee that the
+destination is up to date. The cockpit distinguishes these states and shows **Not measured** when
+evidence is missing. It is designed for data teams running their own IBM i, AWS or
+GCP, and Snowflake.
+
+> **Status: Community edition, DEV/INT preview. No production qualification is claimed.**
+>
+> - **Latest published scope, 0.3.5 (2026-10-12):** fresh initial copy of two synthetic
+>   tables on four targets. Native CDC writes, reader outage and latency are not
+>   established on 0.3.5.
+> - **Latest published recovery, 0.3.4 (2026-10-12):** new PostgreSQL volumes, reader
+>   recovery and 8 cold/warm observations within 10 s. Not a P95 and not an SLA.
+> - **Current source, 0.4.1:** a DEV/INT candidate that needs fresh qualification.
+>
+> Dated receipts and limits are listed below. Nothing here is a production claim.
+
+<!-- source: site/runtime-0.3.5.json, site/recovery-0.3.4.json, pyproject.toml -->
+
+**Start here**
+
+1. **Try the synthetic demo.** It runs the real cockpit with generated data and
+   needs no IBM i, Snowflake or cloud account: `npm ci --prefix ui`, then
+   `node ui/scripts/build-demo.mjs --serve`. See [Try the cockpit locally](#try-the-cockpit-locally)
+   and the [demo guide](docs/product/synthetic-demo.md).
+2. **Check your prerequisites with `quadringent doctor`.** It reads what your
+   machine can see and changes nothing. See [preflight and diagnosis](docs/product/operator-guide.md#2-preflight-and-diagnosis).
+3. **Read the [compatibility page](docs/product/compatibility.md).** Every row
+   says Tested, Required or Not tested.
+
+<!-- source: docs/product/synthetic-demo.md, docs/product/operator-guide.md, docs/product/compatibility.md -->
+
+Questions for a first call are answered in the [FAQ](docs/product/faq.md), and
+[How Quadringent compares](docs/product/comparison.md) sets it beside other options.
+Three articles explain the ground: [how IBM i journals work for change data capture](docs/articles/ibm-i-journals-for-cdc.md),
+[why capture is not delivery](docs/articles/capture-delivery-reconciliation.md) and
+[options to replicate AS/400 (IBM i) data to Snowflake](docs/articles/as400-to-snowflake-options.md).
 To check what the software does on your IBM i, start with
 [What Quadringent does on your IBM i](docs/product/ibm-i-footprint.md); the
 other [trust and verification](#trust-and-verification) pages follow.
-
-Active capture does not guarantee that the destination is up to date. The
-cockpit distinguishes these states and shows **Not measured** when evidence
-is missing.
 
 ![Quadringent cockpit, demonstration connection with synthetic data and no actual runtime measurement](site/assets/cockpit-connection.png)
 

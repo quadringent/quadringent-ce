@@ -8,12 +8,16 @@ qualification is claimed and no paid support is announced.
 
 | You have | Use |
 |---|---|
-| A bug, or a question about compatibility or behavior | [GitHub issues](https://github.com/quadringent/quadringent-ce/issues) (bug report form) |
+| A bug | [GitHub issues](https://github.com/quadringent/quadringent-ce/issues/new?template=bug_report.yml) (bug report form) |
+| A result on your IBM i release, journal setup or Snowflake edition, working or not | The [compatibility report form](https://github.com/quadringent/quadringent-ce/issues/new?template=compatibility_report.yml) |
+| A question about behavior or setup | Read the [FAQ](docs/product/faq.md) first, then the [question form](https://github.com/quadringent/quadringent-ce/issues/new?template=question.yml) |
 | A security vulnerability | The private channel in [SECURITY.md](SECURITY.md). Never in a public issue. |
 | A wish to discuss a DEV/INT pilot | Email [quadringent@proton.me](mailto:quadringent@proton.me?subject=DEV%2FINT%20pilot), or the public pilot interest request described in the [README](README.md) |
 
 <!-- source: .github/ISSUE_TEMPLATE/config.yml -->
 <!-- source: .github/ISSUE_TEMPLATE/bug_report.yml -->
+<!-- source: .github/ISSUE_TEMPLATE/compatibility_report.yml -->
+<!-- source: .github/ISSUE_TEMPLATE/question.yml -->
 <!-- source: SECURITY.md -->
 <!-- source: README.md -->
 

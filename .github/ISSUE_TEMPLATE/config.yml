@@ -5,4 +5,7 @@ contact_links:
     about: Start a private technical discussion without posting access or customer data.
   - name: Report a security vulnerability privately
     url: https://github.com/quadringent/quadringent-ce/security/advisories/new
-    about: Use the private security channel for vulnerability details.
+    about: Use the private security channel for vulnerability details. Read SECURITY.md first. Never describe a vulnerability in a public issue.
+  - name: Read the FAQ before asking a question
+    url: https://github.com/quadringent/quadringent-ce/blob/main/docs/product/faq.md
+    about: Short answers on IBM i releases, tables, latency, recovery, costs and security, each with a status.

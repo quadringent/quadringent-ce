@@ -52,7 +52,11 @@ the [telemetry guide](docs/product/telemetry.md).
 
 ## TLS, identities and secrets
 
-IBM i TLS is mandatory; plaintext is rejected. The site supplies its CA through
+IBM i TLS is the default, and the chart and installer refuse plaintext. The
+engine accepts plaintext only when `AS400_TLS=false` and
+`AS400_ALLOW_PLAINTEXT=true` are both set by hand
+([IBM i footprint](docs/product/ibm-i-footprint.md#ports-and-tls)); never use
+it over an untrusted network. The site supplies its CA through
 a read-only Secret mount; images contain no customer certificate authority.
 Verify the fingerprint, chain, validity and expected names out of band.
 A `subPath` mount requires a controlled restart to apply certificate rotation.
@@ -120,6 +124,8 @@ and owner authorization, with separate evidence for each storage system.
 
 ## Reporting a vulnerability
 
+<!-- source: .github/ISSUE_TEMPLATE/config.yml -->
+
 Private vulnerability reporting is enabled for this repository:
 [report a vulnerability privately](https://github.com/quadringent/quadringent-ce/security/advisories/new)
 (a GitHub account is required). Never describe a vulnerability, exploit,
@@ -127,7 +133,23 @@ secret or data in a public issue, discussion or pilot request.
 
 If you cannot use GitHub, email quadringent@proton.me to ask for a private
 channel, without vulnerability details, exploit code, secrets or data in that
-first message. No response time is promised.
+first message. Email is answered on a best-effort basis, with no response
+time promised.
+
+What you can expect:
+
+- **Acknowledgement:** a security report submitted through the private
+  vulnerability reporting channel above is acknowledged within 5 business days.
+  This is a target for acknowledgement, not a deadline for a fix.
+- **Supported versions:** security fixes are made for the latest minor release
+  line only. See [SUPPORT.md](SUPPORT.md).
+- **Coordinated disclosure:** please report privately and give the maintainers
+  time to investigate and to publish a fix before you disclose the details.
+  No disclosure period is promised here.
+- **Scope:** include the version, the installation target and a synthetic
+  reproduction. Send no customer data, credentials or real hostnames.
+
+For everything that is not a vulnerability, see [SUPPORT.md](SUPPORT.md).
 
 ## Release checks
 

@@ -1,6 +1,6 @@
 # Evidence
 
-Quadringent is a preview for DEV/INT use. Source version **0.4.2** has had no qualification run yet. The latest observed releases are 0.3.5 (initial copy, 2026-10-12) and 0.3.4 (recovery, 2026-10-12). Production: not qualified.
+Quadringent is a preview for DEV/INT use. Source version **0.4.2** has had no qualification run yet. The latest observed releases are 0.3.5 (initial copy, 2026-10-12) and 0.3.4 (recovery, 2026-10-12). Production: not qualified. Native CDC writes on 0.3.5 are Not tested.
 
 We use four words for evidence, here and everywhere else: Measured (we have a number, with its scope), Not measured (we have no number), Not tested (we ran nothing) and Not supported (it does not work, or we do not intend it to). Every result stays bound to the version, targets and clock it was observed with. A result on 0.3.4 says nothing about 0.4.2.
 

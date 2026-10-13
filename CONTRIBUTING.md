@@ -49,6 +49,9 @@ The project makes one claim, that reading a journal is not the same as deliverin
 10. Facts do not change when copy does. Move a number, date, scope or limit; never delete or alter it silently. It stays on the page or one link away in [docs/evidence.md](docs/evidence.md). Never invent a story, a customer, a person or a measurement, and never hint at who or where the maintainers are.
 11. Show the current source version from `pyproject.toml` and the latest observed release with its date. Do not leave a stale version anywhere.
 12. Write commit messages with the conventional prefix and, when the change is not trivial, a body of one to three lines that says why.
+13. Interface: no coloured rails (left borders or inset bars) on cards, callouts or alerts, and no spaced uppercase labels above headings. State is a word, with a small glyph only in dense tables.
+14. Interface: panels are flat and square, with a 1px rule at most, and only around real objects: a screenshot, a form, a table. Use a list or a table, not a grid of identical cards, callout boxes, badges or dividers.
+15. Interface: words over decoration. Show the screenshot, the receiver chain or the terminal output instead of describing it, and keep captions to one line.
 
 ## Checks
 

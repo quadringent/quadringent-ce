@@ -9,11 +9,14 @@ aucun défaut de production inventé.
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
-from quadringent_control_plane.v2 import entrypoint
+from quadringent_control_plane.v2 import db, entrypoint, schema
 from quadringent_control_plane.v2.crypto import SecretBox
 
 
@@ -455,3 +458,131 @@ def test_executor_resolves_only_the_configured_site_region(tmp_path, monkeypatch
         assert app.state.pipeline_executor._config.aws_region == expected
     finally:
         engine.dispose()
+
+
+@pytest.fixture
+def startup_database(tmp_path):
+    values = _environ(tmp_path, QUADRINGENT_V2_ORG_ID="original")
+    db.run_migrations(values[entrypoint.ENV_DATABASE_URL])
+    engine = db.create_engine_for(values[entrypoint.ENV_DATABASE_URL])
+    try:
+        yield engine, values
+    finally:
+        engine.dispose()
+
+
+def _database_rows(engine):
+    with engine.connect() as connection:
+        return {
+            table.name: connection.execute(
+                select(table).order_by(*table.primary_key.columns)
+            ).all()
+            for table in schema.metadata.sorted_tables
+        }
+
+
+def _existing_installation(engine, values, org_ids):
+    with engine.begin() as connection:
+        connection.execute(
+            schema.organizations.insert(),
+            [{"id": org_id, "name": "Preserved installation"} for org_id in org_ids],
+        )
+        connection.execute(
+            schema.sources.insert(),
+            {
+                "id": "preserved-source",
+                "org_id": org_ids[0],
+                "display_name": "Synthetic preserved source",
+                "ibmi_host": "source.example.test",
+                "ibmi_user": "SYNTHETIC",
+                "secret_ciphertext": SecretBox.from_environment(values).encrypt("synthetic-secret"),
+            },
+        )
+
+
+def test_organization_bootstrap_creates_one_row_and_restart_preserves_it(startup_database):
+    engine, _values = startup_database
+    entrypoint.ensure_organization(engine, "original")
+    before = _database_rows(engine)
+    entrypoint.ensure_organization(engine, "original")
+    assert _database_rows(engine) == before
+    assert [row.id for row in before["organizations"]] == ["original"]
+
+
+@pytest.mark.parametrize(
+    "existing,requested",
+    [
+        (["original"], "different"),
+        (["original", "other"], "original"),
+        (["original", "other"], "different"),
+    ],
+)
+def test_organization_refuses_foreign_or_mixed_database_without_changes(
+    startup_database, existing, requested
+):
+    engine, values = startup_database
+    _existing_installation(engine, values, existing)
+    before = _database_rows(engine)
+    with pytest.raises(entrypoint.ConfigurationError, match="single organisation") as error:
+        entrypoint.ensure_organization(engine, requested)
+    assert all(org_id not in str(error.value) for org_id in existing + [requested])
+    assert "separate database" in str(error.value)
+    assert _database_rows(engine) == before
+
+
+def test_organization_constraint_failure_is_not_silently_accepted(startup_database):
+    engine, _values = startup_database
+    with pytest.raises(IntegrityError):
+        entrypoint.ensure_organization(engine, None)
+    assert _database_rows(engine)["organizations"] == []
+
+
+@pytest.mark.parametrize("existing", [["original"], ["original", "other"]])
+def test_build_app_refuses_before_any_adapters_or_app_and_disposes_engine(
+    startup_database, monkeypatch, existing
+):
+    engine, values = startup_database
+    _existing_installation(engine, values, existing)
+    before = _database_rows(engine)
+    values[entrypoint.ENV_ORG_ID] = "different" if len(existing) == 1 else "original"
+    monkeypatch.setattr(entrypoint.db, "create_engine_for", lambda _dsn: engine)
+    dispose = Mock(wraps=engine.dispose)
+    monkeypatch.setattr(engine, "dispose", dispose)
+    adapters = {
+        "build_diagnostic_adapters": Mock(return_value=(None, None)),
+        "build_pipeline_executor": Mock(return_value=(None, None)),
+        "build_loader_telemetry": Mock(return_value=None),
+        "_build_destination_verifier": Mock(return_value=None),
+        "create_v2_app": Mock(),
+    }
+    for name, adapter in adapters.items():
+        monkeypatch.setattr(entrypoint, name, adapter)
+    with pytest.raises(entrypoint.ConfigurationError, match="single organisation"):
+        entrypoint.build_app(values)
+    for adapter in adapters.values():
+        adapter.assert_not_called()
+    dispose.assert_called_once_with()
+    assert _database_rows(engine) == before
+
+
+@pytest.mark.parametrize("failure_stage", ["secret", "adapter", "app"])
+def test_build_app_disposes_engine_on_construction_failure(
+    startup_database, monkeypatch, failure_stage
+):
+    engine, values = startup_database
+    monkeypatch.setattr(entrypoint.db, "create_engine_for", lambda _dsn: engine)
+    dispose = Mock(wraps=engine.dispose)
+    monkeypatch.setattr(engine, "dispose", dispose)
+    if failure_stage == "secret":
+        values.pop("QUADRINGENT_V2_SECRET_KEY")
+    else:
+        target = "build_diagnostic_adapters" if failure_stage == "adapter" else "create_v2_app"
+        monkeypatch.setattr(entrypoint, target, Mock(side_effect=RuntimeError("Synthetic construction failure")))
+        expected_error = RuntimeError
+    if failure_stage == "secret":
+        from quadringent_control_plane.v2.crypto import SecretKeyUnavailableError
+
+        expected_error = SecretKeyUnavailableError
+    with pytest.raises(expected_error):
+        entrypoint.build_app(values)
+    dispose.assert_called_once_with()

@@ -31,9 +31,8 @@ import os
 from typing import Mapping
 
 from fastapi import FastAPI
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import IntegrityError
 
 from . import db, schema
 from .app import create_v2_app
@@ -101,20 +100,22 @@ def resolve_org_id(environ: Mapping[str, str]) -> str:
 
 
 def ensure_organization(engine: Engine, org_id: str) -> None:
-    """Une installation = une organisation : sa ligne doit exister avant tout
-    utilisateur (clé étrangère). Idempotent, sûr en cas de démarrages
-    concurrents (l'insertion perdante est ignorée)."""
-    with engine.connect() as connection:
-        exists = connection.execute(
-            select(schema.organizations.c.id).where(schema.organizations.c.id == org_id)
-        ).first()
-    if exists:
-        return
-    try:
-        with engine.begin() as connection:
+    """Bootstrap or validate the installation's sole organisation atomically."""
+    with engine.begin() as connection:
+        if engine.dialect.name == "postgresql":
+            # Serialize bootstrap and validation, including concurrent inserts.
+            connection.execute(text("LOCK TABLE organizations IN SHARE ROW EXCLUSIVE MODE"))
+        elif engine.dialect.name == "sqlite":
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+        organizations = connection.execute(select(schema.organizations.c.id).limit(2)).scalars().all()
+        if not organizations:
             connection.execute(schema.organizations.insert(), {"id": org_id, "name": org_id})
-    except IntegrityError:
-        pass
+        elif len(organizations) != 1 or organizations[0] != org_id:
+            raise ConfigurationError(
+                "This installation requires a single organisation matching its configured identity. "
+                "Restore the matching installation database and configuration, or use a separate database; "
+                "the startup check did not rename or remove organisations."
+            )
 
 
 def build_diagnostic_adapters(
@@ -320,39 +321,38 @@ def build_app(environ: Mapping[str, str] | None = None) -> tuple[FastAPI, Engine
     dsn = _require(ENV_DATABASE_URL, values)
     db.run_migrations_locked(dsn)
     engine = db.create_engine_for(dsn)
-    org_id = resolve_org_id(values)
-    ensure_organization(engine, org_id)
-    secret_box = SecretBox.from_environment(values)
-    token_pepper = load_token_pepper(values)
-    source_probe, table_discovery_client = build_diagnostic_adapters(values, engine, secret_box)
-    pipeline_executor, reconciliation_executor = build_pipeline_executor(values, engine, secret_box)
-    loader_telemetry = build_loader_telemetry(engine)
-    app = create_v2_app(
-        engine=engine,
-        secret_box=secret_box,
-        org_id=org_id,
-        source_probe=source_probe,
-        table_discovery_client=table_discovery_client,
-        pipeline_executor=pipeline_executor,
-        reconciliation_executor=reconciliation_executor,
-        pipeline_observation_provider=loader_telemetry,
-        log_source=loader_telemetry,
-        reconciliation_interval_seconds=(
-            DEFAULT_RECONCILIATION_INTERVAL_SECONDS if reconciliation_executor is not None else None
-        ),
-        token_pepper=token_pepper,
-        # Le control plane est servi derrière le proxy/tunnel du site — voir
-        # controlPlane.host dans la chart : jamais de cookie de session en
-        # clair sur le réseau.
-        session_cookie_secure=True,
-        # Tâche « auth-login » : en production, l'anonyme n'est plus admin
-        # implicite — voir ``auth.py::resolve_identity`` et
-        # ``docs/api-v2.md``. Les routes publiques (setup, activation,
-        # login/logout, healthz, openapi) restent accessibles sans identité.
-        require_authentication=True,
-        destination_verifier=_build_destination_verifier(),
-    )
-    return app, engine
+    try:
+        org_id = resolve_org_id(values)
+        ensure_organization(engine, org_id)
+        secret_box = SecretBox.from_environment(values)
+        token_pepper = load_token_pepper(values)
+        source_probe, table_discovery_client = build_diagnostic_adapters(values, engine, secret_box)
+        pipeline_executor, reconciliation_executor = build_pipeline_executor(values, engine, secret_box)
+        loader_telemetry = build_loader_telemetry(engine)
+        app = create_v2_app(
+            engine=engine,
+            secret_box=secret_box,
+            org_id=org_id,
+            source_probe=source_probe,
+            table_discovery_client=table_discovery_client,
+            pipeline_executor=pipeline_executor,
+            reconciliation_executor=reconciliation_executor,
+            pipeline_observation_provider=loader_telemetry,
+            log_source=loader_telemetry,
+            reconciliation_interval_seconds=(
+                DEFAULT_RECONCILIATION_INTERVAL_SECONDS if reconciliation_executor is not None else None
+            ),
+            token_pepper=token_pepper,
+            # The chart's controlPlane.host proxy terminates TLS for secure cookies.
+            session_cookie_secure=True,
+            # Public setup/auth routes remain available for initial activation.
+            require_authentication=True,
+            destination_verifier=_build_destination_verifier(),
+        )
+        return app, engine
+    except BaseException:
+        engine.dispose()
+        raise
 
 
 def main(argv: list[str] | None = None) -> int:

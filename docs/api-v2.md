@@ -27,8 +27,13 @@ pip install -e ".[api]"
 
 The native entrypoint requires the PostgreSQL DSN, Fernet encryption key
 and token pepper. Supply them through private environment/Secret references,
-not committed files. Direct application construction is useful for isolated
-tests:
+not committed files. Each installation uses one organization and its own
+database. Current source refuses startup if the database contains a different
+organization or multiple organizations; this check does not rename or remove
+organizations. Schema migrations run before the check.
+Restore the matching organization configuration or use a separate database.
+This guard is absent from the published 0.3.5 artifacts.
+Direct application construction is useful for isolated tests:
 
 ```python
 from quadringent_control_plane.v2 import db

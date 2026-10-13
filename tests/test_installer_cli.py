@@ -76,7 +76,7 @@ class DryRunTests(unittest.TestCase):
                 ]
             )
         self.assertEqual(code, 2)
-        self.assertIn("Artefacts d'installation introuvables", output)
+        self.assertIn("Installation assets not found", output)
         self.assertEqual(runner.calls, [])
 
     def test_dry_run_gcp_without_project_is_rejected(self) -> None:

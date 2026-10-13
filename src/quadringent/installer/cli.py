@@ -83,8 +83,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "--assets-dir", default=None,
         help="Root of the extracted release sdist (contains chart/ and deploy/terraform/; default: current directory)",
     )
-    install.add_argument("--image-repository", default=None, help="Surcharge QUADRINGENT_IMAGE_REPOSITORY")
-    install.add_argument("--check-ibmi", default=None, metavar="HOST", help="Test IBM i TLS reachability (9471/9476/9475) before installation")
+    install.add_argument("--image-repository", default=None, help="Override the image repository in the release manifest")
+    install.add_argument("--check-ibmi", default=None, metavar="HOST", help="Test IBM i TCP reachability (9471/9476/9475); does not verify TLS")
     install.add_argument(
         "--existing-bucket", default=None, metavar="NAME",
         help="Reuse an existing S3/GCS bucket (deploy/terraform/<cloud>/base, existing_bucket_name)",
@@ -214,7 +214,7 @@ def _run_install(args: argparse.Namespace, runner: CommandRunner, stdout: TextIO
     missing_assets = [str(path) for path in required_assets if not path.is_file()]
     if missing_assets:
         print(
-            "Artefacts d'installation introuvables : " + ", ".join(missing_assets) + ". "
+            "Installation assets not found: " + ", ".join(missing_assets) + ". "
             "Extract the quadringent-<version>.tar.gz sdist from the same release and pass --assets-dir <extracted-root>.",
             file=stdout,
         )

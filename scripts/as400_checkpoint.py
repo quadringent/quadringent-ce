@@ -17,12 +17,20 @@ for extra in ("src",):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from quadringent.checkpoint import DynamoDbCheckpointStore  # noqa: E402
+from quadringent.checkpoint import DynamoDbCheckpointStore, _is_conditional_failure  # noqa: E402
 from quadringent.contract import JournalPosition  # noqa: E402
 from quadringent.site_config import SiteConfigurationError, current as current_site  # noqa: E402
 
 _ACTOR = re.compile(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,63}")
 _RECEIVER = re.compile(r"[A-Za-z0-9$#@][A-Za-z0-9$#@._-]{0,63}")
+
+
+class _AuditFailure(RuntimeError):
+    error_code = "audit_failed"
+
+
+class _AuditConflict(_AuditFailure):
+    error_code = "audit_conflict"
 
 
 def _store(args) -> DynamoDbCheckpointStore:
@@ -62,29 +70,43 @@ def _anchor(store: DynamoDbCheckpointStore, args) -> dict[str, object]:
     previous = store.load()
     target = JournalPosition(receiver=args.receiver.strip(), sequence=args.sequence)
     if previous is None:
-        # Pas de prédécesseur : le CAS exige que l'item n'existe pas encore.
+        # With no predecessor, CAS requires the item to remain absent.
         store.compare_and_set(None, target)
     else:
         store.transition(previous, target)
     stamp = _now().isoformat()
-    # La transition CAS a déjà posé la cible : la condition verrouille l'audit
-    # sur exactement cette position, sinon l'écriture est refusée.
-    store.client.update_item(
-        TableName=store.table_name,
-        Key={"stream_id": {"S": store.stream_key}},
-        UpdateExpression=(
-            "SET anchor_actor = :actor, anchor_at = :at, anchor_reason = :reason"
-        ),
-        ConditionExpression="#receiver = :receiver AND #sequence = :sequence",
-        ExpressionAttributeNames={"#receiver": "receiver", "#sequence": "sequence"},
-        ExpressionAttributeValues={
-            ":actor": {"S": args.actor.strip()},
-            ":at": {"S": stamp},
-            ":reason": {"S": args.reason.strip()},
-            ":receiver": {"S": target.receiver},
-            ":sequence": {"N": str(target.sequence)},
-        },
-    )
+    # Audit only the v1 position just written; a concurrent bound checkpoint
+    # must retain its complete envelope without legacy metadata.
+    try:
+        store.client.update_item(
+            TableName=store.table_name,
+            Key={store.partition_key: {"S": store.stream_key}},
+            UpdateExpression=(
+                "SET anchor_actor = :actor, anchor_at = :at, anchor_reason = :reason"
+            ),
+            ConditionExpression=(
+                "#receiver = :receiver AND #sequence = :sequence AND #format = :legacy_format "
+                "AND attribute_not_exists(#scope) AND attribute_not_exists(#epoch) "
+                "AND attribute_not_exists(#identity) AND attribute_not_exists(#digest)"
+            ),
+            ExpressionAttributeNames={
+                "#receiver": "receiver", "#sequence": "sequence", "#format": "format_version",
+                "#scope": "scope_id", "#epoch": "capture_epoch", "#identity": "receiver_identity",
+                "#digest": "checkpoint_digest",
+            },
+            ExpressionAttributeValues={
+                ":actor": {"S": args.actor.strip()},
+                ":at": {"S": stamp},
+                ":reason": {"S": args.reason.strip()},
+                ":receiver": {"S": target.receiver},
+                ":sequence": {"N": str(target.sequence)},
+                ":legacy_format": {"S": store.FORMAT_VERSION},
+            },
+        )
+    except Exception as error:
+        if _is_conditional_failure(error):
+            raise _AuditConflict("checkpoint audit compare-and-set conflict") from error
+        raise _AuditFailure("checkpoint audit failed") from error
     return {
         "action": "anchored",
         "actor": args.actor.strip(),
@@ -102,7 +124,7 @@ def main() -> int:
     command = parser.add_subparsers(dest="command", required=True)
     command.add_parser("status", help="display the stream's durable checkpoint")
     anchor = command.add_parser("anchor", help="reanchor the cursor (audited CAS)")
-    anchor.add_argument("--receiver", required=True, help="receiver cible vivant")
+    anchor.add_argument("--receiver", required=True, help="live target receiver")
     anchor.add_argument("--sequence", type=int, required=True, help="target sequence (>= 0)")
     anchor.add_argument("--actor", required=True, help="operator identity, recorded")
     anchor.add_argument("--reason", required=True, help="reason for reanchoring, recorded")
@@ -136,6 +158,10 @@ def main() -> int:
         return 2
     try:
         result = _anchor(store, args)
+    except _AuditFailure as error:
+        print(json.dumps({"event": "checkpoint_error", "error": error.error_code,
+                          "position_transitioned": True}, sort_keys=True))
+        return 2
     except ValueError as error:
         print(json.dumps({"event": "checkpoint_error", "error": str(error)}, sort_keys=True))
         return 2

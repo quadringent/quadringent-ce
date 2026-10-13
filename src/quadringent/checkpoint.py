@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 import hashlib
 import json
 import os
@@ -14,6 +15,8 @@ from .receiver_identity import BOUND_CHECKPOINT_FORMAT_VERSION, BoundCheckpoint
 
 
 LEGACY_CHECKPOINT_FORMAT_VERSION = "as400-checkpoint-v1"
+_LEGACY_AUDIT_FIELDS = {"anchor_actor", "anchor_at", "anchor_reason"}
+_ANCHOR_ACTOR = re.compile(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,63}")
 
 
 def _unique_json_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -270,8 +273,10 @@ class DynamoDbCheckpointStore:
             allowed = {self.partition_key, "receiver", "sequence"}
             if "format_version" in item:
                 allowed.add("format_version")
+            allowed.update(_LEGACY_AUDIT_FIELDS.intersection(item))
             if set(item) != allowed:
                 raise ValueError("invalid legacy checkpoint attributes")
+            _validate_legacy_audit(item, version)
             record = {"receiver": receiver, "sequence": sequence}
             if "format_version" in item:
                 record["format_version"] = version
@@ -410,6 +415,25 @@ def _dynamo_string(attribute: object) -> str:
     if type(attribute) is not dict or set(attribute) != {"S"} or type(attribute["S"]) is not str:
         raise ValueError("invalid DynamoDB string attribute")
     return attribute["S"]
+
+
+def _validate_legacy_audit(item: dict[str, Any], version: str | None) -> None:
+    present = _LEGACY_AUDIT_FIELDS.intersection(item)
+    if not present:
+        return
+    # The operator command writes all three fields in one atomic update.
+    if version != LEGACY_CHECKPOINT_FORMAT_VERSION or present != _LEGACY_AUDIT_FIELDS:
+        raise ValueError("invalid legacy checkpoint audit metadata")
+    actor = _dynamo_string(item["anchor_actor"])
+    reason = _dynamo_string(item["anchor_reason"])
+    timestamp = _dynamo_string(item["anchor_at"])
+    if actor != actor.strip() or _ANCHOR_ACTOR.fullmatch(actor) is None:
+        raise ValueError("invalid legacy checkpoint audit actor")
+    if not reason or reason != reason.strip() or len(reason) > 200:
+        raise ValueError("invalid legacy checkpoint audit reason")
+    stamp = datetime.fromisoformat(timestamp)
+    if stamp.tzinfo is None or stamp.utcoffset() != timedelta(0) or stamp.isoformat() != timestamp:
+        raise ValueError("invalid legacy checkpoint audit timestamp")
 
 
 def _is_conditional_failure(error: Exception) -> bool:

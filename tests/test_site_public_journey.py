@@ -204,9 +204,10 @@ def test_hero_uses_latest_scoped_observations_without_transferring_versions():
     runtime = scoped_summary("runtime-0.3.5")
     recovery = scoped_summary("recovery-0.3.4")
     facts = text_of(re.search(r'<dl class="release-facts".*?</dl>', read("site/index.html"), re.S)[0])
-    assert release_version() == runtime["version"]
-    assert "fresh initial copy on 4 targets" in facts
-    assert "native CDC, outage and latency not established" in facts
+    source_version = tomllib.loads(read("pyproject.toml"))["project"]["version"]
+    assert release_version() == source_version
+    assert f'{source_version}: native CDC, outage, latency and complete cloud-loss recovery need fresh qualification' in facts
+    assert f'Historical {runtime["version"]}: fresh initial copy on 4 targets' in facts
     assert f'{recovery["version"]} recovery' in facts
     assert "8 cold/warm observations within 10 s" in facts
     assert "gate failed on 3" not in facts

@@ -9,9 +9,9 @@ cluster. The [expert guide](install-client.md) covers sites managing their own
 Helm values. See [backup and restore](backup-restore.md) before upgrading or
 rebuilding a site.
 
-Current source is **0.4.1, a DEV/INT preview candidate** with native receiver
+Current source is **0.4.2, a DEV/INT preview** with native receiver
 bindings and selected replay recovery. Use only available, admitted release
-assets; this candidate has no native continuity or full-site recovery verdict.
+assets; this preview has no native continuity or full-site recovery verdict.
 The published [0.3.5 scoped receipt](../../site/runtime-0.3.5.json) covers initial
 copy and an EKS application cycle. The
 [0.3.4 recovery receipt](../../site/recovery-0.3.4.json) remains historical. A ready
@@ -26,7 +26,7 @@ boundary need separate qualification; see the [native capture guide](native-qual
 Historical 0.2.5 control plane exercises covered GKE, EKS, AWS VM and GCP VM:
 installation, 0.2.3 → 0.2.5 → 0.2.3, isolated backup/key export, complete removal
 of the original site, fresh reconstruction and restore. Login, synthetic data
-parity and decryption were checked. These bounded results do not qualify 0.4.1
+parity and decryption were checked. These bounded results do not qualify 0.4.2
 or every configuration; AWS VM PostgreSQL/PVC UIDs were not measured directly,
 and image-child selection was sometimes inferred from the sealed manifest.
 
@@ -40,12 +40,12 @@ or a draft is not an available release.
 
 ```sh
 python3 -m venv /private/path/quadringent-venv
-/private/path/quadringent-venv/bin/python -m pip install quadringent-0.4.1-py3-none-any.whl
-tar -xzf quadringent-0.4.1.tar.gz -C /private/path
+/private/path/quadringent-venv/bin/python -m pip install quadringent-0.4.2-py3-none-any.whl
+tar -xzf quadringent-0.4.2.tar.gz -C /private/path
 /private/path/quadringent-venv/bin/quadringent install \
   --cloud gcp --target cluster --region europe-west1 --project my-project \
   --name my-site --release-manifest /private/path/release-manifest.json \
-  --assets-dir /private/path/quadringent-0.4.1 --dry-run
+  --assets-dir /private/path/quadringent-0.4.2 --dry-run
 ```
 
 Review the plan, cloud identity and kubectl context before removing

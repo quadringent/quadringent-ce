@@ -19,11 +19,11 @@ The engine, API and local cockpit are open source under [Apache-2.0](LICENSE),
 with no license key or commercial table limit. Operators pay their own
 infrastructure costs. No production qualification is claimed.
 
-Current source is **0.4.2**, a DEV/INT candidate with original native receiver
+Current source is **0.4.2**, a DEV/INT preview with original native receiver
 bindings, selected replay backup/restore and guarded RAW retention. Native
 continuity, complete site recovery and the operator path need fresh qualification.
 
-This candidate changes native capture configuration and checkpoint semantics.
+This preview changes native capture configuration and checkpoint semantics.
 It requires the original admitted receiver binding and refuses automatic adoption
 of legacy v1 checkpoints. Preserve the previous version and its state until a
 separate migration has been verified; see the [native capture guide](docs/product/native-qualification.md).

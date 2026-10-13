@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.2 — Native capture and recovery preview
+
+- Bind native capture and copy boundaries to the original admitted receiver identity; refuse automatic legacy checkpoint adoption.
+- Add selected native replay export, verification and restore with guarded RAW retention.
+- Preserve the installed AWS VM image during upgrades and enforce one organisation at control-plane startup.
+- Distinguish suspended table delivery from capture state and distribute the synthetic cockpit demo.
+
+This DEV/INT preview changes checkpoint semantics. Native continuity, reader
+outage, latency, full cloud-loss recovery and the operator path require fresh
+qualification. Historical 0.3.5 and 0.3.4 observations remain bound to their
+original artifacts; see the [native capture guide](docs/product/native-qualification.md).
+
 ## 0.3.5 — Reliable cockpit controls and administrator guidance
 
 - Resolve connection destinations from pipeline identities; ambiguous links expose no destination control.

@@ -14,6 +14,7 @@ REPOSITORY = "https://github.com/quadringent/quadringent-ce"
 SITE_URL = "https://quadringent.github.io/quadringent-ce/"
 
 PUBLIC_PAGES = {
+    "docs/evidence.md": "evidence",
     "docs/product/ibm-i-footprint.md": "ibm-i-footprint",
     "docs/product/your-data.md": "your-data",
     "docs/product/verify-a-release.md": "verify-a-release",

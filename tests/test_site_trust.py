@@ -60,10 +60,10 @@ def test_readme_has_a_short_trust_section_with_one_link_per_bullet():
         assert len(relative_links(bullet)) == 1, bullet
 
 
-def test_readme_comes_after_the_status_and_licensing_paragraphs():
+def test_readme_comes_after_the_status_line_and_links_the_licensing_page():
     text = read("README.md")
-    assert text.index("Community edition") < text.index("## Trust and verification")
-    assert text.index("[project model](docs/licensing.md)") < text.index("## Trust and verification")
+    assert text.index("Status: Preview, DEV/INT only.") < text.index("## Trust and verification")
+    assert "[project model](docs/licensing.md)" in text
 
 
 def test_readme_links_every_trust_page_and_the_targets_exist():
@@ -75,9 +75,9 @@ def test_readme_links_every_trust_page_and_the_targets_exist():
 
 def test_home_links_every_trust_page_and_the_targets_exist():
     html = read("site/index.html")
-    section = re.search(r'<section class="section" id="trust".*?</section>', html, re.S)
-    assert section, "site/index.html has no trust section"
-    assert 'href="#trust"' in html
+    section = re.search(r'<div class="index" id="trust">.*?</ul>', html, re.S)
+    assert section, "site/index.html has no trust list"
+    assert 'id="trust"' in html
     linked = re.findall(r'data-repo-path="([^"]+)" href="([^"]+)"', section[0])
     assert sorted(path for path, _ in linked) == sorted(TRUST_PAGES)
     for path, href in linked:

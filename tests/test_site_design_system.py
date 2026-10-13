@@ -166,3 +166,27 @@ def test_fonts_come_from_locked_packages_with_their_license():
     for family in ("Sans", "Mono"):
         license_text = (SITE / "assets" / "fonts" / f"OFL-IBM-Plex-{family}.txt").read_text()
         assert "SIL Open Font License" in license_text and "IBM Corp." in license_text
+
+
+def test_green_on_black_is_limited_to_command_blocks():
+    """The 5250-like look styles commands only: no global green theme, no gradients, no CRT effects."""
+    css = (SITE / "style.css").read_text()
+    uses = [m.start() for m in re.finditer(r"var\(--site-screen-(?:fg|dim|bg)\)", css)]
+    assert uses
+    for position in uses:
+        selector = css[css.rfind("}", 0, position) + 1:css.index("{", css.rfind("}", 0, position))]
+        assert ".screen" in selector or ".code .screen__dim" in selector, selector.strip()
+    assert "--site-screen-fg" in declarations(css, SCOPES["light"])
+    for dark in ("dark-preference", "dark-explicit"):
+        assert "--site-screen-fg" not in declarations(css, SCOPES[dark]), "the screen block is the same in both themes"
+    assert not re.search(r"text-shadow|@keyframes|animation:", css)
+    page_html = (SITE / "index.html").read_text()
+    assert page_html.count('<pre class="screen') == 3, "only the three command examples"
+
+
+def test_status_word_absent_is_a_hollow_square_with_a_word():
+    css = (SITE / "style.css").read_text()
+    assert re.search(r"\.status-word--absent \.status-word__mark \{[^}]*transparent", css)
+    html = (SITE / "index.html").read_text()
+    for use in re.findall(r'<span class="status-word status-word--absent">(.*?)</span></span>', html):
+        assert "status-word__label" in use

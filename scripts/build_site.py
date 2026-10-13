@@ -10,6 +10,7 @@ from urllib.parse import urlparse, urlsplit
 
 DOC_PAGES = {
     "README.md": ("getting-started", "Getting started with IBM i CDC to Snowflake"),
+    "docs/evidence.md": ("evidence", "What Quadringent has measured, and what it has not"),
     "docs/product/synthetic-demo.md": ("demo", "Try the cockpit with synthetic data"),
     "docs/product/compatibility.md": ("compatibility", "Compatibility and prerequisites for IBM i and Snowflake"),
     "docs/product/install-default.md": ("installation", "Install Quadringent on AWS or GCP"),
@@ -39,6 +40,7 @@ DOC_PAGES = {
 # Search snippets: what each page lets a reader do, not a shared template.
 DOC_DESCRIPTIONS = {
     "README.md": "Start with Quadringent Community: what it replicates from IBM i to Snowflake, its preview status and how to try it.",
+    "docs/evidence.md": "Measured and not measured: results by version, target and date, the 10 s latency bar, the 0.2.x history and the limits that remain.",
     "docs/product/synthetic-demo.md": "Run the Quadringent cockpit locally with synthetic data, without IBM i, Snowflake, cloud access or credentials.",
     "docs/product/compatibility.md": "Check IBM i releases, journaling, keys, authorities, receiver retention, Snowflake roles and default resources before installing Quadringent.",
     "docs/product/install-default.md": "Install Quadringent on AWS or GCP, on a dedicated VM or an existing cluster, with a reviewed Terraform plan.",
@@ -68,7 +70,7 @@ DOC_DESCRIPTIONS = {
 # Python-Markdown passes unknown inline tags through; placeholders such as
 # <owner> or <host> would then vanish in the browser. Escape only those.
 KNOWN_HTML_TAGS = frozenset("""a abbr b blockquote br caption code dd del details div dl dt em figcaption figure
-h1 h2 h3 h4 h5 h6 hr i img kbd li ol p pre s small span strong sub summary sup table tbody td th thead
+h1 h2 h3 h4 h5 h6 hr i img kbd li ol p picture pre s small source span strong sub summary sup table tbody td th thead
 time tr ul""".split())
 
 
@@ -108,7 +110,7 @@ def seo_head(url: str, title: str, description: str, base: str, repository: str,
         f'<meta property="og:description" content="{escape(description, quote=True)}">\n'
         f'<meta property="og:url" content="{escape(url, quote=True)}">\n'
         '<meta property="og:type" content="website">\n'
-        f'<meta property="og:image" content="{escape(base + "assets/cockpit-connection.png", quote=True)}">\n'
+        f'<meta property="og:image" content="{escape(base + "assets/cockpit-evidence-light.png", quote=True)}">\n'
         '<meta name="twitter:card" content="summary_large_image">\n'
         f'<script type="application/ld+json">{structured}</script>\n'
     )
@@ -133,9 +135,9 @@ def publish_guides(root: Path, output: Path, base: str, repository: str) -> list
             resolved = posixpath.normpath(posixpath.join(posixpath.dirname(source), parsed.path))
             if attr == "href" and resolved in available:
                 target = "../" + available[resolved][0] + "/"
-            elif attr == "src" and resolved.startswith("site/assets/"):
+            elif attr in ("src", "srcset") and resolved.startswith("site/assets/"):
                 target = "../../" + resolved.removeprefix("site/")
-            elif attr == "src":
+            elif attr in ("src", "srcset"):
                 target = repository.replace("https://github.com/", "https://raw.githubusercontent.com/") + "/main/" + resolved
             else:
                 target = repository + "/blob/main/" + resolved
@@ -143,7 +145,7 @@ def publish_guides(root: Path, output: Path, base: str, repository: str) -> list
                 target += "#" + parsed.fragment
             return f'{attr}="{escape(target, quote=True)}"'
 
-        body = re.sub(r'(href|src)="([^"]+)"', link, body)
+        body = re.sub(r'(href|srcset|src)="([^"]+)"', link, body)
         url = base + f"docs/{slug}/"
         head = seo_head(url, title, description, base, repository, home=False)
         page = f'''<!doctype html>
@@ -151,7 +153,7 @@ def publish_guides(root: Path, output: Path, base: str, repository: str) -> list
 <title>{escape(title)} · Quadringent</title><meta name="description" content="{escape(description, quote=True)}">
 {head}<link rel="stylesheet" href="../../style.css"></head>
 <body><main class="guide"><nav aria-label="Documentation">{navigation}</nav>
-<p class="guide__scope">Community Edition · DEV/INT preview</p>
+<p class="guide__scope">Community Edition · Preview, DEV/INT only</p>
 <article>{body}</article><footer><a href="{repository}/blob/main/{source}">View source on GitHub</a></footer>
 </main></body></html>'''
         folder = output / "docs" / slug
@@ -243,7 +245,7 @@ def build(repository_url: str, output: Path, *, source_root: Path | None = None,
         title_match = re.search(r"<title>(.*?)</title>", text, re.S)
         description_match = re.search(r'<meta name="description" content="([^"]+)"', text)
         title = unescape(title_match[1]) if title_match else "Quadringent — IBM i CDC to Snowflake"
-        description = unescape(description_match[1]) if description_match else "IBM i journals to Snowflake. Community Edition DEV/INT preview."
+        description = unescape(description_match[1]) if description_match else "IBM i journals to Snowflake. Community Edition, preview, DEV/INT only."
         text = text.replace("</head>", seo_head(site_base, title, description, site_base, base, home=True) + "</head>")
         for source, (slug, _) in DOC_PAGES.items():
             if (root / source).is_file():

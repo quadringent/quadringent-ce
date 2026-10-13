@@ -164,3 +164,15 @@ def test_unknown_inline_tags_are_escaped_and_known_markup_is_kept(tmp_path):
     assert "ghcr.io/&lt;owner&gt;/app" in page and "--check-ibmi &lt;host&gt;" in page
     assert "<details><summary>More</summary>" in page
     assert "<code>code &lt;x&gt;</code>" in page
+
+
+def test_readme_picture_renders_as_html_with_both_theme_images(tmp_path):
+    import subprocess, sys
+    out = tmp_path / "site"
+    subprocess.run([sys.executable, "scripts/build_site.py", "--repository-url", "https://github.com/quadringent/quadringent-ce",
+                    "--site-url", "https://quadringent.github.io/quadringent-ce/", "--output", str(out)], check=True,
+                   cwd=Path(__file__).resolve().parents[1], capture_output=True)
+    page = (out / "docs" / "getting-started" / "index.html").read_text()
+    assert "&lt;picture" not in page and "<picture>" in page
+    assert 'srcset="../../assets/cockpit-evidence-dark.png"' in page
+    assert 'src="../../assets/cockpit-evidence-light.png"' in page

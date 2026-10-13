@@ -10,8 +10,12 @@ Snowflake, qui garde le contrôle de ses identifiants).
 
 from __future__ import annotations
 
+import base64
+import re
+
 import pytest
 from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from quadringent_control_plane.v2 import db as v2_db, schema as v2_schema
 from quadringent_control_plane.v2.crypto import SecretBox
@@ -19,6 +23,7 @@ from quadringent_control_plane.v2.services.destinations import (
     DestinationNotFoundError,
     DestinationValidationError,
     DestinationsService,
+    _public_key_body,
 )
 
 
@@ -69,6 +74,43 @@ def test_setup_script_contains_expected_snowflake_objects(destinations_service) 
     assert "QUADRINGENT" in script
     # La clé privée ne fuit jamais dans le script téléchargeable.
     assert "PRIVATE KEY" not in script
+
+
+@pytest.mark.parametrize('marker', ('BEGIN', 'END'))
+def test_public_key_body_preserves_pem_markers_inside_base64(marker) -> None:
+    modulus = bytearray(b'\x80' + b'\x00' * 254 + b'\x01')
+    marker_bytes = base64.b64decode(marker + 'A' * (-len(marker) % 4))
+    # Align the public modulus bytes with a base64 group inside the PEM body.
+    modulus[21:21 + len(marker_bytes)] = marker_bytes
+    public_key = rsa.RSAPublicNumbers(65537, int.from_bytes(modulus, 'big')).public_key()
+    public_pem = public_key.public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode('ascii')
+    assert public_key.key_size == 2048
+    assert any(marker in line for line in public_pem.splitlines()[1:-1])
+
+    body = _public_key_body(public_pem)
+    assert marker in body
+    der = base64.b64decode(body, validate=True)
+    assert der == public_key.public_bytes(
+        serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    assert serialization.load_der_public_key(der).public_numbers() == public_key.public_numbers()
+
+
+def test_setup_script_public_key_round_trips_to_returned_private_key(destinations_service) -> None:
+    created, private_pem = destinations_service.create(snowflake_account='acme-sf')
+    script = destinations_service.setup_script(created.id)
+    match = re.search(r"RSA_PUBLIC_KEY = '([^']+)'", script)
+    assert match is not None
+    body = match.group(1)
+    assert '\n' not in body and '\r' not in body
+    der = base64.b64decode(body, validate=True)
+    private_key = serialization.load_pem_private_key(private_pem.encode('ascii'), password=None)
+    assert der == private_key.public_key().public_bytes(
+        serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    assert serialization.load_der_public_key(der).public_numbers() == private_key.public_key().public_numbers()
 
 
 def test_get_unknown_destination_raises_not_found(destinations_service) -> None:

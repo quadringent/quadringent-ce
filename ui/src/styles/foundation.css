@@ -16,6 +16,7 @@
 }
 
 .status-word--compact { font-size: var(--t-micro); gap: var(--space-1); }
+.status-word:not(.status-word--compact) .status-word__mark { display: none; }
 
 .status-word__mark {
   width: 8px;
@@ -50,8 +51,6 @@
   font-family: var(--font-plex-sans);
   font-size: var(--t-micro);
   font-weight: var(--w-medium);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--ink-3);
 }
 
@@ -83,6 +82,9 @@
 
 /* --- BandedTable --- */
 
+/* Les tableaux défilent dans leur cadre plutôt que de déborder de la page. */
+.banded-table__scroll { max-width: 100%; overflow-x: auto; }
+
 .banded-table {
   width: 100%;
   border-collapse: collapse;
@@ -101,7 +103,7 @@
   border-bottom: 1px solid var(--rule-firm);
 }
 
-.banded-table__col--numeric { text-align: right; }
+.banded-table__col--numeric { text-align: right; white-space: nowrap; }
 
 /* L'en-tête suit ses valeurs : sans cette spécificité, `thead th` le garde à
    gauche au-dessus de chiffres alignés à droite. */
@@ -140,24 +142,26 @@
 
 /* --- FunctionKeyBar --- */
 
+/* Un pied de page, pas un panneau : couleur du fond, un seul filet en haut. */
 .function-key-bar {
   position: sticky;
   bottom: 0;
   display: flex;
   justify-content: center;
-  background: var(--paper-sunk);
+  background: var(--paper);
   border-top: 1px solid var(--rule);
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-2) 0;
   /* Espace réservé avant la barre : sans lui, le dernier contenu (dernière
      ligne d'un tableau, bouton primaire de l'assistant) touche la barre
-     collante à zéro pixel une fois arrivé au bas de la page — jamais assez
-     de recul pour la lire confortablement. */
+     collante à zéro pixel une fois arrivé au bas de la page. */
   margin-top: var(--space-6);
 }
 
 .function-key-bar ul {
   display: flex;
-  gap: var(--space-5);
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-1) var(--space-5);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -172,6 +176,7 @@
   color: var(--ink-2);
   padding: var(--space-1) var(--space-2);
   border-radius: var(--r-sm);
+  white-space: nowrap;
 }
 
 .function-key-bar__key:hover:not(:disabled) { background: var(--surface-quiet); }
@@ -181,10 +186,13 @@
   font-family: var(--font-plex-mono);
   font-weight: var(--w-medium);
   color: var(--ink-3);
-  border: 1px solid var(--rule-firm);
-  border-radius: var(--r-sm);
-  padding: 0 4px;
   font-size: var(--t-micro);
+}
+
+@media (max-width: 640px) {
+  /* Sur téléphone la barre passe sur deux lignes : elle ne doit pas masquer
+     le contenu en restant collée au bas de l'écran. */
+  .function-key-bar { position: static; }
 }
 
 /* --- ActionButton --- */
@@ -256,8 +264,6 @@
   font-family: var(--font-plex-sans);
   font-size: var(--t-micro);
   font-weight: var(--w-medium);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   color: var(--ink-3);
 }
 

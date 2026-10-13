@@ -222,12 +222,12 @@ export function guidanceFor(pipeline: Pipeline, offered: readonly ActionOffer[])
     // « les vérifications ne sont pas réunies » appelle l'attente.
     const reason = pipeline.fleetRuntime?.capabilities?.resume?.reason ?? null;
     if (reason === 'resume_not_ready') {
-      return "Recovery is not safe yet: some recovery checks are still missing. This screen will show when they are complete.";
+      return "Recovery is not safe yet: some checks are missing. This screen shows when they are complete.";
     }
     if (reason === 'not_pausable_in_phase') {
       // Le produit sait relancer, mais pas dans l'état où se trouve la copie.
       // Renvoyer vers l'exploitation serait faux : il n'y a rien à demander.
-      return "The copy is not in a state where recovery applies. Refresh to see whether this changes.";
+      return "Recovery does not apply in the current copy state. Refresh to check.";
     }
     if (!pipeline.incident?.causeResolved) {
       return "The cause is unresolved. Ask your operations team to address it before restarting.";
@@ -558,7 +558,7 @@ export function unmeasuredCostsFor(pipeline: Pipeline): readonly string[] {
   missing.push("S3 requests, AWS network transfers and other services are not priced.");
   return missing;
 }
-export const connectionNetworkFailure = "The service did not respond. Saving the connection is unconfirmed. Check saved connections before trying again.";
+export const connectionNetworkFailure = "The service did not respond; the save is unconfirmed. Check saved connections before retrying.";
 
 export function actionResultFor(pipelineId: string, receipt: PipelineActionReceipt): string {
   const result = receipt.stages.intent.state === 'rejected' && receipt.stages.execution.state === 'not_started'
@@ -662,8 +662,8 @@ export const WIZARD_COPY = {
     // Cette installation n'a pas de sonde IBM i câblée (`SourcesService.test`
     // sans `source_probe`) : le test se limite à vérifier que le secret a
     // été enregistré, jamais présenté comme un test réseau réussi.
-    unavailable: "Testing is unavailable on this installation: only password storage has been verified. Network, certificate and authentication have not been tested.",
-    existingSourceHint: "A source is already configured. “Test” uses its saved password. Entering a new password creates a new source and retains the previous one.",
+    unavailable: "Testing is unavailable here: only password storage is verified. Network, certificate and authentication are not tested.",
+    existingSourceHint: "A source is configured. “Test” uses its saved password; a new password creates a new source and keeps the previous one.",
   },
   snowflake: {
     resumeLoading: "Reading existing destinations…",
@@ -680,18 +680,18 @@ export const WIZARD_COPY = {
 
     kicker: "Snowflake destination",
     title: "Your Snowflake account",
-    lead: "Enter the account, database and schema that will receive the data. No Snowflake administrator secret is requested here.",
+    lead: "Enter the account, database and schema that receive the data. No administrator secret is requested here.",
     accountLabel: "Account identifier",
     databaseLabel: "Destination database",
     schemaLabel: "Destination schema (optional)",
-    schemaHint: "A specified schema receives both history and mirror. Without a schema, history goes to RAW and the mirror to CURATED.",
+    schemaHint: "A schema receives both history and mirror. Without one, history goes to RAW and the mirror to CURATED.",
     invalidScope: "Invalid identifier: at most 63 characters, starting with a letter or _, followed by letters, digits, _ or $.",
     scriptTitle: "SQL script to run in Snowflake",
-    scriptLead: "Run this script with a Snowflake administrator role; it creates a dedicated Quadringent role, service user (authenticated with a key pair) and warehouse.",
+    scriptLead: "Run as a Snowflake administrator: it creates a dedicated role, a key-pair service user and a warehouse.",
     copy: "Copy",
     download: "Download",
     downloadKey: "Download the private key",
-    setupNext: "Run the script in Snowflake, then verify access. You can retain a copy of the private key; it will not be provided again.",
+    setupNext: "Run the script in Snowflake, then verify access. Keep a copy of the private key; it is not provided again.",
     setupNextWithoutKey: "Run the script in Snowflake, then verify access.",
     verify: "Verify access",
     verifying: "Verification in progress…",
@@ -706,7 +706,7 @@ export const WIZARD_COPY = {
     title: "Choose tables to copy",
     lead: "Each table is verified before starting: IBM i journal and change tracking key.",
     libraries: "IBM i libraries to explore",
-    librariesHint: "Enter the libraries containing your tables, separated by commas, then choose Refresh. They may differ from the journal library.",
+    librariesHint: "Enter the libraries holding your tables, separated by commas, then choose Refresh. They may differ from the journal library.",
     librariesInvalid: "Enter at least one library: 1 to 10 letters, digits or _, $, #, @ characters per name, separated by commas.",
     search: "Search for a library or table",
     recheck: "Verify again",
@@ -803,12 +803,12 @@ export const CONTROLS_PANEL_COPY = {
   resultUnknownTitle: "Result unknown.",
   refusedTitle: "Action refused.",
   resultUnknown: "No answer was received in time. Check the current state before retrying; nothing was retried automatically.",
-  transportUnknown: "The connection failed after the request was sent, so the service may have applied it. Check the current state before retrying.",
-  serverUnknown: "The service answered with an error after receiving the request, so it may have been applied. Check the current state before retrying.",
+  transportUnknown: "The connection failed after sending; the action may have been applied. Check the current state before retrying.",
+  serverUnknown: "The service returned an error after receiving the request; the action may have been applied. Check the current state before retrying.",
   notConfirmedRead: "The state could not be read again, so the effect is not confirmed.",
   notConfirmedMismatch: (reported: string, expected: string) => `The service reports "${reported}" while "${expected}" was expected.`,
   notConfirmedNoReference: "The service did not report what to expect, so the state cannot be compared.",
-  notConfirmedReplay: "A replay does not change the declared state, so reading it again cannot confirm the replay. Check the Evidence tab.",
+  notConfirmedReplay: "A replay does not change the declared state, so that state cannot confirm it. Check the Evidence tab.",
   notConfirmedScopeMismatch: (mismatched: number, total: number) => `${mismatched} of ${total} tables do not show the expected state.`,
   refusedForbidden: "Your role does not allow this action. Ask an administrator to elevate your role.",
   refusedNotAvailable: "This action is not possible in the current state. Refresh to read the state again.",
@@ -818,7 +818,7 @@ export const CONTROLS_PANEL_COPY = {
   refusedSession: "Your session has ended. Sign in again, then check the current state.",
   refusedRateLimited: "Too many requests. Wait before trying again.",
   refusedGeneric: "The service refused the request; nothing was changed.",
-  answerUnreadable: "The service answered, but the answer could not be read, so the action may have been applied. Check the current state before retrying.",
+  answerUnreadable: "The answer could not be read; the action may have been applied. Check the current state before retrying.",
   noActionsAvailable: "No action is available in the current state.",
   notConfirmedUnchanged: (state: string) => `The declared state was already "${state}" before the action, so reading it again cannot confirm the effect. Check the Evidence tab.`,
   scopeNothingChanged: "The service applied the action to no table, so there is no effect to confirm.",
@@ -925,22 +925,22 @@ export const EVIDENCE_COPY = {
 
 export const DIAGNOSTICS_COPY = {
   title: 'Diagnostics',
-  summary: 'Read-only evidence by layer. Reading a diagnostic changes nothing.',
+  summary: 'Read-only evidence by layer.',
   link: 'Diagnostics',
   tableLink: 'Open diagnostics for this table',
   refresh: 'Refresh',
   loading: 'Reading diagnostics…',
-  noticeNotAHealthVerdict: 'This is not a health verdict. It covers only the checks listed below.',
+  noticeNotAHealthVerdict: 'Not a health verdict: only the checks below.',
   overall: {
     blocked: 'Blocked: a required check failed.',
     incomplete: 'Incomplete: a required check has no answer yet.',
     ready: 'No required check failed or lacks an answer.',
-    incompleteLimited: 'Incomplete: a required check passed on synthetic or historical evidence, which proves nothing about the current state.',
+    incompleteLimited: 'Incomplete: a required check passed only on synthetic or historical evidence, which proves nothing about the current state.',
   },
   counts: { passed: 'Passed', failed: 'Failed', unknown: 'Not established', skipped: 'Skipped' },
   countsMismatch: 'The counts sent by the service differ from the listed results; the listed results are authoritative.',
   scope: { local: 'Local checks', control_plane: 'Control plane checks' },
-  syntheticReport: 'Synthetic report: no real system was queried and nothing here is a measurement.',
+  syntheticReport: 'Synthetic report: no real system was queried and no value is a measurement.',
   generatedAt: 'Generated at',
   software: 'Software',
   filteredBy: 'Filtered to pipeline',
@@ -949,7 +949,7 @@ export const DIAGNOSTICS_COPY = {
   problemsNone: 'No check reports a failure.',
   gapsTitle: 'Required checks without an answer',
   gapsNone: 'Every required check has an answer.',
-  gapsHint: 'Not established is not a failure: the service has no observation to decide.',
+  gapsHint: 'Not established is not a failure: the service has no observation to decide from.',
   layersTitle: 'All checks by layer',
   layers: {
     local_tools: 'Local tools',
@@ -997,8 +997,8 @@ export const DIAGNOSTICS_COPY = {
     forbidden: { title: 'Not allowed', detail: 'Your role cannot read diagnostics. Ask an administrator for read access.' },
     not_found: { title: 'Not found', detail: 'The requested pipeline does not exist in this organization.' },
     rate_limited: { title: 'Too many requests', detail: 'Wait before refreshing.' },
-    unavailable: { title: 'Service unavailable', detail: 'The service cannot be reached or failed. Diagnostics are not available; retry shortly.' },
-    invalid_response: { title: 'Report not readable', detail: 'The service sent a report this console cannot interpret. Nothing is shown rather than a partial report.' },
+    unavailable: { title: 'Service unavailable', detail: 'The service cannot be reached or failed. Retry shortly.' },
+    invalid_response: { title: 'Report not readable', detail: 'This console cannot interpret the report, so none is shown.' },
     conflict: { title: 'Request refused', detail: 'The service refused the request.' },
     rejected: { title: 'Request refused', detail: 'The service refused the request.' },
   },
@@ -1008,8 +1008,8 @@ export const DIAGNOSTICS_COPY = {
     preparing: 'Preparing the export…',
     title: 'Diagnostic export',
     previewTitle: 'Preview',
-    intro: 'Prepare the export to see its preview: file names, sizes, SHA-256 digests, omitted fields and limits. Nothing is stored in this browser.',
-    previewIntro: 'The preview lists file names, sizes, SHA-256 digests, omitted fields and limits. Review them before downloading; nothing is stored in this browser.',
+    intro: 'Prepare the export to preview file names, sizes, SHA-256 digests, omitted fields and limits. Nothing is stored in this browser.',
+    previewIntro: 'Review before downloading. Nothing is stored in this browser.',
     coverage: (results: number | null) => results === null
       ? 'This export covers the whole organization.'
       : `This export covers the whole organization: ${results} ${results === 1 ? 'result' : 'results'}.`,

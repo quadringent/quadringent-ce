@@ -111,7 +111,9 @@ function ControlsPanelBody(props: ControlsPanelProps) {
     <section className="controls-panel" aria-label={`Controls — ${targetLabel}`}>
       <div className="controls-panel__bar">
         <p className="controls-panel__scope">
-          <span className="controls-panel__scope-level">{controlLevelTitle(level)}</span>
+          {controlLevelTitle(level) === targetLabel ? null : (
+            <span className="controls-panel__scope-level">{controlLevelTitle(level)}</span>
+          )}
           <span className="controls-panel__scope-target">{targetLabel}</span>
         </p>
 

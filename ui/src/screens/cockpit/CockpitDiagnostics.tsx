@@ -178,18 +178,25 @@ function ReportView({ state }: { readonly state: Extract<DiagnosticsState, { sta
             <p className="cockpit-diagnostics__note">{DIAGNOSTICS_COPY.gapsHint}</p>
             {view.gaps.length === 0
               ? <p className="cockpit-diagnostics__none">{DIAGNOSTICS_COPY.gapsNone}</p>
-              : <ul className="cockpit-diagnostics__list">{view.gaps.map((item) => <li key={cardKey(item)}><ResultCard item={item} /></li>)}</ul>}
+              : <ul className="cockpit-diagnostics__list">{view.gaps.map((item) => <li key={cardKey(item)}><ResultCard item={item} compact /></li>)}</ul>}
           </section>
 
           <section className="cockpit-diagnostics__section" aria-labelledby="diag-layers">
             <h2 id="diag-layers">{DIAGNOSTICS_COPY.layersTitle}</h2>
             {view.groups.map((group) => (
-              <div className="cockpit-diagnostics__layer" key={group.layer}>
-                <h3>{group.label}</h3>
+              <details
+                className="cockpit-diagnostics__layer"
+                key={group.layer}
+                open={group.views.some((item) => item.result.status === 'failed')}
+              >
+                <summary>
+                  <h3>{group.label}</h3>
+                  <span className="cockpit-diagnostics__layer-count mono">{group.views.length}</span>
+                </summary>
                 <ul className="cockpit-diagnostics__list">
                   {group.views.map((item) => <li key={cardKey(item)}><ResultCard item={item} compact /></li>)}
                 </ul>
-              </div>
+              </details>
             ))}
           </section>
         </>

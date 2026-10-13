@@ -160,7 +160,7 @@ test('a transport failure on the mutation is an unknown result', async () => {
   h.flow.confirm();
   await tick();
   assert.equal(h.last().failure, 'unknown_result');
-  assert.match(h.last().error ?? '', /may have applied it/);
+  assert.match(h.last().error ?? '', /may have been applied/);
 });
 
 test('a refused action (403 / 409) is explained and reads as nothing changed', async () => {

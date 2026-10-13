@@ -96,7 +96,6 @@ function AttentionBanner({ rows }: { readonly rows: readonly ConnectionHomeRow[]
   const target = rows.find((row) => connectionAggregateState(row.connection) === 'attention');
   return (
     <p className="cockpit-attention-banner" role="alert">
-      <span aria-hidden="true" />
       <span>At least one connection needs verification.</span>
       {target ? (
         <a className="cockpit-banner-link" href={href({ name: 'cockpit-connection', id: target.connection.id })}>

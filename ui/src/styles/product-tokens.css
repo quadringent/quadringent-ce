@@ -34,9 +34,9 @@
   --signal-proven-soft: #eef4ff;
   --signal-range: #d6a263;
 
-  --radius-panel: 6px;
-  --radius-pill: 999px;
-  --shadow-panel: 0 1px 2px rgba(21, 22, 21, 0.04), 0 18px 48px rgba(21, 22, 21, 0.045);
+  --radius-panel: 0;
+  --radius-pill: 0;
+  --shadow-panel: none;
   --focus-ring: #2563eb;
 
   --font-sans: "IBM Plex Sans Variable", "IBM Plex Sans", Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -69,8 +69,8 @@
   --w-medium: 500;
   --w-strong: 600;
 
-  --r-sm: 4px;
-  --r-md: 12px;
+  --r-sm: 0;
+  --r-md: 0;
 
   --paper: var(--surface-canvas);
   --paper-sunk: var(--surface-panel);
@@ -87,13 +87,13 @@
   --sans: var(--font-sans);
   --mono: var(--font-mono);
 
-  /* Bandes « papier listing » (BandedTable) : vert très pâle en alternance,
-     façon papier continu d'imprimante. Zéro impact hors des composants qui
-     lisent ces jetons explicitement. */
+  /* Lignes de tableau (BandedTable) : pas de zébrage, et jamais de teinte
+     verte — la couleur d'une ligne ne doit pas ressembler à un état. Seuls
+     le survol et le focus se distinguent, en gris neutre. */
   --band-odd: transparent;
-  --band-even: #eef6ee;
-  --band-hover: #e3f0e4;
-  --band-focus: #d8ecdc;
+  --band-even: transparent;
+  --band-hover: var(--surface-quiet);
+  --band-focus: var(--surface-subtle);
 }
 
 /* Thème sombre : activé soit par préférence système (hors override explicite
@@ -137,13 +137,13 @@
     --signal-proven-soft: #16233f;
     --signal-range: #d6a263;
 
-    --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.3), 0 18px 48px rgba(0, 0, 0, 0.35);
+    --shadow-panel: none;
     --focus-ring: #6ea8ff;
 
     --band-odd: transparent;
-    --band-even: #172019;
-    --band-hover: #1c2820;
-    --band-focus: #213026;
+    --band-even: transparent;
+    --band-hover: var(--surface-quiet);
+    --band-focus: var(--surface-subtle);
   }
 }
 
@@ -182,11 +182,11 @@
   --signal-proven-soft: #16233f;
   --signal-range: #d6a263;
 
-  --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.3), 0 18px 48px rgba(0, 0, 0, 0.35);
+  --shadow-panel: none;
   --focus-ring: #6ea8ff;
 
   --band-odd: transparent;
-  --band-even: #172019;
-  --band-hover: #1c2820;
-  --band-focus: #213026;
+  --band-even: transparent;
+  --band-hover: var(--surface-quiet);
+  --band-focus: var(--surface-subtle);
 }

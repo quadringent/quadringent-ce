@@ -91,7 +91,7 @@ test('each failure explains what happened and what to do, and a 429 keeps its de
 test('the overall block never claims health and states that it covers only the listed checks', () => {
   const markup = render(ready(report([result()])));
   assert.match(markup, /Blocked: a required check failed\./);
-  assert.match(markup, /not a health verdict/);
+  assert.match(markup, /not a health verdict/i);
   assert.doesNotMatch(markup, /healthy/i);
 });
 
@@ -279,7 +279,7 @@ const recordPass = (overrides: Partial<DiagnosticResult> = {}) => result({
 test('a passed record read shows its limit in plain sight and is labelled "Read at"', () => {
   const markup = render(ready(report([recordPass()], { overall: { status: 'ready', passed: 1, failed: 0, unknown: 0, skipped: 0, summary: '' } })));
   const layers = markup.slice(markup.indexOf('All checks by layer'));
-  const beforeDetails = layers.slice(0, layers.indexOf('<details'));
+  const beforeDetails = layers.slice(0, layers.indexOf('<details class="diagnostic-result__details"'));
   assert.match(beforeDetails, /Recorded state/);
   assert.match(beforeDetails, /Recorded verification state; this diagnostic does not connect to Snowflake\./);
   assert.match(layers, /<dt>Read at<\/dt>/);
@@ -291,12 +291,12 @@ test('an observed result keeps "Observed at" and does not repeat its limits outs
   const markup = render(ready(report([result({ status: 'passed', provenance: 'control-plane:source-probe', evidenceKind: null, evidence: {} })])));
   const layers = markup.slice(markup.indexOf('All checks by layer'));
   assert.match(layers, /<dt>Observed at<\/dt>/);
-  assert.doesNotMatch(layers.slice(0, layers.indexOf('<details')), /Collected by the loader log/);
+  assert.doesNotMatch(layers.slice(0, layers.indexOf('<details class="diagnostic-result__details"')), /Collected by the loader log/);
 });
 
 test('a synthetic pass reads incomplete in the overview, never ready', () => {
   const markup = render(ready(report([result({ status: 'passed', evidenceKind: 'simulation' })], { overall: { status: 'ready', passed: 1, failed: 0, unknown: 0, skipped: 0, summary: '' } })));
-  assert.match(markup, /Incomplete: a required check passed on synthetic or historical evidence/);
+  assert.match(markup, /Incomplete: a required check passed only on synthetic or historical evidence/);
   assert.doesNotMatch(markup, /No required check failed or lacks an answer/);
 });
 
@@ -335,7 +335,7 @@ test('an export whose size cannot be read still states its scope without inventi
 
 test('the preview introduction describes what the preview shows, not the file content', () => {
   const markup = render(ready(report([result()])), { exportState: { status: 'ready', exported: exportPayload(), integrity: { problems: [], verified: true } } });
-  assert.match(markup, /The preview lists file names, sizes, SHA-256 digests, omitted fields and limits\./);
+  assert.match(markup, /Review before downloading\. Nothing is stored in this browser\./);
   assert.doesNotMatch(markup, /Review what the file contains/);
 });
 

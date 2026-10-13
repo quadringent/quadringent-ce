@@ -343,6 +343,6 @@ test('une phase non pausable ne renvoie pas vers l’exploitation', () => {
   } as Partial<Pipeline>);
 
   const guidance = guidanceFor(notPausable, [])!;
-  assert.match(guidance, /not in a state where recovery applies/);
+  assert.match(guidance, /Recovery does not apply in the current copy state/);
   assert.ok(!/exploitation/.test(guidance), `consigne trompeuse : ${guidance}`);
 });

@@ -288,7 +288,7 @@ test('ready becomes incomplete when a required pass rests on synthetic or histor
   for (const evidenceKind of ['simulation', 'historical'] as const) {
     const view = buildDiagnosticsView(report([result({ status: 'passed', required: true, evidenceKind })], { overall: serverReady }));
     assert.equal(view.overall.status, 'incomplete', evidenceKind);
-    assert.match(view.overall.text, /passed on synthetic or historical evidence/);
+    assert.match(view.overall.text, /passed only on synthetic or historical evidence/);
   }
   const optional = buildDiagnosticsView(report([result({ status: 'passed', required: false, evidenceKind: 'simulation' })], { overall: serverReady }));
   assert.equal(optional.overall.status, 'ready', 'an optional synthetic pass does not weaken a verdict');

@@ -50,8 +50,6 @@ button {
 .eyebrow {
   font-size: var(--t-micro);
   font-weight: var(--w-medium);
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
   color: var(--ink-3);
 }
 

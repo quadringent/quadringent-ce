@@ -198,7 +198,6 @@ function ConnectionAttentionBanner({ connection }: { readonly connection: Cockpi
   const target = connection.tables.find((table) => table.state === 'attention');
   return (
     <p className="cockpit-attention-banner" role="alert">
-      <span aria-hidden="true" />
       <span>At least one table in this connection needs verification.</span>
       {target ? (
         <a className="cockpit-banner-link" href={href({ name: 'cockpit-table', id: target.pipelineId })}>

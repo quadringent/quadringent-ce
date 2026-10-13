@@ -22,9 +22,43 @@ shadows. More specific dark blocks retain the product tokens.
 and forced dark, plus the import order. Only editorial `--site-*`,
 `--t-display`, `--t-section` and `--section-gap` tokens are site-specific.
 
+## Anti-slop rules
+
+These rules apply to the site and the cockpit. They exist so the product does
+not look generated. A change that breaks one of them is rejected, in code and
+in review. `tests/test_site_design_system.py` enforces the site side.
+
+1. No coloured vertical rails. No `border-left`, `border-inline-start` or
+   `inset Npx 0 0` accent bar on a card, callout, list row, alert or result, in
+   any colour. State is a word, plus a small inline glyph only where a dense
+   table needs scanning. Never a coloured edge.
+2. No decorative status squares. A glyph stays only where it carries state in a
+   scannable place (cockpit tables, evidence stage headers). The marketing site
+   uses words only.
+3. No eyebrows. No spaced uppercase label above a heading, inside a card or in a
+   footer. Uppercase micro labels are allowed only as table column headers.
+4. No card-in-card, no rounded panels, no shadows. A panel is flat, square, with
+   at most a 1 px rule, and only for a real object: a screenshot, a form, a
+   table, a terminal. Lists are plain lists separated by whitespace or one
+   hairline.
+5. No callout boxes. A sentence that matters is the first sentence of its
+   section, in the text flow, with no tinted background or border.
+6. No grid of identical tiles (same icon, title, line and button). Use an
+   editorial list or a table.
+7. No ornamental dividers, dot separators in labels ("A · B · C"), or badges
+   and pills used as decoration.
+8. No generic iconography. The mark and the favicon are the only icons.
+
+Concision applies to front-facing copy. The hero is a headline, at most two
+short sentences, one status line, one primary action and one text link. A
+caption is one line. A section intro is one sentence or none; prefer showing a
+screenshot, the receiver chain, terminal output or a table. A documentation
+link is a title and at most eight words. Facts that leave the landing page move
+to `docs/evidence.md` or the linked guide; they are never deleted.
+
 ## Principles and color
 
-Use a quiet instrument: pale canvas, white ruled panels, square controls and no
+Use a quiet instrument: pale canvas, flat square controls, hairline rules and no
 shadows, gradients, backdrop blur or entrance animation. Motion communicates a
 value change and respects `prefers-reduced-motion`. Every status has a word;
 color alone cannot convey state.
@@ -47,16 +81,18 @@ The existing `--surface-rail*` tokens are unused by current screens.
 | Even/hover table bands | `--band-even`, `--band-hover` | `#eef6ee`, `#e3f0e4` |
 
 Blue means activity or interaction. The primary action uses ink
-(`--text-strong`), as does `.page-action--primary`. Green asserts an
-observed measurement, not merely enabled capture. Amber marks a proof limit,
-demonstration or requested verification. Red marks an incident, refusal or stop.
+(`--text-strong`), as does `.page-action--primary`. In the cockpit, green
+asserts an observed measurement, not merely enabled capture; amber marks a proof
+limit, demonstration or requested verification; red marks an incident, refusal
+or stop. On the site these colours are not used for state: the word is enough.
+Colour never forms an edge, a rail or a tinted block.
 
 ## Type, spacing and shape
 
 IBM Plex Sans Variable 100–700 supplies text. IBM Plex Mono 400/500 supplies
 values, sequences, identifiers, versions and commands with
 `tabular-nums slashed-zero`. Body: 15 px/1.5; introduction: 17 px;
-captions: 13 px; micro labels: 11 px/500, uppercase, 0.04–0.07 em tracking.
+captions: 12–13 px; table column headers: 11 px/500, uppercase, 0.04 em tracking.
 
 Product page titles use 52 px/520, −0.055 em tracking and 0.98 line height.
 Cockpit v2 titles are about 30 px/500. The site uses 52 px for its main title
@@ -68,9 +104,8 @@ versions, and removes the development `ui/node_modules` fallback from the
 output. Keep the IBM OFL-1.1 license texts in `site/assets/fonts/`.
 
 The spacing scale is 4, 8, 12, 16, 20, 24, 32, 40 px
-(`--space-1` through `--space-8`). Effective light
-`--radius-panel` is 0; `--r-md` is 12 px for large panels and
-`--r-sm` is 4 px for focus. `--shadow-panel` is `none`.
+(`--space-1` through `--space-8`). `--radius-panel`,
+`--r-md` and `--r-sm` are 0, and `--shadow-panel` is `none`, in both themes.
 Interactive targets are at least 44 px high. Content width is
 `min(100% − 64px, 1320px)`, falling back to 16 px side margins.
 
@@ -83,12 +118,10 @@ F3/F5/F9/F12 apply according to the current screen.
 
 | Component | Contract |
 |---|---|
-| `ActionButton` | 44 px, 13 px/500, ruled panel, square corners; one primary action per area; sensitive operations require confirmation and service availability |
-| `StatusWord` | 8 px square, 2 px radius and a word; `live`, `copying`, `paused`, `attention`, `stopped`; site adds measured `--proven` and documentary `--neutral` |
-| `MetricTile` | Micro label, 28 px mono value and provenance; measured green, estimated amber, absent gray; site adds version, target and window |
-| `BandedTable` | Uppercase micro headings, pale green bands, mono values; numeric headings and cells right-aligned; keyboard-focusable cockpit rows |
-| Provenance banner | Amber word and attention background beside any demonstration or synthetic value |
-| `StatusWord` hollow variant | `--absent` on the site: an outlined square with the word Absent or Not measured; the square is never filled, so a missing value never looks measured |
+| `ActionButton` | 44 px, 13 px/500, 1 px rule, square corners; one primary action per area; sensitive operations require confirmation and service availability |
+| `StatusWord` | The word carries the state. In dense cockpit tables a small inline glyph may precede it; on the site it is the word alone (`--absent` is muted ink, so a missing value never looks measured) |
+| `BandedTable` | Uppercase column headings, pale bands, mono values; numeric headings and cells right-aligned; keyboard-focusable cockpit rows |
+| Provenance | The words Demonstration and synthetic data, in text beside any demonstration value, with no tinted banner on the site |
 | `ForgeMark` | Two crossed 1.7 px strokes and a dot, monochrome `currentColor`, 26–30 px |
 
 On small site screens, put the result column next to the identifier and expose
@@ -97,25 +130,26 @@ a focusable scrolling region with `tabindex="0"` and `role="region"`.
 ## Site composition and verification
 
 The page reads as a thesis, a product, then evidence. The hero holds the title
-("A running reader doesn't mean your data arrived."), one lead sentence, one
-status line, one uncomfortable fact and one primary action, with a 1x crop of the
-cockpit Evidence tab (the three readings, 1220 x 420) beside it, so its text
-stays legible and the product is visible at 1440 x 900 and early on a phone.
-The full 1440 x 900 capture, with its Synthetic demo banner, is one link away. The navigation has five entries. Below the hero come five sections:
-how it works, try it, evidence, documentation and working with us. Section
-headings vary and some have no lede; there is no eyebrow before every heading.
+("A running reader doesn't mean your data arrived."), one lead of two sentences,
+one status line, the uncomfortable fact as plain text, one primary action and
+one text link, with a 1x crop of the cockpit Evidence tab (the three readings,
+1220 x 420) beside it, so its text stays legible and the product is visible at
+1440 x 900 and early on a phone. The caption is one line, and the full 1440 x 900
+capture is one link away. The navigation has five entries. Below the hero come
+five sections: how it works, try it, evidence, documentation and working with
+us. Headings vary and some have no intro.
 
 Site-only elements, built from the tokens above:
 
 | Element | Contract |
 |---|---|
-| Status line | One paragraph under the lead: an attention `StatusWord`, the production statement, the source version and the latest observed release with its date, and a link to `docs/evidence.md`. It is the only place that states the preview status at length |
-| Uncomfortable fact | One sentence with a 2 px attention rule on the left; figures come from the published receipts |
-| Receiver chain | A horizontal ordered list of IBM i journal receivers (names are illustrative, labelled detached or attached, with a read bar in `--signal-live`), the reader position drawn as a tick that is also the checkpoint, then the raw storage and Snowflake panels. Below it, three readings from the synthetic demo and, directly under them, the legend of the state and provenance words in two columns. Stacked vertically below 900 px. It uses tokens only: no gradient, no icon, no animation |
+| Status line | One paragraph under the lead: the words Preview, DEV/INT only, the production statement, the source version and the latest observed release with its date, and a link to `docs/evidence.md`. It is the only place that states the preview status at length |
+| Uncomfortable fact | One plain paragraph, no rule, box or colour; figures come from the published receipts |
+| Receiver chain | A horizontal ordered list of IBM i journal receivers (names are illustrative, labelled detached or attached, with a neutral read bar), the reader position drawn as a 1 px tick that is also the checkpoint, then raw storage and Snowflake, each in a 1 px outline with no fill. Below it, the three readings from the synthetic demo as words and values. Stacked vertically below 900 px. Tokens only: no gradient, no icon, no animation |
 | Screen block (`.screen`) | Commands only: green text (`--site-screen-fg`) on a near-black ground (`--site-screen-bg`), monospace, the same in both themes. Command output stays on `.code`. The green is limited to this block; there is no green theme, CRT typeface or scanline |
-| Ledger | Evidence rows with a `StatusWord` and one sentence each, no bold labels |
-| Index list | Documentation links as a title and a one-line description, in two columns; replaces card grids. Two tiers: entries marked `index__lead` come first, larger, with their description in body text; the rest follow under a "Reference" label in a compact row, and below 760 px their descriptions are hidden (the links stay) |
-| Terminal excerpt | Real command output on `.code`, never restyled as a command. It starts at the first failing check and every cut is a dim marker that states how many lines were dropped, so shown plus omitted lines equal the count in the header |
+| Ledger | Evidence rows with the evidence word and one sentence each, no bold labels |
+| Index list | Documentation links as a title and a description of at most eight words, in two columns, one hairline per row, no tiers and no sub-labels. Below 760 px each row stacks |
+| Terminal excerpt | Real command output on `.code`, never restyled as a command. Every cut is a dim marker that states what was dropped, so shown plus omitted lines equal the count in the header |
 
 Qualification tables, historical results and open limits live in
 `docs/evidence.md`, published as a site page by `scripts/build_site.py`. The
@@ -127,8 +161,8 @@ Screenshots come from the local v2 fixture
 (`site/assets/cockpit-evidence-*.png` for the full capture, and the cropped
 `cockpit-evidence-strip-*.png`, cut from it at 1x, for the hero). The banner of the
 screenshot shows its source version, which the caption states; retake it when
-the version changes. Each figure states **Demonstration · synthetic data**. The
-design-system test enforces that provenance. Review and anonymize any real
+the version changes. Each figure states Demonstration and synthetic data in its
+caption. The design-system test enforces that provenance. Review and anonymize any real
 installation screenshot and its metadata before publication.
 
 Update cockpit components and tests first, then shared site tokens. Run:

@@ -38,28 +38,23 @@
   <section class="hero" aria-labelledby="title">
     <div class="hero__copy">
       <h1 id="title">A running reader doesn’t mean your data arrived.</h1>
-      <p class="hero__lead">Open-source change data capture from IBM&nbsp;i (AS/400) to Snowflake, in your own AWS or GCP account, with no Kafka and no license key. We report journal reading, Snowflake delivery and event-count reconciliation separately for each table; “Not measured” means we have no evidence.</p>
-      <p class="status-line"><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Preview, DEV/INT only</span></span> No production qualification, no SLA. Source <span class="mono" data-source-version>0.4.2</span>, last observed release <span class="mono">0.3.5</span> (<time datetime="2026-10-12">2026-10-12</time>). <a data-repo-path="docs/evidence.md" href="../docs/evidence.md">Evidence</a></p>
-      <p class="hero__fact">In our earlier 0.3.4 cold-warehouse trial, 3 of 4 targets missed our 10&nbsp;s bar (worst write 13.641&nbsp;s, SQL start to visible in the mirror). A later 0.3.4 run passed on all four. Neither is a P95 or an SLA.</p>
+      <p class="hero__lead">Open-source change data capture from IBM&nbsp;i (AS/400) to Snowflake, in your own AWS or GCP account, with no Kafka and no license key. We report journal reading, Snowflake delivery and event-count reconciliation separately for each table.</p>
+      <p class="status-line"><span class="status-word">Preview, DEV/INT only.</span> No production qualification, no SLA. Source <span class="mono" data-source-version>0.4.2</span>, last observed release <span class="mono">0.3.5</span> (<time datetime="2026-10-12">2026-10-12</time>). In the 0.3.4 cold-warehouse trial, 3 of 4 targets missed our 10&nbsp;s bar; a later 0.3.4 run passed on all four. <a data-repo-path="docs/evidence.md" href="../docs/evidence.md">Evidence</a></p>
       <div class="actions">
         <a class="action-button action-button--primary" href="#try">Try the synthetic demo</a>
         <a class="text-link" data-repo-path="docs/product/faq.md" href="../docs/product/faq.md">Read the FAQ</a>
       </div>
     </div>
     <figure class="product-frame hero__figure">
-      <div class="product-frame__bar">
-        <span class="product-frame__title">Cockpit · Evidence tab</span>
-        <span class="provenance-note"><strong>Demonstration</strong> synthetic data</span>
-      </div>
       <picture><source srcset="assets/cockpit-evidence-strip-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/cockpit-evidence-strip-light.png" width="1220" height="420" fetchpriority="high" alt="Quadringent cockpit, Evidence tab of a synthetic demo table, cropped to its three readings: journal capture shows 120 events and Snowflake delivery 118 events, both marked Synthetic, and destination reconciliation is marked Not measured."></picture>
-      <figcaption>The Evidence tab of the cockpit built from source <span class="mono">0.4.2</span>, on its synthetic dataset, cropped to the readings: capture, delivery and reconciliation are three separate readings, and the third is Not measured. No value here comes from an installation. <a href="assets/cockpit-evidence-light.png">Full 1440 × 900 capture</a>, with the Synthetic demo banner.</figcaption>
+      <figcaption>Demonstration, synthetic data, source <span class="mono">0.4.2</span>. <a href="assets/cockpit-evidence-light.png">Full capture</a></figcaption>
     </figure>
   </section>
 
   <section class="section" id="how-it-works" aria-labelledby="how-it-works-title">
     <div class="section__head">
-      <h2 id="how-it-works-title">From journal receiver to Snowflake, one stage at a time</h2>
-      <p>Quadringent applies change data capture to the journals of Db2 for i tables on IBM i (formerly AS/400 and iSeries). A Java/JTOpen reader reads journal entries over TLS from the last acquired position. It is for data teams and IBM i operators who need a Snowflake mirror of journaled tables.</p>
+      <h2 id="how-it-works-title">From journal receiver to Snowflake</h2>
+      <p>We apply change data capture to Db2 for i journals on IBM i (formerly AS/400 and iSeries): a Java/JTOpen reader reads entries over TLS from the last acquired position.</p>
     </div>
 
     <figure class="chain" aria-labelledby="chain-caption">
@@ -77,50 +72,44 @@
         <li class="chain__item rcv rcv--attached">
           <span class="rcv__name mono">RCV0003</span>
           <span class="rcv__state">attached, still receiving</span>
-          <span class="rcv__bar"><span class="rcv__scale"><span class="rcv__read rcv__read--part"></span></span><span class="rcv__marker"><span class="rcv__marker-label"><strong>Reader position.</strong> Saved as the checkpoint outside the reader, so a restart resumes here.</span></span></span>
+          <span class="rcv__bar"><span class="rcv__scale"><span class="rcv__read rcv__read--part"></span></span><span class="rcv__marker"><span class="rcv__marker-label">Reader position. Saved as the checkpoint outside the reader, so a restart resumes here.</span></span></span>
         </li>
         <li class="chain__item stage">
           <span class="stage__name">Raw storage</span>
-          <span class="stage__note">S3 or GCS. Each batch is kept unchanged, with a receipt, before loading.</span>
+          <span class="stage__note">S3 or GCS. Batches kept unchanged, with a receipt, before loading.</span>
         </li>
         <li class="chain__item stage">
           <span class="stage__name">Snowflake</span>
-          <span class="stage__note">History and mirror tables. Readback compares the source, history and mirror.</span>
+          <span class="stage__note">History and mirror tables, compared with the source by readback.</span>
         </li>
       </ol>
       <dl class="readings" aria-label="One demonstration table, three readings">
         <div>
           <dt>Journal capture</dt>
-          <dd><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Synthetic</span></span><span class="mono">120 events</span></dd>
+          <dd><span class="status-word">Synthetic</span><span class="mono">120 events</span></dd>
         </div>
         <div>
           <dt>Snowflake delivery</dt>
-          <dd><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Synthetic</span></span><span class="mono">118 events</span></dd>
+          <dd><span class="status-word">Synthetic</span><span class="mono">118 events</span></dd>
         </div>
         <div>
           <dt>Destination reconciliation</dt>
-          <dd><span class="status-word status-word--absent"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not measured</span></span><span class="mono">—</span></dd>
+          <dd><span class="status-word status-word--absent">Not measured</span><span class="mono">—</span></dd>
         </div>
       </dl>
-      <dl class="states" aria-label="Cockpit table states and provenance words">
-        <div><dt><span class="status-word status-word--live"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Capture enabled</span></span></dt><dd>Configured, which does not prove delivery.</dd></div>
-        <div><dt><span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Measured</span></span></dt><dd>A recorded, timestamped value, distinct from an estimated one.</dd></div>
-        <div><dt><span class="status-word status-word--absent"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Absent</span></span></dt><dd>The value is missing and the screen says so.</dd></div>
-        <div><dt class="states__all"><span class="status-word status-word--live"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Capture enabled</span></span><span class="status-word status-word--copying"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Copying</span></span><span class="status-word status-word--paused"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Paused</span></span><span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Attention</span></span><span class="status-word status-word--stopped"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Stopped</span></span></dt><dd>The five table states.</dd></div>
-      </dl>
-      <figcaption id="chain-caption">Receiver names are illustrative and the counts come from the synthetic demo. Reading is already two events ahead of delivery, and reconciliation has not been measured. Quadringent keeps the three readings apart and never infers one from another.</figcaption>
+      <figcaption id="chain-caption">Receiver names are illustrative; counts are from the synthetic demo.</figcaption>
     </figure>
 
     <div class="cockpit-notes">
-      <p>Each connection and table is shown with its state in words, lag, throughput, source and Snowflake row counts and last arrival; one banner points at what needs verification. A missing value shows “—”, never a zero or a silent estimate, and an unmeasured stage stays “Not measured”. The Logs tab lists timestamped table events, and the Evidence tab keeps its measured scope and timestamps.</p>
-      <p>Pause and resume are controlled from the cockpit. Removing a table, restarting an initial copy, replaying a journal range or suspending the whole organization needs human approval; an agent connected through MCP cannot approve its own action without explicit administrator preauthorization, and every call is audited. Retention of RAW data and checkpoints after complete site loss was verified on historical versions only (see <a href="#evidence">Evidence</a>).</p>
+      <p>Each table shows its state (Capture enabled, Copying, Paused, Attention or Stopped), lag, throughput and row counts. A missing value shows “—”, never a zero or a silent estimate. “Not measured” means no evidence; Measured means recorded and timestamped. Capture enabled does not prove delivery. The <a data-repo-path="docs/product/operator-guide.md" href="../docs/product/operator-guide.md">operator guide</a> lists the tabs.</p>
+      <p>Pause and resume are in the cockpit. Removing a table, restarting an initial copy, replaying a journal range or suspending the organization needs human approval; an agent connected through MCP cannot approve its own action without administrator preauthorization, and every call is audited. Retention of RAW data and checkpoints after complete site loss was verified on historical versions only (<a href="#evidence">Evidence</a>).</p>
     </div>
   </section>
 
   <section class="section" id="try" aria-labelledby="try-title">
     <div class="section__head">
       <h2 id="try-title">Try it</h2>
-      <p>A real site needs an IBM i journal and TLS access, a scoped Snowflake role, raw storage and limited cloud permissions. Check <a data-repo-path="docs/product/compatibility.md" href="../docs/product/compatibility.md">compatibility and prerequisites</a> first. The cockpit is unauthenticated on loopback by default, so read the <a data-repo-path="SECURITY.md" href="../SECURITY.md">security policy</a> before exposing it.</p>
+      <p>Start with <a data-repo-path="docs/product/compatibility.md" href="../docs/product/compatibility.md">compatibility and prerequisites</a>; the cockpit is unauthenticated on loopback by default, so read the <a data-repo-path="SECURITY.md" href="../SECURITY.md">security policy</a> before exposing it.</p>
     </div>
     <div class="try">
       <div class="try__col">
@@ -129,7 +118,8 @@
 cd quadringent-ce
 npm ci --prefix ui
 node ui/scripts/build-demo.mjs --serve</code></pre>
-        <p>Needs Node 24 or 26. Open <code>http://127.0.0.1:8870/#/cockpit</code>. This is a <strong>Synthetic demo</strong>: no IBM i, Snowflake or cloud connection, and the page blocks network requests. A banner shows the source version and commit. It is not a release qualification. <a data-repo-path="docs/product/synthetic-demo.md" href="../docs/product/synthetic-demo.md">Demo guide</a></p>
+        <p>Needs Node 24 or 26; open <code>http://127.0.0.1:8870/#/cockpit</code>. A <strong>Synthetic demo</strong>: no IBM i, Snowflake or cloud connection, network requests blocked. Not a release qualification.</p>
+        <p class="try__links"><a data-repo-path="docs/product/synthetic-demo.md" href="../docs/product/synthetic-demo.md">Demo guide</a></p>
       </div>
       <div class="try__col">
         <h3>AWS or GCP, on a VM or a cluster</h3>
@@ -138,7 +128,8 @@ quadringent install --cloud gcp --target cluster \
   --region europe-west1 --project my-project \
   --name my-site --release-manifest release-manifest.json \
   --assets-dir ./quadringent-0.4.2 --dry-run</code></pre>
-        <p>The CLI comes from the wheel, the chart and Terraform modules from the extracted sdist (<code>--assets-dir</code>), and the three images from the manifest, pinned by digest. Review the plan, then remove <code>--dry-run</code>. Alternatives: <code>--cloud aws</code>, <code>--target vm</code>. Verify the release, its checksums and its scope before installing. <a data-repo-path="docs/product/install-default.md" href="../docs/product/install-default.md">Installation guide</a> · <a data-repo-path="docs/product/install-client.md" href="../docs/product/install-client.md">Expert Helm guide</a></p>
+        <p>CLI from the wheel; chart and Terraform modules from the extracted sdist (<code>--assets-dir</code>); three images from the manifest, pinned by digest. Alternatives: <code>--cloud aws</code>, <code>--target vm</code>.</p>
+        <p class="try__links"><a data-repo-path="docs/product/install-default.md" href="../docs/product/install-default.md">Installation guide</a><a data-repo-path="docs/product/install-client.md" href="../docs/product/install-client.md">Expert Helm guide</a></p>
       </div>
     </div>
 
@@ -146,20 +137,15 @@ quadringent install --cloud gcp --target cluster \
       <figcaption class="terminal__title">Before an install, run the doctor</figcaption>
       <pre class="screen screen--command" tabindex="0" aria-label="Doctor command"><code>quadringent doctor --check-ibmi ibmi.example.test --tls</code></pre>
       <pre class="code terminal__out" tabindex="0" aria-label="Excerpt of the doctor output"><code>Quadringent doctor: BLOCKED  (10 failed, 1 unknown, 1 skipped, 0 passed)
-Generated 2026-10-13T12:51:28Z UTC; 10 check(s) failed; fix them before relying on this installation.
+<span class="screen__dim">[... "Generated" line and every "Next:" line omitted ...]</span>
 
 <span class="fail">[FAIL]</span> local_tools.helm [tool helm]: helm is not found on PATH.
-       Next: Install helm and make sure it is on PATH, then run the doctor again.
-<span class="screen__dim">[... 2 more [FAIL] lines omitted: kubectl and terraform, same message ...]</span>
-<span class="fail">[FAIL]</span> network.tcp.command [host command 9475/tcp]: TCP connection to port 9475 failed: host name not resolved.
-       Next: Check the IBM i host name and the DNS used by this machine and by the reader.
-<span class="screen__dim">[... 6 more [FAIL] lines omitted: the other 3 TCP ports and the 3 TLS handshakes ...]</span>
+<span class="screen__dim">[... 9 more [FAIL] lines omitted: kubectl, terraform, the 4 TCP ports and the 3 TLS handshakes ...]</span>
 <span class="unkn">[UNKN]</span> authentication.ibmi_signon [host ibmi.example.test]: IBM i sign-on was not tested; configured credentials are not proof of authentication.
-       Next: Run Test in the activation wizard, or read the control plane diagnostic with --control-plane.
        Limits: The doctor never sends IBM i credentials. (observed 2026-10-13T12:51:28Z, doctor:not-tested)
 <span class="skip">[SKIP]</span> control_plane.api [control_plane v2]: The control plane was not read; capture, delivery and evidence are not observed.
 exit 1</code></pre>
-      <p class="terminal__note">Real output of the command above, cut where marked, against a placeholder host that does not resolve, on a machine without helm, kubectl or terraform. Most checks fail by design. The doctor says BLOCKED rather than showing a green light it cannot back up.</p>
+      <p class="terminal__note">Real output, cut where marked, against a placeholder host that does not resolve, on a machine without helm, kubectl or terraform.</p>
     </figure>
   </section>
 
@@ -169,27 +155,27 @@ exit 1</code></pre>
     </div>
     <ul class="ledger">
       <li>
-        <span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Measured</span></span>
-        <p><span class="mono">0.3.5</span>, <time datetime="2026-10-12">2026-10-12</time>. A fresh initial copy on four targets (AWS VM, EKS, GCP VM, GKE), 110 mirror rows and 110 history C images each, and an EKS rollback and re-upgrade that kept the same PostgreSQL PVC. Receipt: <a href="runtime-0.3.5.json">runtime-0.3.5.json</a>.</p>
+        <span class="status-word">Measured</span>
+        <p><span class="mono">0.3.5</span>, <time datetime="2026-10-12">2026-10-12</time>. A fresh initial copy on four targets (AWS VM, EKS, GCP VM, GKE), 110 mirror rows and 110 history C images each, and an EKS rollback and re-upgrade on the same PostgreSQL PVC. Receipt: <a href="runtime-0.3.5.json">runtime-0.3.5.json</a>.</p>
       </li>
       <li>
-        <span class="status-word status-word--proven"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Measured</span></span>
-        <p><span class="mono">0.3.4</span>, <time datetime="2026-10-12T18:13:31.648212+00:00">2026-10-12, 18:13 UTC</time>. Reconstruction on new PostgreSQL PVCs, 4 reader SIGKILL recoveries and 8 cold/warm observations within 10 s, from 3.763 s to 8.876 s between the SQL statement and the row appearing in the mirror. These are upper bounds, not a P95 and not an SLA. Receipt: <a href="recovery-0.3.4.json">recovery-0.3.4.json</a>.</p>
+        <span class="status-word">Measured</span>
+        <p><span class="mono">0.3.4</span>, <time datetime="2026-10-12T18:13:31.648212+00:00">2026-10-12, 18:13 UTC</time>. Reconstruction on new PostgreSQL PVCs, 4 reader SIGKILL recoveries and 8 cold/warm observations within 10 s, from 3.763 s to 8.876 s between the SQL statement and the mirror row. Upper bounds, not a P95 and not an SLA. Receipt: <a href="recovery-0.3.4.json">recovery-0.3.4.json</a>.</p>
       </li>
       <li>
-        <span class="status-word status-word--attention"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Measured, above the bar</span></span>
-        <p>The earlier <span class="mono">0.3.4</span> cold-warehouse trial passed our 10 s bar on 1 of 4 targets. It stays in the record next to the later run. Summary: <a href="qualification-0.3.4.json">qualification-0.3.4.json</a>.</p>
+        <span class="status-word">Measured</span>
+        <p>The earlier <span class="mono">0.3.4</span> trial passed our 10 s bar on 1 of 4 targets; the worst took 13.641 s from SQL start to mirror. Neither trial is a P95 or an SLA. Summary: <a href="qualification-0.3.4.json">qualification-0.3.4.json</a>.</p>
       </li>
       <li>
-        <span class="status-word status-word--absent"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not tested</span></span>
-        <p>On the current source, <span class="mono">0.4.2</span>: native CDC, reader outage, latency and complete cloud-loss recovery need fresh qualification, and a historical result does not stand in for them.</p>
+        <span class="status-word status-word--absent">Not tested</span>
+        <p>On the current source, <span class="mono">0.4.2</span>: native CDC, reader outage, latency and complete cloud-loss recovery need fresh qualification; history does not stand in for them.</p>
       </li>
       <li>
-        <span class="status-word status-word--absent"><span class="status-word__mark" aria-hidden="true"></span><span class="status-word__label">Not measured</span></span>
+        <span class="status-word status-word--absent">Not measured</span>
         <p>Snowflake cost per 24 h, and the CPU and I/O cost of the reads on your IBM i.</p>
       </li>
     </ul>
-    <p class="evidence-more"><a data-repo-path="docs/evidence.md" href="../docs/evidence.md">Read the full evidence page</a> for results by version, target and date, the 0.2.x history and every open limit.</p>
+    <p class="evidence-more"><a data-repo-path="docs/evidence.md" href="../docs/evidence.md">Full evidence page</a>: all versions, 0.2.x history, open limits.</p>
   </section>
 
   <section class="section" id="docs" aria-labelledby="docs-title">
@@ -200,22 +186,22 @@ exit 1</code></pre>
       <div class="index" id="trust">
         <h3>Before you grant access</h3>
         <ul>
-          <li class="index__lead"><a data-repo-path="docs/product/ibm-i-footprint.md" href="../docs/product/ibm-i-footprint.md">What Quadringent does on your IBM i</a><span>What it installs and runs, which authorities each part needs, and what it never does.</span></li>
-          <li class="index__lead"><a data-repo-path="docs/product/your-data.md" href="../docs/product/your-data.md">Where your data goes and how to leave</a><span>The path from journal to Snowflake, what leaves your accounts, and how to stop.</span></li>
-          <li class="index__lead"><a data-repo-path="docs/product/verify-a-release.md" href="../docs/product/verify-a-release.md">Verify a release</a><span>Check signatures, SBOMs and pinned digests against the public code.</span></li>
-          <li><a data-repo-path="docs/governance.md" href="../docs/governance.md">Governance and continuity</a><span>How the project is run and what remains if the maintainers stop.</span></li>
-          <li><a data-repo-path="SUPPORT.md" href="../SUPPORT.md">Support</a><span>What support exists and what is not offered.</span></li>
-          <li><a data-repo-path="SECURITY.md" href="../SECURITY.md">Reporting a vulnerability</a><span>How to report one, and the response target.</span></li>
+          <li><a data-repo-path="docs/product/ibm-i-footprint.md" href="../docs/product/ibm-i-footprint.md">What Quadringent does on your IBM i</a><span>Installed parts, authorities, limits.</span></li>
+          <li><a data-repo-path="docs/product/your-data.md" href="../docs/product/your-data.md">Where your data goes and how to leave</a><span>What leaves your accounts; how to stop.</span></li>
+          <li><a data-repo-path="docs/product/verify-a-release.md" href="../docs/product/verify-a-release.md">Verify a release</a><span>Signatures, SBOMs, pinned digests.</span></li>
+          <li><a data-repo-path="docs/governance.md" href="../docs/governance.md">Governance and continuity</a><span>If the maintainers stop.</span></li>
+          <li><a data-repo-path="SUPPORT.md" href="../SUPPORT.md">Support</a><span>What exists, what does not.</span></li>
+          <li><a data-repo-path="SECURITY.md" href="../SECURITY.md">Reporting a vulnerability</a><span>How to report; response target.</span></li>
         </ul>
       </div>
       <div class="index" id="learn">
         <h3>Before the first call</h3>
         <ul>
-          <li class="index__lead"><a data-repo-path="docs/product/faq.md" href="../docs/product/faq.md">Questions for a first call</a><span>Releases, tables, initial load, latency, recovery, costs and production. Each answer says Tested, Required, Not tested or Not supported.</span></li>
-          <li class="index__lead"><a data-repo-path="docs/product/comparison.md" href="../docs/product/comparison.md">How Quadringent compares</a><span>Other ways to move IBM i data to Snowflake, each claim about another product tied to that vendor’s documentation.</span></li>
-          <li><a data-repo-path="docs/articles/as400-to-snowflake-options.md" href="../docs/articles/as400-to-snowflake-options.md">Options to replicate AS/400 (IBM i) data to Snowflake</a><span>The approaches available, what each one needs and where each one stops.</span></li>
-          <li><a data-repo-path="docs/articles/ibm-i-journals-for-cdc.md" href="../docs/articles/ibm-i-journals-for-cdc.md">How IBM i journals work for change data capture</a><span>What a journal records, how receivers rotate and what that means for a reader.</span></li>
-          <li><a data-repo-path="docs/articles/capture-delivery-reconciliation.md" href="../docs/articles/capture-delivery-reconciliation.md">Capture is not delivery</a><span>Why a running reader does not prove that data reached Snowflake, and how to check.</span></li>
+          <li><a data-repo-path="docs/product/faq.md" href="../docs/product/faq.md">Questions for a first call</a><span>Releases, latency, recovery, costs.</span></li>
+          <li><a data-repo-path="docs/product/comparison.md" href="../docs/product/comparison.md">How Quadringent compares</a><span>Claims tied to vendor documentation.</span></li>
+          <li><a data-repo-path="docs/articles/as400-to-snowflake-options.md" href="../docs/articles/as400-to-snowflake-options.md">Options to replicate AS/400 (IBM i) data to Snowflake</a><span>What each needs, where each stops.</span></li>
+          <li><a data-repo-path="docs/articles/ibm-i-journals-for-cdc.md" href="../docs/articles/ibm-i-journals-for-cdc.md">How IBM i journals work for change data capture</a><span>Journal contents and receiver rotation.</span></li>
+          <li><a data-repo-path="docs/articles/capture-delivery-reconciliation.md" href="../docs/articles/capture-delivery-reconciliation.md">Capture is not delivery</a><span>Why a running reader proves nothing.</span></li>
         </ul>
       </div>
     </div>
@@ -227,16 +213,16 @@ exit 1</code></pre>
     </div>
     <div class="about">
       <div class="about__text">
-        <p>Community is free: engine, API, cockpit and chart under Apache-2.0, with no activation key or commercial table limit. IBM i, cloud and Snowflake costs stay yours. We have not launched or priced any paid offer.</p>
-        <p>If there is demand, the first thing we would offer is installation and a pilot on your infrastructure, with table scope, acceptance criteria and evidence deliverables agreed before we start. Support would be a separate agreement after the pilot, and we would consider managed hosting only once a real need is confirmed.</p>
+        <p>Community is free: engine, API, cockpit and chart under Apache-2.0, with no activation key or commercial table limit. IBM i, cloud and Snowflake costs stay yours. No paid offer is launched or priced.</p>
+        <p>If there is demand, we would offer installation and a pilot first, with scope and acceptance criteria agreed beforehand. Support would be a separate agreement after the pilot, managed hosting only once a real need is confirmed.</p>
       </div>
       <div class="about__contact" id="pilot-contact">
-        <p>Email <a href="mailto:quadringent@proton.me?subject=DEV%2FINT%20pilot">quadringent@proton.me</a> to discuss a pilot privately, without a GitHub account. A <a href="https://github.com/quadringent/quadringent-ce/issues/new?template=pilot_interest.yml">public pilot interest request</a> on GitHub is also possible; the issue and your account name are publicly visible. Send no credentials, access, private hostnames, customer data or attachments.</p>
-        <p>What happens next: a technical discovery exchange, then a written scope, then a separate pilot decision. We never accept a request automatically, and we make no response-time commitment.</p>
+        <p>Email <a href="mailto:quadringent@proton.me?subject=DEV%2FINT%20pilot">quadringent@proton.me</a> to discuss a pilot privately, without a GitHub account, or file a <a href="https://github.com/quadringent/quadringent-ce/issues/new?template=pilot_interest.yml">public pilot interest request</a> (the issue and your account name are publicly visible). Send no credentials, access, private hostnames, customer data or attachments.</p>
+        <p>Next: technical discovery, written scope, separate pilot decision. We never accept a request automatically and make no response-time commitment.</p>
         <div class="actions">
           <a class="action-button action-button--primary" href="mailto:quadringent@proton.me?subject=DEV%2FINT%20pilot">Discuss a DEV/INT pilot</a>
-          <a class="text-link" data-repo-path="docs/product/positioning-and-offer.md" href="../docs/product/positioning-and-offer.md">Read the pilot guide</a>
-          <a class="text-link" data-repo-path="docs/licensing.md" href="../docs/licensing.md">Understand the license</a>
+          <a class="text-link" data-repo-path="docs/product/positioning-and-offer.md" href="../docs/product/positioning-and-offer.md">Pilot guide</a>
+          <a class="text-link" data-repo-path="docs/licensing.md" href="../docs/licensing.md">License</a>
         </div>
       </div>
     </div>
@@ -245,14 +231,13 @@ exit 1</code></pre>
 
 <footer class="site-footer">
   <div class="wrap site-footer__inner">
-    <p>Quadringent Community · Apache-2.0 · Preview</p>
+    <p>Quadringent Community, Apache-2.0, preview</p>
     <ul aria-label="References">
       <li><a href="#pilot-contact">Pilot contact</a></li>
       <li><a data-repo-path="LICENSE" href="../LICENSE">License</a></li>
       <li><a data-repo-path="THIRD_PARTY_NOTICES.md" href="../THIRD_PARTY_NOTICES.md">Third-party notices</a></li>
       <li><a href="assets/fonts/OFL-IBM-Plex-Sans.txt">IBM Plex Sans (OFL-1.1)</a></li>
       <li><a href="assets/fonts/OFL-IBM-Plex-Mono.txt">IBM Plex Mono (OFL-1.1)</a></li>
-      <li><a data-repo-path="SECURITY.md" href="../SECURITY.md">Security</a></li>
       <li><a data-repo-path="CHANGELOG.md" href="../CHANGELOG.md">Changes</a></li>
     </ul>
   </div>

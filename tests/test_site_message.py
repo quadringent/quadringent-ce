@@ -165,7 +165,7 @@ def test_hero_leads_with_the_thesis_and_one_sentence_of_value():
     for phrase in ("IBM i (AS/400)", "Snowflake", "no Kafka and no license key", "your own AWS or GCP account"):
         assert phrase in what, phrase
     assert len(what.split()) <= 35 and len(reports.split()) <= 35, "each sentence stays scannable"
-    for phrase in ("journal reading", "Snowflake delivery", "event-count reconciliation", "each table", "Not measured"):
+    for phrase in ("journal reading", "Snowflake delivery", "event-count reconciliation", "each table"):
         assert phrase in reports, phrase
     assert "does not reconcile" not in lead and "business values" not in lead
     head = home()
@@ -181,15 +181,18 @@ def test_hero_has_one_status_line_and_states_the_uncomfortable_fact():
     runtime = json.loads(read("site/runtime-0.3.5.json"))
     assert f'last observed release {runtime["version"]} ({runtime["date_utc"]})' in status
     assert 'data-repo-path="docs/evidence.md" href="../docs/evidence.md"' in section
-    fact = text_of_home(re.search(r'<p class="hero__fact">(.*?)</p>', section, re.S)[1])
+    fact = status
     targets = json.loads(read("site/qualification-0.3.4.json"))["cold_warehouse_latency"]["targets"]
     missed = [name for name, values in targets.items() if not values["SQL_and_ACK_threshold_passed"]]
     assert f"{len(missed)} of {len(targets)} targets missed our 10 s bar" in fact
-    assert f"{historical_worst_sql_start():.3f} s" in fact
-    assert "later 0.3.4 run passed on all four" in fact and "P95" in fact and "SLA" in fact
-    # Order: thesis, value, status, fact, action, then the product on the right.
+    assert "later 0.3.4 run passed on all four" in fact
+    assert "hero__fact" not in section, "the fact lives in the status line, not in a third paragraph"
+    # The worst figure and the P95 / SLA disclaimer sit in the evidence ledger.
+    ledger = text_of_home(re.search(r'<ul class="ledger">.*?</ul>', home(), re.S)[0])
+    assert f"{historical_worst_sql_start():.3f} s" in ledger and "P95" in ledger and "SLA" in ledger
+    # Order: thesis, value, status (with the fact), action, then the product on the right.
     order = [section.index(token) for token in ("<h1", 'class="hero__lead"', 'class="status-line"',
-                                                  'class="hero__fact"', 'class="actions"', "<figure")]
+                                                  'class="actions"', "<figure")]
     assert order == sorted(order)
     assert "release-facts" not in section, "the spec card is gone"
 
@@ -221,7 +224,7 @@ def test_hero_shows_the_current_cockpit_captioned_as_synthetic():
     assert "Demonstration" in text and "synthetic data" in text
     caption = text_of_home(re.search(r"<figcaption>(.*?)</figcaption>", figure, re.S)[1])
     assert source_version() in caption, "the screenshot is of the current source version"
-    assert "synthetic" in caption and "Not measured" in caption
+    assert "synthetic" in caption
     alt = re.search(r'alt="([^"]+)"', figure)[1]
     for value in ("120 events", "118 events", "Not measured"):
         assert value in alt, value
@@ -245,6 +248,19 @@ def test_home_is_a_hero_then_five_sections():
     assert "<table" not in home(), "qualification tables live on the evidence page"
     assert 'id="qualification"' not in home() and 'id="limits"' not in home()
     assert len(home()) < 30000, "the landing page stays short"
+
+
+def test_landing_page_stays_concise():
+    """W7: at least 30% fewer words than the 1551-word landing page it replaced; doc rows are a title and a few words."""
+    html = home()
+    body = re.search(r"<body>.*</body>", html, re.S)[0]
+    assert len(text_of_home(re.sub(r"<(script|style|svg)\b.*?</\1>", "", body, flags=re.S)).split()) <= 1085
+    hero_text = text_of_home(hero())
+    figure = text_of_home(re.search(r"<figcaption>(.*?)</figcaption>", hero(), re.S)[1])
+    assert len(figure.split()) <= 25, "one-line caption"
+    for description in re.findall(r"</a><span>(.*?)</span>", html, re.S):
+        assert len(description.split()) <= 8, description
+    assert hero_text
 
 
 def test_caveats_are_stated_once_on_the_home_page():
@@ -290,13 +306,12 @@ def test_only_commands_use_the_screen_block_and_the_doctor_excerpt_is_labelled_r
     for phrase in ("BLOCKED", "[FAIL]", "[UNKN]", "[SKIP]", "ibmi.example.test", "The doctor never sends IBM i credentials",
                    "lines omitted", "exit 1"):
         assert phrase in output, phrase
-    # The excerpt starts at the first failing check and marks every cut with the number of lines dropped.
-    assert output.index("local_tools.helm") < output.index("network.tcp.command")
-    assert output.index("[FAIL] local_tools.helm") < output.index("2 more [FAIL] lines omitted") < output.index("[FAIL] network.tcp.command")
-    assert output.index("6 more [FAIL] lines omitted") < output.index("[UNKN]")
+    # The excerpt shows the first failing check and marks every cut with the number of lines dropped.
+    assert output.index("[FAIL] local_tools.helm") < output.index("9 more [FAIL] lines omitted") < output.index("[UNKN]")
     shown = output.count("[FAIL] ") - len(re.findall(r"\[\.\.\. \d+ more \[FAIL\]", output))
     omitted = sum(int(n) for n in re.findall(r"\[\.\.\. (\d+) more \[FAIL\]", output))
     assert shown + omitted == 10 and "10 failed" in output, "shown plus omitted lines add up to the header count"
+    assert '"Next:" line omitted' in output, "the dropped Next: lines are announced"
     note = text_of_home(re.search(r'<p class="terminal__note">(.*?)</p>', html, re.S)[1])
     assert "Real output" in note and "placeholder host" in note
 

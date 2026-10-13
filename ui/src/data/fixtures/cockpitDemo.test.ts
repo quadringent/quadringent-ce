@@ -10,6 +10,7 @@ import {
   demoSourceIdForPipeline,
 } from './cockpitDemo.ts';
 import { buildConnections, connectionAggregateState, groupTablesBySource } from '../../domain/cockpit.ts';
+import { controlActionCopy } from '../../domain/operator.ts';
 
 function client(): ControlPlaneV2Client {
   return new ControlPlaneV2Client({ fetchFn: createCockpitDemoFetch() });
@@ -75,8 +76,17 @@ test('dry_run never mutates state and reports the announced effect', async () =>
   const before = await c.getPipeline('pl_inventory_warehouses');
   const envelope = await c.runPipelineAction('pl_inventory_warehouses', 'pause', { dryRun: true });
   assert.ok(envelope.dryRun);
+  assert.equal((envelope.dryRun as { effect: string }).effect, controlActionCopy('pause').effect);
   const after = await c.getPipeline('pl_inventory_warehouses');
   assert.equal(after.declaredState, before.declaredState);
+});
+
+test('table resume preview announces delivery rather than journal reading', async () => {
+  const c = client();
+  const before = await c.getPipeline('pl_inventory_movements');
+  const envelope = await c.runPipelineAction('pl_inventory_movements', 'resume', { dryRun: true });
+  assert.equal((envelope.dryRun as { effect: string }).effect, controlActionCopy('resume').effect);
+  assert.deepEqual(await c.getPipeline('pl_inventory_movements'), before);
 });
 
 for (const scope of ['source', 'destination', 'fleet'] as const) {
@@ -164,7 +174,7 @@ test('table evidence varies by table: stale after an incident, absent during cop
   assert.equal(copying.delivery.state, 'absent');
   assert.equal(copying.delivery.observed_at, null);
   const paused = await evidence('pl_inventory_movements');
-  assert.equal(paused.reading.state, 'stale');
+  assert.equal(paused.reading.state, 'absent');
   const never = await evidence('pl_sales_archive');
   assert.equal(never.evidence_kind, 'absent');
   assert.equal(never.collected_at, null);
@@ -182,4 +192,36 @@ test('a table paused in the demo stops reporting lag and throughput', async () =
   const after = await (await fetch('/v2/pipelines/pl_sales_orders/metrics?window=1h')).json();
   assert.ok(after.points.every((point: { lag_seconds: number | null; throughput_rows_per_second: number | null }) =>
     point.lag_seconds === null && point.throughput_rows_per_second === null));
+});
+
+test('table suspension leaves shared capture unconfirmed and preserves other table evidence', async () => {
+  const fetch = createCockpitDemoFetch();
+  const evidence = async (id: string) => (await fetch(`/v2/pipelines/${id}/evidence`)).json();
+  const before = await evidence('pl_sales_orders');
+  const other = await evidence('pl_sales_customers');
+  await fetch('/v2/pipelines/pl_sales_orders/actions/pause', {
+    method: 'POST', body: JSON.stringify({ dry_run: true }),
+  });
+  assert.deepEqual(await evidence('pl_sales_orders'), before);
+  await fetch('/v2/pipelines/pl_sales_orders/actions/pause', {
+    method: 'POST', body: JSON.stringify({}),
+  });
+  const paused = await evidence('pl_sales_orders');
+  assert.equal(paused.evidence_kind, 'simulation');
+  assert.equal(paused.reading.state, 'absent');
+  for (const field of ['observed_at', 'event_count', 'lag_seconds', 'duplicate_count']) {
+    assert.equal(paused.reading[field], null);
+  }
+  assert.match(paused.reading.detail, /cannot be inferred from table suspension/);
+  assert.equal(paused.delivery.state, 'stale');
+  assert.match(paused.delivery.detail, /synthetic delivery/);
+  assert.deepEqual(await evidence('pl_sales_customers'), other);
+  const list = await (await fetch('/v2/pipelines')).json();
+  const row = list.items.find((item: { id: string }) => item.id === 'pl_sales_orders');
+  assert.match(row.absent_reasons.lag_seconds, /delivery suspended.*not measured/i);
+  assert.doesNotMatch(JSON.stringify(row.absent_reasons), /no reading in progress/);
+  await fetch('/v2/pipelines/pl_sales_orders/actions/resume', {
+    method: 'POST', body: JSON.stringify({}),
+  });
+  assert.deepEqual(await evidence('pl_sales_orders'), before);
 });

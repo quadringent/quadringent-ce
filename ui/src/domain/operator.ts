@@ -30,6 +30,25 @@ import type { ControlActionKind, ControlLevel } from './controlsPanel.ts';
 /** Santé d'une liaison — ce que la couleur porte, et rien d'autre. */
 export type Health = 'ok' | 'attention' | 'stopped' | 'unknown';
 
+export type StatusWordState = 'live' | 'copying' | 'paused' | 'attention' | 'stopped';
+
+export interface StatusWordCopy {
+  readonly label: string;
+  readonly description: string;
+}
+
+const STATUS_WORD_COPY: Readonly<Record<StatusWordState, StatusWordCopy>> = {
+  live: { label: 'Capture enabled', description: 'Capture is enabled in the configuration. Check metrics to verify operation and lag.' },
+  copying: { label: 'Copying', description: 'The initial copy is progressing.' },
+  paused: { label: 'Paused', description: 'Delivery is suspended. Check capture evidence to see whether journal reading continues.' },
+  attention: { label: 'Attention', description: 'An item needs verification.' },
+  stopped: { label: 'Stopped', description: 'Capture is stopped.' },
+};
+
+export function statusWordCopy(state: StatusWordState): StatusWordCopy {
+  return STATUS_WORD_COPY[state];
+}
+
 /** Un fait chiffré. `value === null` signifie « mesure absente », jamais zéro. */
 export interface Fact {
   readonly label: string;

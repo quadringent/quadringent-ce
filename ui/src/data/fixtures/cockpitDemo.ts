@@ -14,6 +14,7 @@
  */
 
 import type { PipelineDeclaredState } from '../controlPlaneV2Client.ts';
+import { controlActionCopy } from '../../domain/operator.ts';
 
 export const DEMO_SOURCE_SALES = 'src_demo_sales';
 export const DEMO_SOURCE_INVENTORY = 'src_demo_inventory';
@@ -221,8 +222,8 @@ function nextDeclaredState(action: PipelineActionKind, current: PipelineDeclared
 
 function demoActionEffect(action: string): string {
   switch (action) {
-    case 'pause': case 'pause_all': return "Suspends reading; the current position is retained.";
-    case 'resume': case 'resume_all': return "Resumes reading from the last recorded position.";
+    case 'pause': case 'pause_all': return controlActionCopy('pause').effect;
+    case 'resume': case 'resume_all': return controlActionCopy('resume').effect;
     case 'remove': return "Permanently removes this item from tracking.";
     case 'restart_initial_copy': return "Restarts the initial copy from the beginning.";
     case 'replay': return "Replays events from the specified range.";
@@ -234,13 +235,8 @@ function pipelineDict(pipeline: DemoPipeline): Record<string, unknown> {
   return { id: pipeline.id, declared_state: pipeline.declaredState };
 }
 
-/** `GET /v2/pipelines` (liste) porte, en plus de `pipelineDict`, l'id de
- *  table/destination et les figures observées — voir
- *  `PipelineListRecord.to_dict` côté service. Une table en pause n'a plus
- *  de lecture active : retard/débit/lignes destination/dernière arrivée
- *  restent `null`, avec leur raison, jamais une valeur figée maquillée en
- *  mesure fraîche. Les lignes source restent connues (comptage IBM i,
- *  indépendant de l'état du pipeline). */
+// Table suspension removes current delivery measurements. It does not establish
+// whether the shared journal reader stopped; source counts remain independent.
 function pipelineListDict(pipeline: DemoPipeline): Record<string, unknown> {
   const paused = pipeline.declaredState === 'paused';
   const baseLag = (pipeline.name.length * 7) % 90;
@@ -256,8 +252,8 @@ function pipelineListDict(pipeline: DemoPipeline): Record<string, unknown> {
       : rowsSource;
   const absentReasons: Record<string, string> = {};
   if (paused) {
-    absentReasons.lag_seconds = "Table paused — no reading in progress.";
-    absentReasons.throughput_rows_per_second = "Table paused — no reading in progress.";
+    absentReasons.lag_seconds = 'Table delivery suspended — lag is not measured.';
+    absentReasons.throughput_rows_per_second = 'Table delivery suspended — throughput is not measured.';
     absentReasons.rows_destination = "Table paused — last synchronization not refreshed.";
     absentReasons.last_arrival_at = "Table paused — no arrivals since the pause.";
   }
@@ -378,8 +374,8 @@ function demoEvidence(pipeline: DemoPipeline): Record<string, unknown> {
       return { ...base, delivery: { ...absent, detail: 'Initial copy in progress; no delivery window confirmed yet.' } };
     case 'paused':
       return { ...base,
-        reading: { ...reading, state: 'stale', observed_at: '2026-09-23T07:30:00Z', detail: 'Reading paused; last synthetic capture before the pause.' },
-        delivery: { ...delivery, state: 'stale', observed_at: '2026-09-23T07:30:00Z', detail: 'No delivery since the pause.' } };
+        reading: { ...absent, detail: 'Capture activity cannot be inferred from table suspension; it is not measured in this demonstration.' },
+        delivery: { ...delivery, state: 'stale', observed_at: '2026-09-23T07:30:00Z', detail: 'Last synthetic delivery predates the suspension; no newer delivery is confirmed.' } };
     default:
       return base;
   }

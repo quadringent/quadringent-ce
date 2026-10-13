@@ -38,3 +38,11 @@ test('le rendu compact ajoute son modificateur de classe sans changer le libellÃ
   assert.match(markup, /status-word--compact/);
   assert.match(markup, />Attention</);
 });
+
+test('paused status describes suspended delivery without asserting a stopped reader', () => {
+  const markup = renderToStaticMarkup(createElement(StatusWord, { state: 'paused' }));
+  assert.match(markup, />Paused</);
+  assert.match(markup, /Delivery is suspended/);
+  assert.match(markup, /Check capture evidence/);
+  assert.doesNotMatch(markup, /reader is intentionally stopped|position is retained/);
+});

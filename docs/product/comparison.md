@@ -3,15 +3,15 @@
 <!-- description: A factual comparison of Quadringent with Qlik Replicate, Fivetran, Precisely Connect CDC, IBM Data Replication and Debezium for IBM i to Snowflake. -->
 
 Quadringent copies changes from IBM i journals to Snowflake, in your own AWS or
-GCP account, and shows separate evidence of reading, delivery and
-reconciliation. It is a DEV/INT preview and no production qualification is
-claimed ([compatibility](compatibility.md), [README](../../README.md)).
+GCP account, and shows what was read, what arrived and whether the two agree as
+separate evidence. It is a DEV/INT preview and no production qualification is
+claimed ([evidence](../evidence.md), [compatibility](compatibility.md)).
 <!-- source: README.md, docs/product/compatibility.md, docs/product/operator-guide.md -->
 
-This page puts it next to the products a buyer is likely to consider for
-IBM i to Snowflake. It says where those products are stronger. It also says
-where Quadringent works differently, so that you can decide whether the
-difference matters to you.
+Below, we put it next to the products a buyer is likely to consider for
+IBM i to Snowflake. We say where those products are stronger and where
+Quadringent works differently, so that you can decide whether the difference
+matters to you.
 
 ## How to read this page
 
@@ -39,9 +39,6 @@ cloud-provider migration services. Their absence is not a judgment. Batch
 extracts and other approaches are in
 [Options to replicate AS/400 (IBM i) data to Snowflake](../articles/as400-to-snowflake-options.md).
 
-A row that says "check with the vendor" reflects the pages we read, not a gap in
-the product.
-
 ## 1. Architecture
 
 Where does the software run, does it need Kafka, and who operates it?
@@ -61,7 +58,7 @@ Where does the software run, does it need Kafka, and who operates it?
 
 | Product | What the documentation says | Source |
 |---|---|---|
-| Quadringent | Reads journal entries over TLS. Near the journal tail it calls `QSYS2.DISPLAY_JOURNAL` with a `SELECT`. For a larger backlog it uses the journal-parsing library from the Debezium project, which calls IBM journal retrieval APIs; whether that library uses the IBM i remote command server is Not verified (see the footprint page). Tables need `*BOTH` images and a primary or unique key. One reader per journal. At most 32 tables per capture session. | [IBM i footprint](ibm-i-footprint.md#how-it-reads-the-journal), [compatibility](compatibility.md#ibm-i-source) |
+| Quadringent | Reads journal entries over TLS. Near the journal tail it calls `QSYS2.DISPLAY_JOURNAL` with a `SELECT`. For a larger backlog it uses the journal-parsing library from the Debezium project, which calls IBM journal retrieval APIs; whether that library uses the IBM i remote command server is Not tested (see the footprint page). Tables need `*BOTH` images and a primary or unique key. One reader per journal. At most 32 tables per capture session. | [IBM i footprint](ibm-i-footprint.md#how-it-reads-the-journal), [compatibility](compatibility.md#ibm-i-source) |
 | Qlik Replicate | According to Qlik documentation, all source tables of one task must be journaled to the same journal. `MINENTDTA` must be `*NONE`. Record images can be `*BOTH` or `*AFTER`; with `*AFTER`, deleted rows have null data fields. By default, change filtering happens on the Replicate machine. | [Prerequisites (May 2026)](https://help.qlik.com/en-US/replicate/May2026/Content/Replicate/Main/IBM%20DB2%20for%20iSeries/prereq_db2.htm), [advanced properties](https://help.qlik.com/en-US/replicate/May2026/Content/Replicate/Main/IBM%20DB2%20for%20iSeries/advanced_prop_db2_source.htm) |
 | Fivetran | According to Fivetran documentation, HVR supports journal capture through the `DISPLAY_JOURNAL` table function. The journal needs `MINENTDTA(*NONE)` and `RCVSIZOPT` of `*MAXOPT3` or `*MAXOPT2`. The Db2 for i connector requires `*BOTH` images and keeping receivers at least 48 hours. Reading the journal needs `*ALLOBJ` or per-object authorities. | [HVR 6 Db2 for i as source](https://fivetran.com/docs/hvr6/requirements/source-and-target-requirements/db2-for-i-requirements/db2-for-i-as-source), [setup guide](https://fivetran.com/docs/connectors/databases/hva-db2i/setup-guide) |
 | Precisely Connect CDC | According to Precisely documentation, the Connect product page says Connect detects changes through database and system logs. The support portal lists an article titled "Identifying the First Required Journal Receiver in Connect CDC for IBM i". The exact IBM i interface: check with the vendor. | [Connect product page](https://www.precisely.com/product/precisely-connect/connect/), [support portal](https://support.precisely.com/products/connect-cdc-formerly-mimix-share/) |
@@ -123,7 +120,7 @@ above, on your own tables.
 
 | Product | What the documentation says | Source |
 |---|---|---|
-| Quadringent | DEV/INT preview. No production qualification, no production reference and no service level. Qualification receipts are dated and cover only the version and scope they name. The maintainers are pseudonymous; the [governance page](../governance.md) says what you can verify instead. The reader uses the journal-parsing library from the Debezium project. | [README](../../README.md), [governance](../governance.md), [support](../../SUPPORT.md), [third-party notices](../../THIRD_PARTY_NOTICES.md) |
+| Quadringent | A preview, with no production reference and no service level. Qualification receipts are dated and cover only the version and scope they name. We maintain it under a pseudonymous identity; the [governance page](../governance.md) says what you can verify instead. The reader uses the journal-parsing library from the Debezium project. | [README](../../README.md), [governance](../governance.md), [support](../../SUPPORT.md), [third-party notices](../../THIRD_PARTY_NOTICES.md) |
 | Qlik Replicate | Commercial product. The May 2026 support matrix lists IBM i 7.4 and 7.5 for the IBM DB2 for iSeries source, with Replicate on Windows or Red Hat Linux. Production references: check with the vendor. | [Supported source endpoints](https://help.qlik.com/en-US/replicate/May2026/Content/Replicate/Main/Support%20Matrix/supported_source_endpoints.htm) |
 | Fivetran | Commercial service. The Db2 for i connector page lists IBM i 7.2 to 7.5 and does not state a lifecycle status, so check with the vendor. | [Db2 for i connector](https://fivetran.com/docs/connectors/databases/hva-db2i) |
 | Precisely Connect CDC | Commercial product. The product page says Connect and the support portal says Connect CDC (formerly MIMIX Share); the pages do not tie the two together. Supported IBM i releases: check with the vendor. | [Support portal](https://support.precisely.com/products/connect-cdc-formerly-mimix-share/) |
@@ -136,62 +133,29 @@ above, on your own tables.
 
 Read this before you spend time on a pilot.
 
-- **Maturity and production use.** Quadringent has no production reference and
-  claims no production qualification. Ask each vendor whether its product is
-  used in production for IBM i to Snowflake, and for a reference on your IBM i
-  release.
-- **Support.** Quadringent offers best-effort answers on public issues, with no
-  response-time commitment ([support](../../SUPPORT.md)). Ask each vendor what
-  support it offers and on what terms.
-- **Breadth of sources and targets.** According to Qlik documentation, its May
-  2026 support matrix has about fifty source endpoint rows, some of them
-  variants of the same system. According to IBM documentation, its product page
-  lists many sources and targets. According to Precisely documentation, its
-  product page lists databases, streaming platforms and cloud analytics
-  systems. Quadringent supports IBM i as a source and Snowflake as a
-  destination, and nothing else.
-- **IBM i capture performance options.** According to Qlik documentation, an
-  optional component on the IBM i filters changes there, for up to 300 tables
-  per task. Quadringent has no such option and reads at most 32 tables per
-  capture session. Throughput on your tables: Not measured for Quadringent.
-- **Ecosystem.** According to the Debezium connector README, the connector runs
-  under Kafka Connect. If you already run Kafka, IBM i changes become a topic
-  your other consumers can read. Quadringent has no such output.
-- **IBM i release coverage.** The only IBM i release with a recorded
-  Quadringent measurement is 7.5, on one shared server and one table. Other
-  releases are marked Not tested in [compatibility](compatibility.md#ibm-i-source).
+| Area | What the alternatives offer that Quadringent does not |
+|---|---|
+| Maturity and production use | Quadringent has no production reference. Ask each vendor whether its product is used in production for IBM i to Snowflake, and for a reference on your IBM i release. |
+| Support | Quadringent offers best-effort answers on public issues, with no response-time commitment ([support](../../SUPPORT.md)). Ask each vendor what support it offers and on what terms. |
+| Breadth of sources and targets | According to Qlik documentation, its May 2026 support matrix has about fifty source endpoint rows, some of them variants of the same system. According to IBM documentation, its product page lists many sources and targets. According to Precisely documentation, its product page lists databases, streaming platforms and cloud analytics systems. Quadringent supports IBM i as a source and Snowflake as a destination, and nothing else. |
+| IBM i capture performance options | According to Qlik documentation, an optional component on the IBM i filters changes there, for up to 300 tables per task. Quadringent has no such option and reads at most 32 tables per capture session. Throughput on your tables: Not measured for Quadringent. |
+| Ecosystem | According to the Debezium connector README, the connector runs under Kafka Connect. If you already run Kafka, IBM i changes become a topic your other consumers can read. Quadringent has no such output. |
+| IBM i release coverage | The only IBM i release with a recorded Quadringent measurement is 7.5, on one shared server and one table. Other releases are marked Not tested in [compatibility](compatibility.md#ibm-i-source). |
 
 <!-- source: docs/product/compatibility.md, SUPPORT.md, docs/product/ibm-i-footprint.md -->
 
 ## Where Quadringent differs
 
-- **Open source, Apache-2.0.** You can read the reader, the loaders and the
-  evidence code, and you can fork them. There is no license key. The license
-  gives you rights to the versions you hold.
-  ([project model](../licensing.md))
-- **No Kafka.** Raw batches go to a bucket in your account, and loaders write
-  to Snowflake. Compared with the Debezium route, that is one less system to
-  run and size. The pages read for the other products do not say whether they
-  need Kafka.
-- **Runs in your account.** The reader, the loaders and the control plane run
-  in your AWS or GCP account. The running software sends nothing to a
-  project-run endpoint unless you turn on the opt-in telemetry, which is off by
-  default ([your data](your-data.md#what-leaves-your-accounts)).
-- **Nothing installed on the IBM i. The reader path runs no write statement or
-  CL command of its own.** This is not unique: Qlik basic capture also
-  appears to need nothing on the IBM i. The backlog path calls IBM retrieval
-  APIs through a third-party library, and whether that library uses the remote
-  command server is Not verified. One class in the Java archive, used only for
-  qualification runs, can change data and run `CHGJRN`
-  ([IBM i footprint](ibm-i-footprint.md)).
-- **Evidence per table, in separate stages.** The cockpit shows reading,
-  delivery and reconciliation apart, and says **Not measured** when nothing
-  was measured ([operator guide](operator-guide.md#4-read-the-evidence)).
-- **DEV/INT preview, with scoped and dated qualification.** The
-  qualification is small. See [qualification](../qualification.md) and the
-  [README](../../README.md).
+| Difference | What it means |
+|---|---|
+| Open source, Apache-2.0 | You can read the reader, the loaders and the evidence code, and you can fork them. There is no license key. The license gives you rights to the versions you hold ([project model](../licensing.md)). |
+| No Kafka | Raw batches go to a bucket in your account, and loaders write to Snowflake. Compared with the Debezium route, that is one less system to run and size. The pages read for the other products do not say whether they need Kafka. |
+| Runs in your account | The reader, the loaders and the control plane run in your AWS or GCP account. The running software sends nothing to a project-run endpoint unless you turn on the opt-in telemetry, which is off by default ([your data](your-data.md#what-leaves-your-accounts)). |
+| Nothing installed on the IBM i | The reader path runs no write statement or CL command of its own. This is not unique: Qlik basic capture also appears to need nothing on the IBM i. The backlog path calls IBM retrieval APIs through a third-party library, and whether that library uses the remote command server is Not tested. One class in the Java archive, used only for qualification runs, can change data and run `CHGJRN` ([IBM i footprint](ibm-i-footprint.md)). |
+| Evidence per table | The cockpit keeps the counts apart and says Not measured when nothing was measured. In the synthetic demo, one table shows 120 events at journal capture, 118 at Snowflake delivery and destination reconciliation Not measured, all generated data ([operator guide](operator-guide.md#4-read-the-evidence)). |
+| A preview with dated qualification | The qualification is small and each receipt names its version and scope. See [qualification](../qualification.md) and [evidence](../evidence.md). |
 
-<!-- source: LICENSE, docs/licensing.md, docs/product/your-data.md, docs/product/ibm-i-footprint.md, docs/product/operator-guide.md, README.md, docs/qualification.md -->
+<!-- source: LICENSE, docs/licensing.md, docs/product/your-data.md, docs/product/ibm-i-footprint.md, docs/product/operator-guide.md, README.md, docs/qualification.md, docs/product/synthetic-demo.md -->
 
 ## Questions to ask any vendor, including us
 
@@ -218,6 +182,3 @@ All pages were accessed on 2026-10-13.
 - Precisely: [Connect product page](https://www.precisely.com/product/precisely-connect/connect/), [Connect CDC support portal](https://support.precisely.com/products/connect-cdc-formerly-mimix-share/)
 - IBM: [Data Replication product page](https://www.ibm.com/products/infosphere-data-replication), [install the CDC Replication Engine for Db2 for i, 11.4](https://www.ibm.com/docs/en/idr/11.4.0?topic=credi-installing-cdc-replication-engine-db2-i-version-114)
 - Debezium: [debezium-connector-ibmi README](https://github.com/debezium/debezium-connector-ibmi), [release 2.6.0.Beta1](https://debezium.io/blog/2024/03/06/debezium-2-6-beta1-released/), [connector index](https://debezium.io/documentation/reference/stable/connectors/index.html)
-
-Next: [Questions for a first call](faq.md), and
-[Capture is not delivery: proving IBM i data reached Snowflake](../articles/capture-delivery-reconciliation.md).

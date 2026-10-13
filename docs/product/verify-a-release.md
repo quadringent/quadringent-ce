@@ -1,25 +1,22 @@
 # Verify a release
 
-This page explains how to check, on your own machine, that the container images
-of a Quadringent release were built and signed by this repository's release
-workflow, what the published reports contain, and which release files are **not**
-signed today. These checks do not rely on knowing who the maintainers are. They
-do rely on public services (GitHub, the GitHub Container Registry and the
+You can check, on your own machine, that the container images of a Quadringent
+release were built and signed by this repository's release workflow. The checks
+below also cover what the published reports contain, and the release files that
+are not signed today. None of them relies on knowing who the maintainers are.
+They do rely on public services (GitHub, the GitHub Container Registry and the
 Sigstore public infrastructure), and a passing check has limits; see
 [what a passing check does not tell you](#what-a-passing-check-does-not-tell-you).
+How releases are made is in [releasing](../releasing.md) and
+[governance and continuity](../governance.md).
 
-Related pages: [what Quadringent does on your IBM i](ibm-i-footprint.md),
-[your data](your-data.md), [governance and continuity](../governance.md) and
-[how releases are made](../releasing.md).
-
-This page describes the workflow in `.github/workflows/release.yml` as it is in
-the repository. The tests in `tests/test_release_verification_doc.py` read that
-workflow and fail if these items drift from what is written here: the image
-path, tags and OCI labels; the three signing commands and their keyless form; the
+The tests in `tests/test_release_verification_doc.py` read
+`.github/workflows/release.yml` and fail if these items drift from what is
+written here: the image path, tags and OCI labels; the three signing commands and their keyless form; the
 trigger, the approval environment and condition of the three publishing jobs, and
 the version and CI checks of the validate job; the uploaded file patterns; the
 Trivy gate on the amd64 view; and the table of unsigned files. Other statements
-on this page are not covered by those tests. The tests do not run `cosign`
+on this page are not covered by those tests, and the tests do not run `cosign`
 against a published release.
 
 ## Before you start
@@ -29,8 +26,7 @@ against a published release.
 
 You need `cosign`, `jq` and `git`. Steps 5 and 7 also use `helm`, `kubectl` and
 `sha256sum` (`shasum -a 256` on macOS). Install them from their own projects;
-this page does not pin versions of these tools, and which versions work is Not
-tested.
+we do not pin versions of these tools, and which versions work is Not tested.
 
 Releases are listed on the repository's
 [Releases page](https://github.com/quadringent/quadringent-ce/releases). The
@@ -46,7 +42,7 @@ version in the receipt you are reading.
 <!-- source: scripts/write_release_manifest.py -->
 
 The release workflow uploads these files to a GitHub release, which it creates
-as a draft. `<tag>` is the release tag, for example `v0.3.5`; `<version>` is the
+as a draft. `<tag>` is the release tag, for example `v0.4.2`; `<version>` is the
 same number without the leading `v`.
 
 | File | What it is |
@@ -63,7 +59,7 @@ same number without the leading `v`.
 
 The wheel and sdist file names follow the Python packaging convention for
 project `quadringent`; the workflow takes them from `python -m build`. Check the
-asset list of the release you are about to use: this page describes the
+asset list of the release you are about to use: we describe the
 workflow, and an older release may have been produced by an earlier version of
 it.
 
@@ -248,8 +244,8 @@ Fields differ between receipts. In `runtime-0.3.5.json`, check:
   The underlying evidence is retained privately, so you cannot reproduce it from
   the receipt. It is not an external certification.
 
-The project makes no production qualification claim. See [releasing](../releasing.md)
-and [native qualification](native-qualification.md).
+We make no production qualification claim; see the [evidence page](../evidence.md),
+[releasing](../releasing.md) and [native qualification](native-qualification.md).
 
 ## 7. Check the synthetic demo archive
 
@@ -293,20 +289,20 @@ This means that the wheel, sdist, chart and the two JSON manifests could be
 replaced on the release page without any signature failing. What you can do
 meanwhile:
 
-1. **Anchor on the signed digests.** The images are what runs the capture, the
+1. Anchor on the signed digests. The images are what runs the capture, the
    control plane and the verifier. Install them only by the digests that you
    verified in step 2. If `release-manifest.json` lists any other digest, stop.
-2. **Compare the Python and chart contents with the tag.** Clone the repository,
+2. Compare the Python and chart contents with the tag. Clone the repository,
    check out the tag, and compare the extracted sdist and the wheel's
    `quadringent` package with the files under `src/` byte for byte. This is the
    comparison described in [releasing](../releasing.md) for consumer checks.
    For the chart, run `helm package chart` from the checkout and compare the
    extracted files with the downloaded archive.
-3. **Or build from the tag yourself.** `python -m build` and `helm package chart`
+3. Or build from the tag yourself. `python -m build` and `helm package chart`
    work from a checkout, and the installer can run from a source checkout
    ([install guide](install-default.md)). Whether your build is byte-identical to
    the published files is Not tested.
-4. **Record a hash when you first download.** Run `sha256sum` on every file you
+4. Record a hash when you first download. Run `sha256sum` on every file you
    fetch and keep the result in your own records. It does not prove the file was
    genuine, but it lets you detect a later change.
 
@@ -315,8 +311,7 @@ meanwhile:
 - It does not show that the code is free of defects, or that it is safe for your
   IBM i. Read [what Quadringent does on your IBM i](ibm-i-footprint.md) and the
   source.
-- It does not show the release is qualified for production. It is not; see
-  step 6.
+- It does not show the release is qualified for production; it is not (step 6).
 - It does not protect against a compromise of GitHub, of the Sigstore public
   infrastructure or of the release workflow itself. Anyone who can run the release
   workflow of that repository on a tag can produce signatures with the expected

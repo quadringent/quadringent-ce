@@ -1,19 +1,17 @@
 # Compatibility and prerequisites
 
-Use this page to check whether your IBM i (formerly AS/400 and iSeries) and
-Snowflake setup matches what Quadringent has been tested with, before you
-install anything. Each row has a status:
-
-- **Tested**: exercised in a published or recorded DEV/INT qualification, with
-  the scope given in the row.
-- **Required**: the code or the installer needs it; this is a prerequisite, not
-  a test result.
-- **Not tested**: no qualification covers it. It may work; nothing here says so.
+Check here whether your IBM i (formerly AS/400 and iSeries) and Snowflake setup
+matches what Quadringent has been tested with, before you install anything. Each
+row has one status. Tested means a published or recorded qualification run
+exercised it, with the scope given in the row. Required means the code or the
+installer needs it: a prerequisite, not a test result. Not tested means no
+qualification covers it; it may work, and nothing here says so.
 
 Sources are the public code at the commit you read, the
 [dated qualification summary](../../site/qualification-0.3.4.json) and the
-IBM and Snowflake documentation linked below. Nothing on this page is a
-production qualification.
+IBM and Snowflake documentation linked below. Quadringent is a DEV/INT preview
+and nothing on this page is a production qualification; see the
+[evidence page](../evidence.md).
 
 ## IBM i source
 
@@ -54,9 +52,9 @@ runtime with a minimal profile**; validate it on a DEV/INT system.
 | `QDBRTVFD` (file description) | `*OBJOPR` on the file, `*EXECUTE` on its library | [QDBRTVFD](https://www.ibm.com/docs/en/i/7.5?topic=ssw_ibm_i_75/apis/qdbrtvfd.htm) |
 | `QSYS2.JOURNAL_RECEIVER_INFO` (`ReadOnlyReceiverCatalog.java`) | `*OBJOPR` plus a data authority on the receiver and `*EXECUTE` on its library; `*OBJOPR` on the journal and `*EXECUTE` on its library | [JOURNAL_RECEIVER_INFO](https://www.ibm.com/docs/en/i/7.5?topic=services-journal-receiver-info-view) |
 | `QSYS2.JOURNALED_OBJECTS` (`TableDiscovery.java`) | `*OBJOPR` plus a data authority on the journal, `*EXECUTE` on its library | [JOURNALED_OBJECTS](https://www.ibm.com/docs/en/i/7.5?topic=services-journaled-objects-view) |
-| `SELECT` on each table for the initial copy (`ReadOnlyTableSnapshot.java`) | Read access to the table and `*EXECUTE` on its library (`*USE` covers both) | Not verified on an IBM page in this review |
-| Catalog views (`QSYS2.SYSTABLES`, `SYSCOLUMNS`, `SYSCST`, `SYSKEYCST`, `SYSTABLESTAT`, `SYSINDEXES`, `SYSKEYS`) and `SYSIBMADM.ENV_SYS_INFO` (`TableDiscovery.java`, `FleetCatalogProbe.java`, `SourceInfo.java`) | No specific authority found in IBM documentation | Not verified |
-| `QSYS.QADBKATR` and `QSYS2.SYSTABLES`, read by the journal parsing library to decode row images | No authority found in IBM documentation | Not verified |
+| `SELECT` on each table for the initial copy (`ReadOnlyTableSnapshot.java`) | Read access to the table and `*EXECUTE` on its library (`*USE` covers both) | Not tested: no IBM page checked in this review |
+| Catalog views (`QSYS2.SYSTABLES`, `SYSCOLUMNS`, `SYSCST`, `SYSKEYCST`, `SYSTABLESTAT`, `SYSINDEXES`, `SYSKEYS`) and `SYSIBMADM.ENV_SYS_INFO` (`TableDiscovery.java`, `FleetCatalogProbe.java`, `SourceInfo.java`) | No specific authority found in IBM documentation | Not tested |
+| `QSYS.QADBKATR` and `QSYS2.SYSTABLES`, read by the journal parsing library to decode row images | No authority found in IBM documentation | Not tested |
 | `QSYS2.SYSTEM_VALUE_INFO` for `QTIMZON` | No special authority; only audit system values need `*ALLOBJ` or `*AUDIT` | [SYSTEM_VALUE_INFO](https://www.ibm.com/docs/en/i/7.5?topic=services-system-value-info-view) |
 
 From these pages, *ALLOBJ is not required for the documented operations, and
@@ -105,7 +103,7 @@ Statement privileges: [CREATE ROLE](https://docs.snowflake.com/en/sql-reference/
 [GRANT](https://docs.snowflake.com/en/sql-reference/sql/grant-privilege) and
 [key-pair authentication](https://docs.snowflake.com/en/user-guide/key-pair-auth).
 
-Under verification: with the default schemas, the generated script grants
+Not tested: with the default schemas, the generated script grants
 `CREATE TABLE` on the history schema only, while the loader also creates the
 mirror table. If **Verify access** fails on the mirror schema, grant
 `CREATE TABLE` on it to the service role. The classic Snowpipe path with an

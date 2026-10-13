@@ -13,16 +13,17 @@ Changes not yet in a published release.
 - Harden cockpit actions: a request is "accepted" until a readback confirms the declared state; a timeout or server error is reported as an unknown result with a read-only check, not a second mutation; slow answers for a previous selection are ignored; a confirmation can no longer run on a different source with the same name.
 - The install preflight now reports IBM i TCP reachability only (database, sign-on and command ports and, unless every service port is set, the 449 server mapper). `quadringent doctor --tls` adds a verified TLS handshake. Sign-on is never attempted and stays unknown.
 - Make the suggested IBM i journal setup valid (no `THRESHOLD(*NONE)` with system-managed receivers, detached receivers kept) and reuse an existing journal of the library instead of assuming `QSQJRN`.
-- Grant `CREATE TABLE` on the mirror schema in every Snowflake destination mode, as the loader requires. This is checked by a static test of the generated SQL; it was not executed on Snowflake.
+- Grant `CREATE TABLE` on the mirror schema in every Snowflake destination mode, as the loader requires. A static test checks the generated SQL; it is Not tested on Snowflake.
 - Add trust pages: [what Quadringent does on your IBM i](docs/product/ibm-i-footprint.md), [your data](docs/product/your-data.md), [verify a release](docs/product/verify-a-release.md), [governance](docs/governance.md) and [support](SUPPORT.md).
 - Add a [FAQ](docs/product/faq.md), a sourced [comparison](docs/product/comparison.md) and three [articles](docs/articles/ibm-i-journals-for-cdc.md) on replicating IBM i data.
+- Add an [evidence page](docs/evidence.md) that lists every observed result with its version and scope, and use four evidence words (Measured, Not measured, Not tested, Not supported) across the documentation.
 - Prepare PyPI package metadata and a package description. The package is not published on PyPI.
 - Add a local synthetic laboratory for the operator journey. It is a test tool, outside the distributed wheel.
 
 Limits: the control plane image does not yet include the diagnostics module, so
 diagnostics routes answer 503 `capability_unavailable` there. The laboratory and
-the synthetic demo qualify nothing about a site. No new qualification
-accompanies these changes.
+the synthetic demo qualify nothing about a site, and we have run no new
+qualification for these changes.
 
 ## 0.4.2 — Native capture and recovery preview
 

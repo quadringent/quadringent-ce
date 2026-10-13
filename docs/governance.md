@@ -2,10 +2,12 @@
 
 Quadringent is maintained under a pseudonymous project identity.
 
-This page lists what you can verify without knowing who the maintainers are,
-how decisions and releases are made, and what remains available to you if the
-project stops being maintained. It makes no promise about the future of the
-maintainers or of the project.
+You can check our releases without knowing who we are. This page covers what
+you can verify, how decisions and releases are made, and what stays available to
+you if the project stops being maintained. It makes no promise about the future
+of the maintainers or of the project. Quadringent is a DEV/INT preview and no
+production qualification is claimed; the [evidence page](evidence.md) lists what
+was observed.
 
 ## What you can verify instead
 
@@ -28,7 +30,7 @@ Limits of these checks:
 
 - The qualification files are maintainer observations on synthetic data. Their
   underlying evidence is retained privately. They are not external
-  certification, and none of them claims production qualification.
+  certification.
 - The signatures show which workflow built an image. They do not show that the
   code is correct. They do not cover the wheel, the sdist, the chart archive or
   the SBOMs; see [what is not signed today](product/verify-a-release.md#what-is-not-signed-today).
@@ -44,16 +46,16 @@ Limits of these checks:
 This repository does not define voting, a steering group or a maintainer
 roster. What it does define:
 
-- **Changes** are proposed as pull requests that describe the problem, the
+- Changes are proposed as pull requests that describe the problem, the
   resulting behavior, the checks run and their limits. Behavior changes start
   with a test (CONTRIBUTING).
-- **Decision records** in `docs/decisions/` are written when a design choice
-  rests on a measurement. Each states a date and status, the measurements, the
-  decision, and the limits of the measurement. The two records published so far
-  are dated 2026-09-23.
-- **Contributions** use Apache-2.0, without a contributor license agreement or
+- We write a decision record in `docs/decisions/` when a design choice rests on a
+  measurement. Each states a date and status, the measurements, the decision,
+  and the limits of the measurement. The two records published so far are dated
+  2026-09-23.
+- Contributions use Apache-2.0, without a contributor license agreement or
   transfer of copyright (CONTRIBUTING).
-- **Compatibility** rules before 1.0 are in [releasing](releasing.md): patch
+- Compatibility rules before 1.0 are in [releasing](releasing.md): patch
   releases preserve the v1 contract, and a breaking change requires a minor
   version.
 
@@ -77,9 +79,8 @@ roster. What it does define:
    `publication-approved` environment. The GitHub release is created as a draft.
 6. The images are signed by digest, keyless.
 
-No tag, signature or release is a statement that the software is qualified for
-production. See [Verify a release](product/verify-a-release.md) for the checks to
-run yourself.
+A tag or a signature says where an artifact came from, not that it is qualified.
+[Verify a release](product/verify-a-release.md) has the checks to run yourself.
 
 ## Continuity
 
@@ -98,7 +99,7 @@ run yourself.
    installation does not change when the upstream repository does.
 3. Run the signature check in [Verify a release](product/verify-a-release.md)
    on those digests now, and keep the output. The release workflow at every tag
-   from v0.3.1 to v0.4.1 contains the signing step; whether each of those tags
+   from v0.3.1 to v0.4.2 contains the signing step; whether each of those tags
    was published as a release is not shown by the repository.
 
 The detailed checklist is [below](#if-you-want-to-fork-and-keep-a-version-running).
@@ -131,26 +132,25 @@ Dockerfiles. Building elsewhere than GitHub Actions is Not tested.
 
 ### If you want to fork and keep a version running
 
-1. **Keep the artifacts you rely on.** Download the release files you use and
-   keep your own copies. Copy the three images, by digest, to a registry you
+1. Download the release files you use and keep your own copies. Copy the three images, by digest, to a registry you
    control; the installer accepts a mirror that preserves the same digests
    (`--image-repository`, see [installation](product/install-default.md)). Whether
    cosign signatures remain verifiable on a mirror is Not tested.
-2. **Pin versions.** The installer and the chart require immutable `sha256:`
+2. Pin versions: the installer and the chart require immutable `sha256:`
    digests, never a moving tag. A pinned installation does not change when the
    upstream repository does.
-3. **Fork the repository.** Clone it, or fork it on GitHub. The release workflow
+3. Clone the repository, or fork it on GitHub. The release workflow
    derives the image path from the repository owner
    (`ghcr.io/<owner>/quadringent-ce`) and signs with the identity of the
    repository that runs it. Releases from your fork are therefore verified with
    your repository's workflow identity, not the upstream one.
-4. **Run the checks.** `python -m pytest -q` and the other commands in
-   [CONTRIBUTING](../CONTRIBUTING.md) run locally.
-5. **Set your own release gate.** The workflow expects `PUBLICATION_APPROVED`
+4. `python -m pytest -q` and the other commands in
+   [CONTRIBUTING](../CONTRIBUTING.md) run locally; run them before you trust your copy.
+5. Set your own release gate: the workflow expects `PUBLICATION_APPROVED`
    and the `publication-approved` environment to be configured in the
    repository that runs it. Read [releasing](releasing.md) before your first
    release.
-6. **Name your fork differently.** The license gives no right to the project's
+6. Give your fork a different name; the license gives no right to the project's
    name or marks.
 
 If you use the project's current published versions, note the support

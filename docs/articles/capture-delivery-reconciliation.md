@@ -4,20 +4,18 @@
 
 A green status on a capture tool usually means one thing: a process is running.
 It does not tell you that the change you made on the IBM i at 10:02 is in
-Snowflake at 10:03, and that it is the same change. This article separates three
-questions that are easy to blur, says what evidence answers each, and lists what
-to ask any vendor to show you before you rely on a copy.
+Snowflake at 10:03, and that it is the same change. Three questions get blurred
+here, and each needs its own evidence.
 
 ## Three questions, three kinds of evidence
 
-1. **Capture.** Did the tool read the change from the IBM i journal?
-2. **Delivery.** Did the change land in Snowflake, once, in order?
-3. **Reconciliation.** Does what is in Snowflake match what is in the source?
+1. Capture: did the tool read the change from the IBM i journal?
+2. Delivery: did the change land in Snowflake, once, in order?
+3. Reconciliation: does what is in Snowflake match what is in the source?
 
-Each question needs its own evidence. Evidence for the first does not answer the
-second, and evidence for the second does not answer the third. Quadringent's
-README says it plainly: active capture does not guarantee that the destination is
-up to date ([README](../../README.md)).
+Evidence for the first does not answer the second, and evidence for the second
+does not answer the third. Our README puts it in its first lines: a running reader doesn't mean your data
+arrived ([README](../../README.md)).
 <!-- source: README.md, docs/product/operator-guide.md -->
 
 ## Why "the reader is running" proves little
@@ -38,9 +36,8 @@ plausible, and a status page that shows only process health would miss it:
   and with `ERROR_ON_NONDETERMINISTIC_MERGE` set to false it uses a row that is
   "not defined" ([Snowflake: MERGE](https://docs.snowflake.com/en/sql-reference/sql/merge)).
 
-In each case a pod is Ready, an API answers, and an action was accepted. The
-Quadringent operator guide says that none of these is enough to accept
-replication: acceptance concerns the data that was actually delivered
+In each case a pod is Ready, an API answers, and an action was accepted. Our
+operator guide says that none of these is enough to accept replication: acceptance concerns the data that was actually delivered
 ([operator guide](../product/operator-guide.md), [pilot preparation](../product/positioning-and-offer.md)).
 <!-- source: docs/product/operator-guide.md, docs/product/positioning-and-offer.md -->
 
@@ -48,14 +45,15 @@ replication: acceptance concerns the data that was actually delivered
 
 To compare stages you need one coordinate that every stage can state. On IBM i
 that coordinate is the journal position: the receiver name and the sequence
-number ([IBM: DISPLAY_JOURNAL](https://www.ibm.com/docs/en/i/7.5?topic=services-display-journal-table-function),
+number, which [How IBM i journals work for change data capture](ibm-i-journals-for-cdc.md)
+explains ([IBM: DISPLAY_JOURNAL](https://www.ibm.com/docs/en/i/7.5?topic=services-display-journal-table-function),
 [IBM: receiver chains](https://www.ibm.com/docs/en/i/7.5.0?topic=receivers-journal-receiver-chains)). Capture can say "I have read up to receiver R, sequence N". Delivery can
 say "I have loaded everything up to the same R and N". Reconciliation can say
 "for the window after A and up to N, these counts and keys agree".
 
 If a stage gives only a time, or a count with no position, you cannot tell
-whether it is ahead, behind, or looking at a different window. Quadringent's
-contract goes as far as stating that counts and equal timestamps do not infer the
+whether it is ahead, behind, or looking at a different window. Our contract goes
+as far as stating that counts and equal timestamps do not infer the
 mapping between a Snowflake offset and an IBM i position
 ([delivery evidence contract](../product/quadringent-destination-proof-contract.md)).
 
@@ -96,7 +94,7 @@ A dashboard that shows 0 failed events when it did not measure is worse than one
 that shows nothing. Ask the vendor what the screen shows when a stage has no data,
 when an observation is old, and when the data is a demonstration or a replay of
 history. In Quadringent these cases have names: Observed, Stale, Synthetic or
-Historical, and **Not measured**. "Not measured" shows no time and no count
+Historical, and Not measured. Not measured shows no time and no count
 ([operator guide](../product/operator-guide.md#4-read-the-evidence)).
 
 ## Questions to ask any vendor
@@ -124,9 +122,11 @@ The last step is the one that tells you the most.
 
 ## What Quadringent does
 
-Quadringent keeps the three questions apart. Journal capture, Snowflake delivery
-and destination reconciliation are separate stages in the cockpit, each with its
-own state and time. The optional `destination_proof` extension carries the
+We keep the three questions apart. Journal capture, Snowflake delivery and
+destination reconciliation are separate stages in the cockpit, each with its own
+state and time. In the synthetic demo, one table shows 120 events at capture and
+118 at delivery, with reconciliation Not measured. The values are generated, so
+this shows how the stages read, not a result. The optional `destination_proof` extension carries the
 positions, the counts and the activation checks, and the verdict follows fixed
 rules. Healthy delivery needs a matching position at every stage, zero failed
 events, and a fresh matched reconciliation of the same window. Simulated and
@@ -134,16 +134,16 @@ historical evidence cannot show as healthy. If a source goes quiet, the stage
 becomes stale or unknown instead of showing green.
 <!-- source: docs/product/quadringent-destination-proof-contract.md, docs/product/operator-guide.md, docs/architecture.md -->
 
-Its limits are plain. The reconciliation counts technical events, not final
+The limits are plain. The reconciliation counts technical events, not final
 business rows. A successful SQL call alone is not accepted as proof of application:
 the checkpoint and its IBM i position must be committed and persisted.
 Value reconciliation by key is a separate check that this contract does not
-cover. And the evidence is a preview: the published receipts are dated, name their version and
-scope, and describe synthetic tables. For example, the 0.3.4 readback matched 136
-history images and 110 mirror rows per site on two synthetic tables, and the same
-campaign recorded latency measurements where the ten-second gate failed on three
-targets. Those facts apply to 0.3.4 and nothing else. See the
-[README](../../README.md), the [qualification summary](../../site/qualification-0.3.4.json)
+cover. The published receipts are dated, name their version and scope, and describe
+synthetic tables. The 0.3.4 readback matched 136 history images and 110 mirror
+rows per site on two synthetic tables. In the first 0.3.4 cold-warehouse trial,
+three of four targets missed our ten-second bar; a later run passed on all four.
+Those facts apply to 0.3.4 and nothing else. See the
+[evidence page](../evidence.md), the [qualification summary](../../site/qualification-0.3.4.json)
 and [qualification](../qualification.md).
 <!-- source: README.md, site/qualification-0.3.4.json, docs/qualification.md, docs/product/quadringent-destination-proof-contract.md -->
 
@@ -152,11 +152,6 @@ You can see how the evidence looks without any IBM i or Snowflake: the
 data and makes no network connection. Quadringent is a DEV/INT preview and no
 production qualification is claimed.
 <!-- source: docs/product/synthetic-demo.md -->
-
-For how the reader gets the data in the first place, read
-[How IBM i journals work for change data capture](ibm-i-journals-for-cdc.md). For
-the other ways to move data to Snowflake, read
-[Options to replicate AS/400 (IBM i) data to Snowflake](as400-to-snowflake-options.md).
 
 ## Sources
 

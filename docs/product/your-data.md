@@ -1,15 +1,17 @@
 # Your data: where it goes and how to leave
 
-This page follows the path of your data from the IBM i to Snowflake, lists every
-outbound connection that the code in this repository makes, says where the
-secrets live, and explains how to stop, uninstall and keep what you have.
-Quadringent is a DEV/INT preview: the chart accepts only the environments `dev`,
-`int`, `test` and `staging`, and no production qualification is claimed
-([installation status](install-default.md)).
+Your data travels from the IBM i, through a reader and a bucket in your cloud
+account, to your Snowflake account. The sections below follow that path, then
+list every outbound connection the code in this repository makes, where the
+secrets live, and how to stop, uninstall and keep what you have. Quadringent is a
+DEV/INT preview: the chart accepts only the environments `dev`, `int`, `test` and
+`staging`, and no production qualification is claimed ([evidence](../evidence.md),
+[installation status](install-default.md)).
 <!-- source: chart/templates/_helpers.tpl, chart/values.yaml -->
-What the software does on the IBM i
-itself is on a separate page:
-[What Quadringent does on your IBM i](ibm-i-footprint.md).
+
+What the software does on the IBM i itself is on
+[What Quadringent does on your IBM i](ibm-i-footprint.md). To confirm that what
+you run matches the published code, see [Verify a release](verify-a-release.md).
 
 ## The data path
 
@@ -17,19 +19,19 @@ itself is on a separate page:
 IBM i  ->  reader in your cloud  ->  raw storage in your account  ->  loader  ->  Snowflake in your account
 ```
 
-1. **IBM i to the reader.** A Java process in a container reads journal entries
-   and, for the first copy, table rows over TLS. Row images and table contents
+1. A Java process in a container reads journal entries from the IBM i and, for
+   the first copy, table rows, over TLS. Row images and table contents
    are your business data. A checkpoint is the journal position that the reader
    has stored safely.
-2. **Reader to raw storage.** The reader writes batches as JSON Lines files with
+2. The reader writes batches as JSON Lines files with
    a JSON manifest (format `as400-raw-v1`, with the SHA-256 of the payload) to an
    S3 bucket (AWS) or a GCS bucket (GCP), then advances the checkpoint in
    DynamoDB (AWS) or in the same GCS bucket (GCP). The batch is durable before
    the checkpoint moves.
-3. **Raw storage to Snowflake.** Loaders running in your cluster read the raw
+3. Loaders running in your cluster read the raw
    batches and write history and mirror tables in the Snowflake account you
    declare, with a service user that authenticates with a key pair.
-4. **Evidence.** A verifier reads back Snowflake and raw storage and records
+4. A verifier reads back Snowflake and raw storage and records
    bounded measurements. See [delivery evidence](quadringent-destination-proof-contract.md).
 
 <!-- source: docs/architecture.md, java/src/main/java/io/quadringent/as400/RawCaptureWriter.java, docs/product/snowflake-destination.md, docs/product/compatibility.md -->
@@ -167,7 +169,7 @@ repository has no command that deletes them:
   Helm annotation `helm.sh/resource-policy: keep`, so Helm leaves them.
 - The PostgreSQL volume claim holds the encrypted copies of the connection
   secrets. Whether it survives depends on your storage class and on how you
-  remove the namespace; this was not tested here.
+  remove the namespace; Not tested.
 
 Delete these objects yourself with `kubectl delete` once you no longer need the
 backups they unlock, and disable the IBM i profile and revoke the Snowflake key
@@ -176,14 +178,14 @@ as described under "How to stop".
 
 ## How to keep your data
 
-- **Snowflake.** The history and mirror tables are tables in your account. They
+- Snowflake: the history and mirror tables are tables in your account. They
   stay after uninstall and need no Quadringent component to be read. Column
   types and technical columns are listed in
   [Snowflake history and mirror](snowflake-destination.md).
-- **Raw storage.** The batches are JSON Lines files with JSON manifests in your
+- Raw storage: the batches are JSON Lines files with JSON manifests in your
   bucket and can be read with ordinary tools. The manifest holds the event count
   and the payload SHA-256.
-- **Configuration.** Pipelines, tables and audit records are in the PostgreSQL
+- Configuration: pipelines, tables and audit records are in the PostgreSQL
   database; the backup procedure is in [backup and restore](backup-restore.md).
 
 <!-- source: docs/product/install-default.md, docs/product/snowflake-destination.md, java/src/main/java/io/quadringent/as400/RawCaptureWriter.java -->
@@ -206,6 +208,5 @@ licensed under [Apache-2.0](../../LICENSE).
 The project model is in [Community edition and project model](../licensing.md).
 <!-- source: LICENSE, docs/licensing.md, chart/templates/control-plane.yaml, THIRD_PARTY_NOTICES.md -->
 
-What would be left if the maintainers stopped publishing is on the
-[governance](../governance.md) page. To confirm that what you run matches the
-published code, see [Verify a release](verify-a-release.md).
+What would be left if we stopped publishing is on the
+[governance](../governance.md) page.

@@ -8,21 +8,21 @@ quadringent local check --signon --discover --snowflake
 quadringent local start
 ```
 
-`quadringent local` copies **one** IBM i table to Snowflake and keeps it
-current, from your laptop or one VM, with Docker. There is no cloud account to
-create, no Kubernetes and no control plane to install.
+`quadringent local` copies one IBM i table to Snowflake and keeps it current,
+from your laptop or one VM, with Docker. There is no cloud account to create, no
+Kubernetes and no control plane to install.
 
-**Scope.** This is a DEV/INT preview to see the product work on a real table.
-It is not a site qualification and it does not prove continuity, latency or
-production readiness for your site. The managed install
-([default installer](install-default.md)) remains the supported way to run
-Quadringent for real.
+This is a DEV/INT preview ([evidence](../evidence.md)), meant to let you see the
+product work on a real table. It is not a site qualification and it does not
+prove continuity, latency or production readiness for your site. The managed
+install ([default installer](install-default.md)) remains the supported way to
+run Quadringent for real.
 
 ## What you need
 
 | Need | Detail |
 | --- | --- |
-| Docker | A running Docker daemon: on a Linux host (data in a folder), or Docker Desktop on macOS, or on Windows with WSL2 (data in a Docker volume, see [Docker Desktop](#docker-desktop-macos-and-windows-with-wsl2); not verified on a real Docker Desktop, the file system gate decides). Native Windows is not supported. |
+| Docker | A running Docker daemon: on a Linux host (data in a folder), or Docker Desktop on macOS, or on Windows with WSL2 (data in a Docker volume, see [Docker Desktop](#docker-desktop-macos-and-windows-with-wsl2); Not tested on a real Docker Desktop; the file system gate decides). Native Windows is not supported. |
 | Python 3.12 | To install the `quadringent` command from the wheel of an admitted release (see [Release assets](install-default.md#release-assets)). |
 | An IBM i | Reachable from this machine and from Docker over TLS (ports 9471, 9475, 9476 and 449, or the three ports your administrator fixed). A user that can read the catalog, the journal receivers and the table. |
 | A Snowflake account | A Snowflake administrator who runs one SQL script once. You never give Quadringent an administrator credential. |
@@ -124,7 +124,7 @@ it:
 3. reads the catalog entry of the table and stops with CL commands if it is
    not ready;
 4. records the journal position, then copies the table once;
-5. starts a **capture** container, which follows the journal, and a **loader**
+5. starts a capture container, which follows the journal, and a loader
    container, which writes the history and mirror tables in Snowflake.
 
 If a step fails, fix the cause and run `start` again: finished steps are
@@ -171,7 +171,7 @@ The administrator script creates the objects listed in step 2. The loader, as
 the service role only, creates two tables per source table (history and
 mirror), appends changes to the history and merges them into the mirror.
 
-**Costs.** The loader uses a dedicated `XSMALL` warehouse
+Costs: the loader uses a dedicated `XSMALL` warehouse
 (`QDT_WH_<suffix>`) created with `AUTO_SUSPEND = 60` and `AUTO_RESUME`: it
 bills only while loading, with a 60 second minimum each time it resumes.
 Storage of the two tables is billed as usual. Docker pulls, if any, are billed
@@ -191,7 +191,7 @@ carries both labels that this tool put on it (`io.quadringent.local=<name>` and
 `io.quadringent.local.id=<the instance's own store label>`), so a volume of another
 instance with the same name (another `--root`, or an instance deleted and created
 again) is refused, and never touches a host folder. The next `start` creates a new
-volume. It does **not** touch
+volume. It does not touch
 Snowflake: to copy the same table again from scratch, also drop the history and
 mirror tables yourself.
 
@@ -210,7 +210,7 @@ for a volume instance, the volume with `docker volume rm qdt-local-sales-data`.
 Docker Desktop shares host folders with containers through a file-sharing layer
 whose hard links and file locks do not behave like a local disk between two
 containers, so a bind-mounted data folder fails the file system gate there. A
-Docker **named volume** lives inside Docker's own Linux VM on its own disk, so
+Docker named volume lives inside Docker's own Linux VM on its own disk, so
 `init` uses one by default on Docker Desktop and on macOS:
 
 * the volume is `qdt-local-<name>-data`, created by `start` with the labels
@@ -223,14 +223,14 @@ Docker **named volume** lives inside Docker's own Linux VM on its own disk, so
 * the IBM i password and the Snowflake key stay private files on the host,
   mounted read-only. These single-file mounts (and the optional certificate
   authority file) still cross Docker Desktop's file-sharing layer, so the
-  ownership and mode mapping there is **unverified**, and the instance
+  ownership and mode mapping there is Not tested, and the instance
   directory (`--root`) must be inside a folder that Docker Desktop shares;
 * the gate that `start` runs (hard links, locks between containers, atomic
-  rename, directory sync) still decides. This mode has not been verified here on
+  rename, directory sync) still decides. This mode is Not tested on
   a real Docker Desktop: if the gate fails, `start` stops and says which check
   failed. On a Linux host use `--data-location bind`.
 
-The business data stays in **clear text** inside the volume. The commands below
+The business data stays in clear text inside the volume. The commands below
 are illustrative, not a tested procedure: back it up or look inside with a
 throw-away container (stop the instance first for a consistent copy; `alpine`
 is only an example image, pin the one you trust, and pulling it needs a network):
@@ -247,19 +247,17 @@ Restoring a backup into a new instance is not a supported workflow.
 
 ## Limits
 
-* **DEV/INT preview.** Not a site qualification, no continuity or latency
-  claim.
-* **One table per instance.** The table needs a primary or unique key and
-  journaling with `IMAGES(*BOTH)`. Tables identified only by their physical
+* An instance replicates one table. The table needs a primary or unique key and
+  journaling with `IMAGES(*BOTH)`; tables identified only by their physical
   position (RRN) are not supported. Use several instances for several tables.
-* **One machine.** The containers share one data directory or one Docker
-  volume. No clustering, no failover.
-* **Clear text on disk.** The data directory (or the Docker volume, which sits
+* Everything runs on one machine: the containers share one data directory or one
+  Docker volume, with no clustering and no failover.
+* The data directory (or the Docker volume, which sits
   in Docker's storage) holds the rows of the table in clear text, and the
   instance directory holds the IBM i password and the Snowflake key as 0600
   files. Protect the folder and Docker's disk, use disk encryption, and delete
   them when you are done.
-* **Supported file systems only.** Use a local disk, or a Docker volume. Not
+* Use a local disk or a Docker volume. Not
   supported: NFS, SMB, FUSE and cloud-synced folders (Dropbox, iCloud Drive,
   OneDrive), FAT and exFAT, `tmpfs`, and `/mnt/c` or other Windows drives under
   WSL2. `start` runs a gate in a container that checks hard links, locking
@@ -271,13 +269,13 @@ Restoring a backup into a new instance is not a supported workflow.
   run on a Linux host, or inside a Linux VM or WSL2 with the instance on its own
   Linux disk. A Docker volume is still subject to the gate, and the gate, not
   the platform, decides.
-* **Native Windows is not supported.** Use WSL2 and keep the instance in the
+* Native Windows is not supported; use WSL2 and keep the instance in the
   Linux file system (`~`, not `/mnt/c`).
-* **TLS by default.** `--allow-plaintext-ibmi` exists for isolated networks
+* TLS is the default. `--allow-plaintext-ibmi` exists for isolated networks
   only: the password and the data cross the network unencrypted, a warning is
   printed by `init`, `check` and `start`, it needs `--source-time-zone`, and it skips the
   probe, which requires TLS. It uses ports 8471, 8475, 8476 and 449.
-* **Not a service.** There is no web console. Containers are restarted a few
+* This is not a service and has no web console. Containers are restarted a few
   times after a failure; do not rely on them coming back after a reboot or a
   Docker restart: run `start` again.
 
@@ -292,7 +290,7 @@ quadringent local init --name dev ... --from-checkout /path/to/checkout
 ```
 
 The checkout is bind-mounted read-only over the code in the images. This is for
-Quadringent developers only: the result is **not reproducible**, depends on the
+Quadringent developers only: the result is not reproducible, depends on the
 state of the checkout, and proves nothing about a release. Do not use it to
 evaluate the product.
 

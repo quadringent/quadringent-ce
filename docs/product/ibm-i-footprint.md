@@ -1,11 +1,10 @@
 # What Quadringent does on your IBM i
 
-This page is for an IBM i administrator who has to decide whether to let this
-software connect to a system. It states what the code does on the IBM i, and for
-each statement it names the file where you can check it. Quadringent is a
-DEV/INT preview: the chart accepts only the environments `dev`, `int`, `test`
-and `staging`, and no production qualification is claimed
-([installation status](install-default.md)).
+If you administer an IBM i and have to decide whether to let this software
+connect to it, start here. Each statement about the code names the file where you
+can check it. Quadringent is a DEV/INT preview: the chart accepts only the
+environments `dev`, `int`, `test` and `staging`, and no production qualification
+is claimed ([evidence](../evidence.md), [installation status](install-default.md)).
 <!-- source: chart/templates/_helpers.tpl -->
 
 ## In short
@@ -24,8 +23,9 @@ and `staging`, and no production qualification is claimed
   is not ready, the cockpit shows CL commands that your administrator can choose
   to run.
 - One class in the Java archive can change data and run a `CHGJRN` command. It
-  is for the project's qualification runs and no job in the product starts it. See
+  is for our qualification runs and no job in the product starts it. See
   [the one exception](#the-one-exception-the-qualification-driver).
+- The CPU and I/O cost of these reads on your IBM i is Not measured.
 
 ## Where the reader runs
 
@@ -85,7 +85,7 @@ runtime with a minimal profile. Two reads in the code are not in that table:
 
 | Read | Authority |
 |---|---|
-| `QSYS2.IFS_OBJECT_STATISTICS` (receiver identity, `ReadOnlyReceiverIdentity.java`) | Not verified against an IBM page. Not tested with a minimal profile. |
+| `QSYS2.IFS_OBJECT_STATISTICS` (receiver identity, `ReadOnlyReceiverIdentity.java`) | No IBM page checked. Not tested with a minimal profile. |
 | `SELECT CURRENT_TIMESTAMP, CURRENT_TIMEZONE FROM SYSIBM.SYSDUMMY1` (clock check, `JournalTimestamps.java`) | No specific authority found. Not tested. |
 
 Which component uses which reads:
@@ -149,7 +149,7 @@ any new Java file.
 
 What these checks do not cover: the effect of a connection on IBM i job logs,
 audit entries and server jobs, and the CPU and I/O cost of the reads. Not
-measured: this page gives no figure for them. Statements issued inside third-party libraries are not
+measured: we give no figure for them. Statements issued inside third-party libraries are not
 scanned.
 
 ## The one exception: the qualification driver
@@ -157,7 +157,7 @@ scanned.
 The Java archive built from `java/` contains the class
 `QualificationSourceDriver`. It can run `INSERT`, `UPDATE` and `DELETE` on one
 declared qualification table, and a `CHGJRN` command through `QSYS2.QCMDEXC`,
-for the project's qualification runs. It takes the host, user and password on
+for our qualification runs. It takes the host, user and password on
 standard input and restricts statements to its declared table and key.
 <!-- source: java/src/main/java/io/quadringent/as400/QualificationSourceDriver.java -->
 
@@ -181,7 +181,7 @@ directly; the profile's authorities are the limit.
 |---|---|---|
 | 9471 | Database host server over TLS | `src/quadringent/diagnostics/network.py` |
 | 9476 | Sign-on server over TLS | same |
-| 9475 | Remote command server over TLS. No Java class of this repository sends a CL command; whether the journal-parsing library's IBM API calls use this server is Not verified here, because its source is not in this repository. | same |
+| 9475 | Remote command server over TLS. No Java class of this repository sends a CL command; whether the journal-parsing library's IBM API calls use this server is Not tested here, because its source is not in this repository. | same |
 | 449 | Server mapper, needed unless the database, sign-on and command ports are all set explicitly | same, `JournalSession.java` |
 
 TLS is on by default, and the product refuses plaintext. The Java reader class
@@ -194,7 +194,7 @@ the control-plane onboarding rejects a source with `tls` other than true or with
 reader trusts the JVM default trust store, or the PEM CA file you give in
 `AS400_TLS_CA_FILE`; the code has no trust-all path and refuses a CA file that
 contains a private key. Whether the JTOpen driver also checks the host name on
-its own connections: not verified here. `quadringent doctor --check-ibmi HOST
+its own connections: Not tested here. `quadringent doctor --check-ibmi HOST
 --tls` performs a handshake that verifies the certificate chain and the host
 name.
 <!-- source: java/src/main/java/io/quadringent/as400/TlsTrust.java, java/src/main/java/io/quadringent/as400/JournalSession.java, chart/values.yaml, chart/templates/deployment.yaml, src/quadringent/installer/plan.py, src/quadringent_control_plane/onboarding.py, SECURITY.md, src/quadringent/diagnostics/network.py -->
@@ -231,7 +231,7 @@ machine; they do not touch your IBM i.
      java/src/main/java/io/quadringent/as400/*.java
    ```
 
-3. Run the project's check. It fails if a Java reader class matches one of the
+3. Run our check. It fails if a Java reader class matches one of the
    scanned patterns, or if this page and the code drift:
 
    ```sh
@@ -252,7 +252,5 @@ machine; they do not touch your IBM i.
      and access to the journal and its receivers), and your job logs, over the
      trial period.
 
-The first answer to questions about load, job-log volume or audit volume on the
-IBM i is Not measured: this repository gives no figure for them.
-
-For the artifacts you install, see [Verify a release](verify-a-release.md).
+Load, job-log volume and audit volume on the IBM i are Not measured: this
+repository gives no figure for them.

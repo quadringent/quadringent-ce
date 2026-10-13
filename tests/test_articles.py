@@ -367,4 +367,5 @@ def test_comparison_does_not_claim_a_precisely_staging_article_or_a_blanket_sele
     text = " ".join(_read(COMPARISON).split())
     assert "S3 staging" not in text
     assert "and `SELECT` only" not in text
-    assert "Not verified" in text  # the remote command server caveat from the footprint page
+    # the remote command server caveat from the footprint page
+    assert "uses the IBM i remote command server is Not tested" in text

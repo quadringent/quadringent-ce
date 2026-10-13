@@ -4,11 +4,10 @@
 
 Every change data capture tool for IBM i (AS/400) reads the same thing: the
 journal. The journal settings on your system decide what a capture tool can see,
-how long it can be offline, and whether it can recover. This article explains
-those settings in plain terms and links the IBM documentation behind each one.
-
-It is written for an IBM i administrator and the data engineer who works with
-one. The last section says what Quadringent does with these mechanisms.
+how long it can be offline, and whether it can recover. We explain those
+settings in plain terms below and link the IBM documentation behind each one.
+The article is for an IBM i administrator and the data engineer who works with
+one.
 
 ## Journals and receivers
 
@@ -83,7 +82,6 @@ A reader must tell "no new entries" from "there is a gap".
 `QSYS2.JOURNAL_RECEIVER_INFO` lists receivers with status, attach and detach
 times, size, first and last sequence number, and the previous and next receiver
 ([IBM: JOURNAL_RECEIVER_INFO](https://www.ibm.com/docs/en/i/7.5?topic=services-journal-receiver-info-view)).
-You can check a chain from SQL with it.
 
 ## Retention: `MNGRCV` and `DLTRCV`
 
@@ -158,13 +156,13 @@ The cited pages and the Quadringent compatibility page point to this list:
 
 ## What Quadringent does
 
-Quadringent reads the journal from outside the IBM i, over TLS, with `SELECT`
+Our reader reads the journal from outside the IBM i, over TLS, with `SELECT`
 statements. Near the journal tail it calls `QSYS2.DISPLAY_JOURNAL` with journal
 code `R`. For a larger backlog it uses the journal-parsing library from the
 Debezium project, which calls IBM's retrieval APIs. It installs nothing on the IBM
 i. The reader path runs no write statement or CL command of its own. The
 backlog path goes through the library, and whether the library uses the IBM i
-remote command server is Not verified. One class in the Java archive, used for
+remote command server is Not tested. One class in the Java archive, used for
 qualification runs only, can change data and run `CHGJRN`. See
 [What Quadringent does on your IBM i](../product/ibm-i-footprint.md).
 <!-- source: docs/product/ibm-i-footprint.md, java/src/main/java/io/quadringent/as400/JournalSession.java, java/pom.xml, THIRD_PARTY_NOTICES.md -->
@@ -172,14 +170,14 @@ qualification runs only, can change data and run `CHGJRN`. See
 A table is ready only when it is journaled with `*BOTH` images and has a primary
 or unique key. For the others it shows CL commands that an administrator can
 choose to run, and never runs them. It follows receivers in order and stops on a
-sequence gap instead of skipping it. Receiver rotation was not qualified. The
+sequence gap instead of skipping it. Receiver rotation is Not tested. The
 [compatibility and prerequisites](../product/compatibility.md) page has the
-retention rule and the authority per operation, and marks what was not tested.
-Quadringent is a DEV/INT preview and no production qualification is claimed.
+retention rule and the authority per operation, and marks what was not tested. Only IBM i 7.5, on one shared server, has been
+tested. How a reader that works can still leave Snowflake behind is the subject of
+[Capture is not delivery](capture-delivery-reconciliation.md).
+Quadringent is a DEV/INT preview and no production qualification is claimed; see
+the [evidence page](../evidence.md).
 <!-- source: docs/product/compatibility.md, src/quadringent/table_discovery.py, docs/product/ibm-i-footprint.md -->
-
-Next: [Capture is not delivery](capture-delivery-reconciliation.md), and
-[Options to replicate AS/400 (IBM i) data to Snowflake](as400-to-snowflake-options.md).
 
 ## Sources
 

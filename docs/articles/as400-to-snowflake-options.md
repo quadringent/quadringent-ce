@@ -3,10 +3,10 @@
 <!-- description: Four ways to get IBM i (AS/400) data into Snowflake: batch extracts, commercial CDC, Kafka-based CDC and Quadringent, with trade-offs and questions to ask. -->
 
 You have Db2 for i tables on an IBM i (formerly AS/400 or iSeries), and you want
-them in Snowflake. There are four common ways to do it. This article describes
-each, says what you give up with it, and ends with questions to ask before you
-choose. It does not rank them. The right one depends on freshness, deletes, who will
-operate the tool, and cost.
+them in Snowflake. There are four common ways to do it, and we do not rank them.
+The right one depends on freshness, deletes, who will operate the tool, and cost.
+For each, we say what you give up, and the article ends with questions to ask
+before you choose.
 
 Where a statement is about another product, it comes from that vendor's public
 documentation, linked in the text and read on 2026-10-13. Where a statement
@@ -28,13 +28,12 @@ probably knows the tools.
 What you give up. These points follow from how an extract works, not from a
 measurement:
 
-- **Freshness** is the schedule. A nightly job gives you yesterday.
-- **Deletes** are invisible to a query on the current table. A row that is gone
-  cannot be selected. You need a full comparison, a soft-delete flag in the
+- A nightly job gives you yesterday: freshness is the schedule.
+- A row that is gone cannot be selected, so deletes are invisible to a query on
+  the current table. You need a full comparison, a soft-delete flag in the
   application, or a journal.
-- **Intermediate changes** are lost. If a row changes three times between runs,
-  you see the last state.
-- **Load on the IBM i** grows with table size for full extracts, and with the
+- If a row changes three times between runs, you see only the last state.
+- Load on the IBM i grows with table size for full extracts, and with the
   cost of finding changed rows for incremental ones.
 
 Batch fits slowly changing reference tables and a first proof of concept. It
@@ -77,8 +76,8 @@ it shows and its maturity.
 ## Other routes
 
 Some teams write their own code: SQL triggers on the tables, or a script that
-polls `QSYS2.DISPLAY_JOURNAL`. These are batch extracts or a small version of
-Option 4, and you own the gaps, such as a missed receiver or a failed retry.
+polls `QSYS2.DISPLAY_JOURNAL` (see [how journals work](ibm-i-journals-for-cdc.md)).
+These are batch extracts or a small version of Option 4, and you own the gaps, such as a missed receiver or a failed retry.
 IBM also documents its own replication products, which this article does not
 cover.
 
@@ -105,34 +104,19 @@ Snowflake, so you may have to add one.
 
 ## Option 4: Quadringent
 
-Quadringent reads the journal from a container in your own AWS or GCP account,
-over TLS, and installs nothing on the IBM i. Near the journal tail it uses
-`SELECT` statements on `QSYS2.DISPLAY_JOURNAL`. For a larger backlog it uses a
-library that calls IBM retrieval APIs, and whether that library uses the remote
-command server is Not verified. It writes
-raw batches to your S3 or GCS bucket, and loaders write a history table and a
-mirror table in your Snowflake account. There is no Kafka. The engine, API and
-cockpit are open source under Apache-2.0, with no license key.
-<!-- source: docs/product/ibm-i-footprint.md, docs/product/your-data.md, docs/architecture.md, docs/licensing.md, java/pom.xml -->
+Start with what you give up, which is a lot for some buyers. Quadringent is a
+DEV/INT preview: the chart accepts only `dev`, `int`, `test` and `staging`
+environments, and no production qualification is claimed ([evidence](../evidence.md)).
+Only IBM i 7.5, on one shared server, has been tested, and the CPU and I/O cost
+on the IBM i is Not measured. In the first 0.3.4 cold-warehouse trial, three of
+four targets missed our 10 s bar; a later run passed on all four.
 
-It shows reading, delivery and reconciliation as separate evidence for each
-table, and says **Not measured** when nothing was measured
-([Capture is not delivery](capture-delivery-reconciliation.md)).
-<!-- source: docs/product/operator-guide.md, docs/product/quadringent-destination-proof-contract.md -->
-
-What you give up, and it is a lot for some buyers:
-
-- **It is a DEV/INT preview.** The chart accepts only `dev`, `int`, `test` and
-  `staging` environments. No production qualification is claimed.
-- **No support contract.** Issues are answered on a best-effort basis, with no
-  response-time commitment ([support](../../SUPPORT.md)). The maintainers are
-  pseudonymous ([governance](../governance.md)).
-- **Narrow scope.** IBM i as the source and Snowflake as the destination, nothing
-  else. At most 32 tables per capture session and one reader per journal.
-- **Narrow test coverage.** The only IBM i release with a recorded measurement is
-  7.5, on one shared server. The cost on the IBM i, in CPU and I/O, is Not measured.
-- **You operate it.** Installation, upgrades, backups and receiver retention are
-  yours ([operator guide](../product/operator-guide.md)).
+- There is no support contract: issues are answered on a best-effort basis, with
+  no response-time commitment ([support](../../SUPPORT.md)). We maintain the
+  project under a pseudonymous identity ([governance](../governance.md)).
+- The scope is narrow: IBM i as the source and Snowflake as the destination,
+  nothing else, at most 32 tables per capture session and one reader per journal.
+- Installation, upgrades, backups and receiver retention are yours to run ([operator guide](../product/operator-guide.md)).
 
 Details are in [compatibility and prerequisites](../product/compatibility.md) and
 the [IBM i footprint](../product/ibm-i-footprint.md). Its journal reader builds on
@@ -140,17 +124,32 @@ the journal-parsing library from the Debezium project
 ([third-party notices](../../THIRD_PARTY_NOTICES.md)).
 <!-- source: docs/product/compatibility.md, chart/templates/_helpers.tpl, SUPPORT.md, docs/governance.md, THIRD_PARTY_NOTICES.md, docs/product/ibm-i-footprint.md -->
 
+What it does: we read the journal from a container in your own AWS or GCP
+account, over TLS, and install nothing on the IBM i. Near the journal tail we
+use `SELECT` statements on `QSYS2.DISPLAY_JOURNAL`. For a larger backlog we use a
+library that calls IBM retrieval APIs, and whether that library uses the remote
+command server is Not tested. The reader writes raw batches to your S3 or GCS
+bucket, and loaders write a history table and a mirror table in your Snowflake
+account. There is no Kafka. The engine, API and cockpit are open source under
+Apache-2.0, with no license key.
+<!-- source: docs/product/ibm-i-footprint.md, docs/product/your-data.md, docs/architecture.md, docs/licensing.md, java/pom.xml -->
+
+The cockpit shows what was read, what was delivered and whether the two agree as
+separate evidence for each table, and says Not measured when nothing was
+measured ([Capture is not delivery](capture-delivery-reconciliation.md)).
+<!-- source: docs/product/operator-guide.md, docs/product/quadringent-destination-proof-contract.md -->
+
 ## Side by side
 
 | | Batch extracts | Commercial CDC | Kafka-based CDC | Quadringent |
 |---|---|---|---|---|
 | Needs IBM i journaling | No | Check with the vendor | Yes | Yes, with `*BOTH` images and a key |
-| Sees deletes | Not without extra work | Check with the vendor | Check with the project | Reads delete entries when images are `*BOTH`; delete replication not established on 0.3.5 |
+| Sees deletes | Not without extra work | Check with the vendor | Check with the project | Reads delete entries when images are `*BOTH`; delete replication Not tested on 0.3.5 |
 | Freshness | The schedule | Check with the vendor | Not measured here | Dated receipts, not a guarantee |
 | Who runs it | You | Vendor, you, or both | You | You |
 | Support | None | Check with the vendor | Check with the project | Best effort on public issues |
 | Licensing | Your tools | Check with the vendor | Apache-2.0 for the connector, according to its README | Apache-2.0 |
-| Maturity | Established method | Check with the vendor | Incubating connector, according to its README | DEV/INT preview |
+| Maturity | Established method | Check with the vendor | Incubating connector, according to its README | Preview |
 
 ## Questions to ask before you choose
 
@@ -169,12 +168,9 @@ Start from the answers. If you need production support today,
 a commercial product may be the better fit, and
 [How Quadringent compares](../product/comparison.md) can help you ask the right
 questions. If you want to run an open-source, Kafka-free copy in your own account
-and can accept a DEV/INT preview, read
+and can accept a preview, read
 [Questions for a first call](../product/faq.md) and the
 [pilot preparation guide](../product/positioning-and-offer.md).
-
-For the mechanics behind every option except batch, read
-[How IBM i journals work for change data capture](ibm-i-journals-for-cdc.md).
 
 ## Sources
 

@@ -18,11 +18,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from copy import deepcopy
 import datetime as _dt
+import json
 import uuid
 from typing import Mapping, Protocol, Sequence
 
 from sqlalchemy import select, update
 from sqlalchemy.engine import Engine
+
+from quadringent.capture_binding import CaptureBinding
+from quadringent.checkpoint import _decode_checkpoint_json
+from quadringent.reader_scope import reader_checkpoint_stream_key
+from quadringent.receiver_registry import ReceiverNameRegistry
+from quadringent.storage_backend import StorageBackend
 
 from .. import schema as v2_schema
 from ..services.destination_verifier import (
@@ -32,12 +39,10 @@ from ..services.destination_verifier import (
 from ..services.state_machine import transition
 from ..services.pipelines import COPY_RECONCILIATION_PENDING_REASON, PipelineCopyAcceptedError
 from .boundary import JournalBoundary, plan_bootstrap
-from .evidence import EvidenceReader, InitialCopyEvidence, evidence_key
+from .evidence import EvidenceReader, InitialCopyEvidence, copy_intent_key, evidence_key
 from .manifests import (
-    ENV_BOOTSTRAP_OBSERVED_AT,
-    ENV_BOOTSTRAP_RECEIVER,
-    ENV_BOOTSTRAP_RECEIVER_LIBRARY,
-    ENV_BOOTSTRAP_SEQUENCE,
+    ENV_BOUNDARY_JSON,
+    ENV_CAPTURE_BINDING_JSON,
     InitialCopyDesiredSpec,
     LoaderDesiredSpec,
     LoaderTableSpec,
@@ -196,6 +201,7 @@ class KubernetesPipelineExecutor:
         secrets_provisioner: SecretsProvisionerProtocol | None = None,
         run_id_factory=lambda: str(uuid.uuid4()),
         now=lambda: _dt.datetime.now(_dt.timezone.utc),
+        storage: StorageBackend | None = None,
     ) -> None:
         self._engine = engine
         self._jobs = jobs_client
@@ -212,6 +218,7 @@ class KubernetesPipelineExecutor:
         self._secrets_provisioner = secrets_provisioner
         self._run_id_factory = run_id_factory
         self._now = now
+        self._storage = storage
 
     # -- PipelineExecutorProtocol -------------------------------------------------
 
@@ -277,7 +284,102 @@ class KubernetesPipelineExecutor:
     def copying_evidence(self, pipeline_id: str, run_id: str) -> InitialCopyEvidence | None:
         context = self._load_context(pipeline_id)
         key = evidence_key(self._config.raw_prefix_root, context.table_id, run_id)
-        return self._evidence_reader.read(key)
+        evidence = self._evidence_reader.read(key)
+        if evidence is not None:
+            if (evidence.pipeline_id, evidence.table_id, evidence.run_id) != (pipeline_id, context.table_id, run_id):
+                raise ExecutorError("capability_unavailable", "initial-copy evidence belongs to another run")
+            original = self._copy_intent_boundary(context, run_id)
+            if evidence.boundary != original:
+                raise ExecutorError("capability_unavailable", "initial-copy evidence differs from its original boundary")
+            self._require_registered_boundary(context, evidence.boundary)
+        return evidence
+
+    def _capture_storage(self) -> StorageBackend:
+        if self._storage is None:
+            self._storage = StorageBackend(self._config.storage_backend, self._config.raw_bucket,
+                                           self._config.checkpoint_location)
+        return self._storage
+
+    def _registry(self, context: _PipelineContext) -> tuple[ReceiverNameRegistry, str]:
+        if not context.journal_library or not context.journal_name:
+            raise ExecutorError("capability_unavailable", "capture requires a declared journal")
+        scope_id = reader_checkpoint_stream_key(
+            storage_backend=self._config.storage_backend, source_id=context.source_id,
+            journal_library=context.journal_library, journal_name=context.journal_name,
+            raw_bucket=self._config.raw_bucket, raw_prefix=self._config.raw_prefix_root,
+        )
+        backend = {"aws": "s3", "s3": "s3", "gcs": "gcs"}[self._config.storage_backend]
+        registry = ReceiverNameRegistry(self._capture_storage().object_store("receiver-authority-v1"),
+                                        authority=f"{backend}://{self._config.raw_bucket}/receiver-authority-v1",
+                                        source_system="ibmi", journal=context.journal_name)
+        return registry, scope_id
+
+    def _admit_boundary(self, context: _PipelineContext, boundary: JournalBoundary) -> JournalBoundary:
+        if boundary.receiver_identity is None:
+            raise ExecutorError("capability_unavailable", "native receiver identity is required before initial copy")
+        if (boundary.receiver_identity.journal_library, boundary.receiver_identity.journal_name) != (
+            context.journal_library, context.journal_name
+        ):
+            raise ExecutorError("capability_unavailable", "native journal differs from the declared copy scope")
+        registry, scope_id = self._registry(context)
+        try:
+            checkpoint = self._capture_storage().checkpoint_store(scope_id).load_bound()
+            binding = registry.load_binding(scope_id)
+            if binding is None:
+                if checkpoint is not None:
+                    raise ValueError("checkpoint exists without its original capture binding")
+                if self._capture_storage().object_store(self._config.raw_prefix_root).list_receipt_keys(1):
+                    raise ValueError("existing RAW requires explicit capture migration")
+            binding = registry.create_or_load_binding(scope_id=scope_id, identity=boundary.receiver_identity,
+                                                       sequence=boundary.last_sequence)
+            if checkpoint is not None:
+                registry.require(binding, checkpoint)
+            bound = boundary.with_binding(binding)
+            registry.claim(binding, bound.require_bound())
+            registry.require(binding, bound.require_bound())
+            return bound
+        except ValueError as error:
+            raise ExecutorError("capability_unavailable", "capture admission requires an original native binding") from error
+
+    def _require_registered_boundary(self, context: _PipelineContext, boundary: JournalBoundary) -> CaptureBinding:
+        registry, scope_id = self._registry(context)
+        try:
+            point = boundary.require_bound()
+            binding = registry.load_binding(scope_id)
+            if binding is None or binding != boundary.capture_binding:
+                raise ValueError("original capture binding is absent or differs")
+            checkpoint = self._capture_storage().checkpoint_store(scope_id).load_bound()
+            registry.require(binding, point)
+            if checkpoint is not None:
+                registry.require(binding, checkpoint)
+            return binding
+        except ValueError as error:
+            raise ExecutorError("capability_unavailable", "original registered capture binding is required") from error
+
+    def _copy_intent_key(self, context: _PipelineContext, run_id: str) -> str:
+        return copy_intent_key(context.pipeline_id, context.table_id, run_id)
+
+    def _write_copy_intent(self, context: _PipelineContext, run_id: str, boundary: JournalBoundary) -> None:
+        intent = {"format_version": "quadringent-copy-intent-v1", "pipeline_id": context.pipeline_id,
+                  "table_id": context.table_id, "run_id": run_id, "boundary": boundary.to_dict()}
+        self._capture_storage().object_store("receiver-authority-v1").put_once(
+            self._copy_intent_key(context, run_id), json.dumps(intent, sort_keys=True, separators=(",", ":")).encode())
+
+    def _copy_intent_boundary(self, context: _PipelineContext, run_id: str) -> JournalBoundary:
+        try:
+            raw = self._capture_storage().object_store("receiver-authority-v1").get_bounded(
+                self._copy_intent_key(context, run_id), 65_536)
+            intent = _decode_checkpoint_json(raw)
+            if (type(intent) is not dict or set(intent) != {"format_version", "pipeline_id", "table_id", "run_id", "boundary"}
+                    or intent["format_version"] != "quadringent-copy-intent-v1"
+                    or (intent["pipeline_id"], intent["table_id"], intent["run_id"]) != (
+                        context.pipeline_id, context.table_id, run_id)):
+                raise ValueError("copy intent belongs to another run")
+            boundary = JournalBoundary.from_dict(intent["boundary"])
+            boundary.require_bound()
+            return boundary
+        except (FileNotFoundError, TypeError, ValueError) as error:
+            raise ExecutorError("capability_unavailable", "original bound copy intent is required") from error
 
     # -- Interne ---------------------------------------------------------------
 
@@ -338,12 +440,20 @@ class KubernetesPipelineExecutor:
         if self._config.loader_image:
             # Une configuration invalide reste un refus avant création de
             # copie ; seules les réconciliations après acceptation sont différées.
-            self._desired_loader_manifest(context.destination_id, override=override, provision_secret=False)
+            self._desired_loader_manifest(context.destination_id, override=override, provision_secret=False,
+                                          admit_bindings=False)
+        try:
+            _registry, scope_id = self._registry(context)
+            self._capture_storage().checkpoint_store(scope_id).load_bound()
+        except ValueError as error:
+            raise ExecutorError("capability_unavailable", "legacy checkpoint cannot be adopted by initial copy") from error
         self._ensure_secrets_provisioned(source_id=context.source_id, destination_id=context.destination_id)
         boundary = plan_bootstrap(
             self._boundary_reader.read_boundary(source_id=context.source_id, table_id=context.table_id)
         )
+        boundary = self._admit_boundary(context, boundary)
         run_id = self._run_id_factory()
+        self._write_copy_intent(context, run_id, boundary)
         key = evidence_key(self._config.raw_prefix_root, context.table_id, run_id)
         manifest = self._with_spec_hash(
             build_initial_copy_job(
@@ -661,8 +771,10 @@ class KubernetesPipelineExecutor:
         """
         run_id = row["active_run_id"]
         if not run_id:
-            # Compatibilité avec les anciens pipelines sans copie enregistrée.
-            return self._boundary_reader.read_boundary(source_id=source_id, table_id=str(row["id"]))
+            raise ExecutorError("capability_unavailable", "installed reader requires an original bound copy run")
+        context = self._load_context(str(row["pipeline_id"]))
+        original = self._copy_intent_boundary(context, str(run_id))
+        self._require_registered_boundary(context, original)
         try:
             job = self._jobs.read_job(initial_copy_job_name(str(row["id"]), str(run_id)))
         except JobsApiError as error:
@@ -670,13 +782,12 @@ class KubernetesPipelineExecutor:
         if job is not None:
             try:
                 environment = job["spec"]["template"]["spec"]["containers"][0]["env"]
-                values = {item["name"]: item["value"] for item in environment}
-                return JournalBoundary.from_dict({
-                    "receiver_library": values[ENV_BOOTSTRAP_RECEIVER_LIBRARY],
-                    "receiver_name": values[ENV_BOOTSTRAP_RECEIVER],
-                    "last_sequence": values[ENV_BOOTSTRAP_SEQUENCE],
-                    "observed_at": values[ENV_BOOTSTRAP_OBSERVED_AT],
-                })
+                values = {item["name"]: item.get("value") for item in environment}
+                boundary = JournalBoundary.from_dict(_decode_checkpoint_json(values[ENV_BOUNDARY_JSON]))
+                binding = CaptureBinding.from_dict(_decode_checkpoint_json(values[ENV_CAPTURE_BINDING_JSON]))
+                if boundary != original or binding != original.capture_binding:
+                    raise ValueError("copy Job differs from its original bound intent")
+                return original
             except (KeyError, IndexError, TypeError, ValueError) as error:
                 raise ExecutorError("capability_unavailable", "copy Job boundary unreadable") from error
         key = evidence_key(self._config.raw_prefix_root, str(row["id"]), str(run_id))
@@ -685,9 +796,18 @@ class KubernetesPipelineExecutor:
             raise ExecutorError("capability_unavailable", "copy boundary not found for the reader")
         if evidence.table_id != row["id"] or evidence.pipeline_id != row["pipeline_id"] or evidence.run_id != run_id:
             raise ExecutorError("capability_unavailable", "inconsistent copy evidence for the reader")
-        return evidence.boundary
+        if evidence.boundary != original:
+            raise ExecutorError("capability_unavailable", "copy evidence differs from its original bound intent")
+        return original
 
     # -- Chargeur de destination (historique Snowpipe Streaming + MERGE miroir) --
+
+    def _loader_capture_binding(self, pipeline_id: str, run_id: str | None) -> CaptureBinding:
+        if not run_id:
+            raise ExecutorError("capability_unavailable", "installed loader requires an original bound copy run")
+        context = self._load_context(pipeline_id)
+        original = self._copy_intent_boundary(context, run_id)
+        return self._require_registered_boundary(context, original)
 
     def _reconcile_loader_for_destination(
         self, destination_id: str, *, override: Mapping[str, str] | None = None
@@ -743,7 +863,8 @@ class KubernetesPipelineExecutor:
             raise ExecutorError("executor_unavailable", "loader Deployment apply refused") from error
 
     def _desired_loader_manifest(
-        self, destination_id: str, *, override: Mapping[str, str], provision_secret: bool = True
+        self, destination_id: str, *, override: Mapping[str, str], provision_secret: bool = True,
+        admit_bindings: bool = True,
     ) -> Mapping[str, object] | None:
         with self._engine.connect() as connection:
             destination = connection.execute(
@@ -816,6 +937,12 @@ class KubernetesPipelineExecutor:
                     evidence_key(self._config.raw_prefix_root, row["id"], row["active_run_id"])
                     if row["active_run_id"]
                     else None
+                ),
+                pipeline_id=row["pipeline_id"],
+                run_id=row["active_run_id"],
+                capture_binding=(
+                    self._loader_capture_binding(str(row["pipeline_id"]), row["active_run_id"])
+                    if admit_bindings else None
                 ),
             )
             for row in table_rows

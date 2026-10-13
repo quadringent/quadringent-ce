@@ -34,6 +34,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 import sys
+from dataclasses import replace
 
 import pytest
 
@@ -44,6 +45,9 @@ if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
 from quadringent_control_plane.v2.executor.boundary import JournalBoundary
+from quadringent.capture_binding import CaptureBinding
+from quadringent.reader_scope import reader_checkpoint_stream_key
+from quadringent.receiver_identity import BoundCheckpoint, ReceiverIdentity
 from quadringent_control_plane.v2.executor.evidence import EvidenceReader, InitialCopyEvidence
 from quadringent_control_plane.v2.executor.manifests import (
     InitialCopyDesiredSpec,
@@ -327,6 +331,18 @@ def _copy_spec(**overrides) -> InitialCopyDesiredSpec:
         raw_bucket="quadringent-raw-example",
     )
     values.update(overrides)
+    if values["boundary"].capture_binding is None:
+        legacy = values["boundary"]
+        identity = ReceiverIdentity("TESTLIB", "TESTJRN", legacy.receiver_library, legacy.receiver_name,
+                                    "offline-native-v1", "generation-a")
+        scope = reader_checkpoint_stream_key(storage_backend=values["storage_backend"], source_id=values["source_id"],
+                                             journal_library="TESTLIB", journal_name="TESTJRN",
+                                             raw_bucket=values["raw_bucket"], raw_prefix=values["raw_prefix"])
+        point = BoundCheckpoint(scope, "offline-epoch", identity, legacy.last_sequence)
+        backend = "gcs" if values["storage_backend"] == "gcs" else "s3"
+        binding = CaptureBinding(scope, "offline-epoch", "ibmi", "TESTJRN",
+                                 f"{backend}://{values['raw_bucket']}/receiver-authority-v1", point)
+        values["boundary"] = replace(legacy, receiver_identity=identity).with_binding(binding)
     return InitialCopyDesiredSpec(**values)
 
 
@@ -412,8 +428,14 @@ def test_initial_copy_job_orchestration_publishes_and_writes_evidence_read_by_th
         # RawCaptureWriter (Java) — un fichier payload et son manifeste.
         output_dir = Path(env["AS400_RAW_DIRECTORY"])
         output_dir.mkdir(parents=True, exist_ok=True)
-        (output_dir / "batch-a1.jsonl").write_text('{"event_id": "e1"}\n', encoding="utf-8")
-        (output_dir / "batch-a1.manifest.json").write_text("{}", encoding="utf-8")
+        from quadringent.contract import ChangeEvent, JournalPosition
+        from quadringent.raw import RawBatchWriter
+
+        receiver = "SNAPSHOT:" + RUN_ID
+        events = [ChangeEvent("ibmi", "SNAPSHOT:TESTLIB.QDC_ORDERS", "TESTLIB", "QDC_ORDERS", "c",
+                              JournalPosition(receiver, index), "2026-09-24T12:00:00Z", "v1", None, {"ID": index})
+                  for index in range(1, 4)]
+        RawBatchWriter(output_dir).write_batch(events, high_watermark=JournalPosition(receiver, 3))
         summary = (
             "snapshot_summary table=TESTLIB.QDC_ORDERS rows=3 columns=5 "
             "batches=1 elapsed_ms=42 run_id=" + env["AS400_SNAPSHOT_RUN_ID"]
@@ -432,14 +454,22 @@ def test_initial_copy_job_orchestration_publishes_and_writes_evidence_read_by_th
         published = {name for _, name in client.objects}
         # Disposition unique (quadringent.storage_layout) : la table est le
         # premier segment — corrigé le 24 septembre 2026, voir storage_layout.py.
-        assert "raw/example/qdc_orders/snapshot/batch-a1.jsonl" in published
-        assert "raw/example/qdc_orders/snapshot/batch-a1.manifest.json" in published
+        ref = snapshot_batches[0]
+        assert f"raw/example/qdc_orders/snapshot/{ref['payload_key']}" in published
+        assert f"raw/example/qdc_orders/snapshot/{ref['manifest_key']}" in published
         # Noms nus (pas le chemin complet) : c'est le contrat de
         # ``object_store.read_published_batch``, que le chargeur appelle avec
         # un magasin déjà borné au préfixe d'instantané de la table.
-        assert snapshot_batches == [
-            {"payload_key": "batch-a1.jsonl", "manifest_key": "batch-a1.manifest.json"}
-        ]
+        assert len(snapshot_batches) == 1
+        from quadringent.raw import read_raw_batch
+        bound_raw = read_raw_batch((config.output_dir / ref["manifest_key"]).read_bytes(),
+                                   (config.output_dir / ref["payload_key"]).read_bytes())
+        assert bound_raw.manifest.format_version == "as400-snapshot-v2"
+        assert bound_raw.manifest.capture_binding == config.boundary.capture_binding
+        assert bound_raw.manifest.copy_context["boundary"] == config.boundary.require_bound().to_dict()
+        before_retry = {path.name: path.read_bytes() for path in config.output_dir.iterdir()}
+        copy_job.bind_local_snapshots(config)
+        assert {path.name: path.read_bytes() for path in config.output_dir.iterdir()} == before_retry
 
         evidence = copy_job.build_evidence(
             config, rows_copied=rows_copied, completed_at=datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc),
@@ -468,11 +498,11 @@ def test_initial_copy_job_orchestration_publishes_and_writes_evidence_read_by_th
         pipeline_id="pipe-1",
         table_id="tbl-orders",
         run_id=RUN_ID,
-        boundary=BOUNDARY_COPY,
+        boundary=config.boundary,
         rows_copied=3,
         completed_at=datetime(2026, 9, 24, 12, 0, tzinfo=timezone.utc),
         snapshot_batches=(
-            SnapshotBatchRef(payload_key="batch-a1.jsonl", manifest_key="batch-a1.manifest.json"),
+            SnapshotBatchRef(payload_key=ref["payload_key"], manifest_key=ref["manifest_key"]),
         ),
     )
 

@@ -13,12 +13,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
 import json
 from typing import Protocol
 
 from .boundary import JournalBoundary
+from quadringent.checkpoint import _decode_checkpoint_json
+from quadringent.receiver_identity import BoundCheckpoint
 
 MAX_EVIDENCE_BYTES = 65_536
+EVIDENCE_FORMAT_VERSION = "quadringent-initial-copy-evidence-v2"
 
 
 class EvidenceError(ValueError):
@@ -56,8 +60,11 @@ class InitialCopyEvidence:
     # jamais rien chargé).
     snapshot_batches: tuple[SnapshotBatchRef, ...] = ()
 
+    def require_bound(self) -> BoundCheckpoint:
+        return self.boundary.require_bound()
+
     def to_dict(self) -> dict[str, object]:
-        return {
+        document = {
             "pipeline_id": self.pipeline_id,
             "table_id": self.table_id,
             "run_id": self.run_id,
@@ -66,17 +73,32 @@ class InitialCopyEvidence:
             "completed_at": self.completed_at.astimezone(timezone.utc).isoformat(),
             "snapshot_batches": [batch.to_dict() for batch in self.snapshot_batches],
         }
+        if self.boundary.capture_binding is not None:
+            self.require_bound()
+            document["format_version"] = EVIDENCE_FORMAT_VERSION
+        return document
 
     @classmethod
     def from_dict(cls, payload: dict[str, object]) -> "InitialCopyEvidence":
         try:
+            if "format_version" in payload:
+                if (payload["format_version"] != EVIDENCE_FORMAT_VERSION or set(payload) != {
+                    "format_version", "pipeline_id", "table_id", "run_id", "boundary",
+                    "rows_copied", "completed_at", "snapshot_batches",
+                }):
+                    raise ValueError("unknown bound initial-copy evidence format")
+                for name in ("pipeline_id", "table_id", "run_id"):
+                    if type(payload[name]) is not str or not payload[name] or payload[name].strip() != payload[name]:
+                        raise ValueError("invalid evidence identity")
+                if type(payload["rows_copied"]) is not int or payload["rows_copied"] < 0:
+                    raise ValueError("invalid copied row count")
             completed_at = payload["completed_at"]
             if isinstance(completed_at, str):
                 completed_at = datetime.fromisoformat(completed_at)
             raw_batches = payload.get("snapshot_batches") or []
             if not isinstance(raw_batches, list):
                 raise ValueError("snapshot_batches must be a list")
-            return cls(
+            evidence = cls(
                 pipeline_id=str(payload["pipeline_id"]),
                 table_id=str(payload["table_id"]),
                 run_id=str(payload["run_id"]),
@@ -85,12 +107,28 @@ class InitialCopyEvidence:
                 completed_at=completed_at,
                 snapshot_batches=tuple(SnapshotBatchRef.from_dict(item) for item in raw_batches),
             )
+            if "format_version" in payload:
+                if evidence.completed_at.tzinfo is None:
+                    raise ValueError("evidence timestamp must be timezone-aware")
+                evidence.require_bound()
+            elif evidence.boundary.capture_binding is not None:
+                raise ValueError("bound initial-copy evidence requires its version")
+            return evidence
         except (KeyError, TypeError, ValueError) as error:
             raise EvidenceError("malformed initial-copy evidence") from error
 
 
 def evidence_key(raw_prefix: str, table_id: str, run_id: str) -> str:
     return f"{raw_prefix.rstrip('/')}/{table_id}/evidence/{run_id}.json"
+
+
+def copy_intent_key(pipeline_id: str, table_id: str, run_id: str) -> str:
+    """Return the immutable copy-intent key within the registry authority."""
+    for value in (pipeline_id, table_id, run_id):
+        if type(value) is not str or not value or value.strip() != value:
+            raise ValueError("invalid copy-intent identity")
+    identity = json.dumps([pipeline_id, table_id, run_id], separators=(",", ":")).encode()
+    return "copy-intents-v1/" + hashlib.sha256(identity).hexdigest() + ".json"
 
 
 class ObjectStoreProtocol(Protocol):
@@ -111,8 +149,8 @@ class EvidenceReader:
         except FileNotFoundError:
             return None
         try:
-            payload = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            payload = _decode_checkpoint_json(raw)
+        except (UnicodeDecodeError, ValueError) as error:
             raise EvidenceError("initial-copy evidence unreadable") from error
         if not isinstance(payload, dict):
             raise EvidenceError("malformed initial-copy evidence")

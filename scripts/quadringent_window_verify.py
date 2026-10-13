@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -13,7 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'src'))
 
 from quadringent.object_store import FileObjectStore, S3ObjectStore
-from quadringent.proof_windows import _stream_id
+from quadringent.proof_windows import _stream_id, read_closed_window
+from quadringent.capture_binding import CaptureBinding
 from quadringent.snowflake_autonomous import DestinationLoadPending
 from quadringent.site_config import current as current_site
 from quadringent.verification_window import run_archive_prefix
@@ -80,20 +82,27 @@ def main(argv=None):
 
         storage=_publication_client(boto3,None if args.aws_default_credentials else args.aws_profile)
         store=S3ObjectStore(site.raw_bucket,run_archive_prefix(site,args.run_id),client=storage)
+        binding_json = os.environ.get('AS400_CAPTURE_BINDING_JSON')
+        binding = CaptureBinding.from_dict(json.loads(binding_json)) if binding_json is not None else None
         if args.await_window and not args.resume_publication:
             try:
                 store.get_bounded(f'windows/{args.window_id}/closed.json',1024*1024)
             except FileNotFoundError:
                 print(json.dumps({'status':'pending','reason':'window_not_closed','run_id':args.run_id,'window_id':args.window_id,'publication_state':'not_attempted'}))
                 return 2
+        if binding is not None:
+            read_closed_window(store, window_id=args.window_id, capture_binding=binding)
         connection=_connect_snowflake(snowflake.connector,
             None if args.snowflake_oidc_token_file else args.connection_name,
             oidc_token_file=args.snowflake_oidc_token_file)
         try:
             cursor=connection.cursor()
             try:
-                proof=verify_closed_window_destination(cursor,store,run_id=args.run_id,
-                    window_id=args.window_id,observed_at=datetime.now(timezone.utc),site=site)
+                proof_args = dict(run_id=args.run_id, window_id=args.window_id,
+                                  observed_at=datetime.now(timezone.utc), site=site)
+                if binding is not None:
+                    proof_args['capture_binding'] = binding
+                proof=verify_closed_window_destination(cursor,store,**proof_args)
             finally:
                 cursor.close()
         finally:
@@ -108,7 +117,7 @@ def main(argv=None):
             intent=proof['window']['intent']
             if (proof.get('storage_backend')!='s3' or proof.get('archive_run_id')!=args.run_id
                     or proof.get('window_id')!=args.window_id
-                    or intent.get('format_version')!='quadringent-window-intent-v2'):
+                    or intent.get('format_version') not in ('quadringent-window-intent-v2', 'quadringent-window-intent-v3')):
                 raise ValueError('publication requires bound site window evidence')
             _stream_id(intent.get('stream_id'))
         if previous_bytes is None:

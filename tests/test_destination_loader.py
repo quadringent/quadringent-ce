@@ -52,6 +52,14 @@ _TABLE_SET_JSON = json.dumps(
 )
 
 
+def _installed_table_set_json():
+    from test_bound_proof_windows import BINDING
+    entries = json.loads(_TABLE_SET_JSON)
+    entries[0].update(pipeline_id='pipeline-test', run_id='run-test',
+                      evidence_key='raw/tbl1/evidence/run-test.json', capture_binding=BINDING.to_dict())
+    return json.dumps(entries)
+
+
 class _ReceiptCacheStorage:
     def __init__(self, root):
         self.root = root
@@ -351,7 +359,7 @@ def test_main_does_not_periodically_query_idle_snowflake(monkeypatch) -> None:
     monkeypatch.delenv("QUADRINGENT_LOADER_POLL_SECONDS", raising=False)
     monkeypatch.setattr(loader, "_write_ephemeral_profile", lambda *_args: pytest.fail("SQL default must not create SDK profile"))
     monkeypatch.setattr(loader, "_env", lambda _name: "test-value")
-    monkeypatch.setattr(loader, "parse_table_set", lambda _value: ())
+    monkeypatch.setattr(loader, "parse_table_set", lambda _value, **_kwargs: ())
     monkeypatch.setattr(loader.StorageBackend, "from_environment", lambda _env: None)
     monkeypatch.setattr(loader, "_snowflake_role_to_warehouse", lambda _role: "TEST_WH")
     monkeypatch.setattr(loader, "_connect_snowflake", lambda **_kwargs: connection)
@@ -367,9 +375,9 @@ def test_main_does_not_periodically_query_idle_snowflake(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize("history_schema,mirror_schema", [("SITE_A", "SITE_A"), ("RAW", "CURATED")])
-def test_main_uses_history_scope_for_streaming_and_propagates_mirror_scope(monkeypatch, history_schema, mirror_schema):
+def test_main_uses_history_scope_for_sql_and_propagates_mirror_scope(monkeypatch, history_schema, mirror_schema):
     for name, value in {
-        "QUADRINGENT_HISTORY_MODE": "streaming", "QUADRINGENT_LOADER_TABLE_SET_JSON": _TABLE_SET_JSON,
+        "QUADRINGENT_HISTORY_MODE": "sql", "QUADRINGENT_LOADER_TABLE_SET_JSON": _installed_table_set_json(),
         "AS400_RAW_PREFIX": "raw/test", "QUADRINGENT_DESTINATION_DATABASE": "CLIENT_DB",
         "QUADRINGENT_DESTINATION_SCHEMA": history_schema, "QUADRINGENT_MIRROR_SCHEMA": mirror_schema,
         "SNOWFLAKE_ACCOUNT": "test-account", "SNOWFLAKE_USER": "TEST_SVC", "SNOWFLAKE_ROLE": "QDT_ROLE_TEST",
@@ -391,11 +399,11 @@ def test_main_uses_history_scope_for_streaming_and_propagates_mirror_scope(monke
     def run(**kwargs):
         assert kwargs["schema"] == history_schema
         assert kwargs["mirror_schema"] == mirror_schema
-        kwargs["streaming_client_factory"]("ORDHDR_HISTORY")
+        assert kwargs["history_mode"] == 'sql'
+        assert kwargs["streaming_client_factory"] is None
     monkeypatch.setattr(loader, "run_once", run)
     assert loader.main(["--once"]) == 0
-    assert profiles[0]["database"] == "CLIENT_DB" and profiles[0]["schema"] == history_schema
-    assert adapters[0]["database"] == "CLIENT_DB" and adapters[0]["schema"] == history_schema
+    assert profiles == adapters == []
 
 
 def test_durable_scope_binding_survives_checkpoint_and_process_restart(tmp_path):
@@ -440,9 +448,9 @@ def test_scope_binding_with_unknown_provenance_never_gets_overwritten(tmp_path, 
 
 def test_main_refuses_unbound_legacy_checkpoint_before_snowflake_connection(tmp_path, monkeypatch):
     storage = _ReceiptCacheStorage(tmp_path)
-    storage.checkpoint_store(loader.loader_checkpoint_stream_key("tbl1")).commit(JournalPosition("R1", 10))
+    storage.checkpoint_store(loader.loader_checkpoint_stream_key("tbl1", 'raw/tbl1/evidence/run-test.json')).commit(JournalPosition("R1", 10))
     for name, value in {
-        "QUADRINGENT_HISTORY_MODE": "sql", "QUADRINGENT_LOADER_TABLE_SET_JSON": _TABLE_SET_JSON,
+        "QUADRINGENT_HISTORY_MODE": "sql", "QUADRINGENT_LOADER_TABLE_SET_JSON": _installed_table_set_json(),
         "AS400_RAW_PREFIX": "raw", "QUADRINGENT_DESTINATION_DATABASE": "CLIENT_DB",
         "QUADRINGENT_DESTINATION_SCHEMA": "RAW", "QUADRINGENT_MIRROR_SCHEMA": "CURATED",
         "SNOWFLAKE_ACCOUNT": "test-account", "SNOWFLAKE_USER": "TEST_SVC", "SNOWFLAKE_ROLE": "QDT_ROLE_TEST",
@@ -458,7 +466,7 @@ def test_main_refuses_unbound_legacy_checkpoint_before_snowflake_connection(tmp_
 
 @pytest.mark.parametrize("field,value", [("QUADRINGENT_DESTINATION_DATABASE", "BAD;DROP X"), ("QUADRINGENT_DESTINATION_SCHEMA", ""), ("QUADRINGENT_MIRROR_SCHEMA", "A.B")])
 def test_invalid_scope_is_refused_before_remote_connection(monkeypatch, field, value):
-    monkeypatch.setenv("QUADRINGENT_LOADER_TABLE_SET_JSON", _TABLE_SET_JSON)
+    monkeypatch.setenv("QUADRINGENT_LOADER_TABLE_SET_JSON", _installed_table_set_json())
     monkeypatch.setenv("AS400_RAW_PREFIX", "raw/test")
     monkeypatch.setenv("QUADRINGENT_DESTINATION_DATABASE", "CLIENT_DB")
     monkeypatch.setenv("QUADRINGENT_DESTINATION_SCHEMA", "RAW")

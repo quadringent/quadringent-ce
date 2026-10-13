@@ -18,6 +18,11 @@ from dataclasses import dataclass
 from typing import Any, Callable, Collection, Iterator
 
 from quadringent.contract import JournalPosition
+from quadringent.capture_binding import CaptureBinding
+from quadringent.receiver_identity import BoundCheckpoint
+from quadringent.receiver_registry import ReceiverNameRegistry
+from quadringent.checkpoint import _decode_checkpoint_json
+from quadringent.proof_windows import validate_bound_receipt
 from quadringent.object_store import CheckpointStore, ObjectStore, read_published_batch
 from quadringent.raw import RawBatch, read_raw_batch
 from quadringent.site_config import SnowflakeScope
@@ -48,7 +53,8 @@ from quadringent.storage_layout import journal_prefix, snapshot_prefix
 # Dockerfile) : il peut importer ce paquet, contrairement à l'image de
 # capture, qui ne le porte pas (la preuve de copie initiale est un concept du
 # control plane — voir quadringent.storage_layout, en tête de module).
-from quadringent_control_plane.v2.executor.evidence import EvidenceReader, InitialCopyEvidence
+from quadringent_control_plane.v2.executor.evidence import EvidenceReader, InitialCopyEvidence, copy_intent_key
+from quadringent_control_plane.v2.executor.boundary import JournalBoundary
 
 LOG = logging.getLogger("quadringent.destination_loader")
 
@@ -142,6 +148,9 @@ class LoaderTable:
     key_columns: tuple[str, ...]
     columns: tuple[dict[str, Any], ...]
     evidence_key: str | None = None
+    pipeline_id: str | None = None
+    run_id: str | None = None
+    capture_binding: CaptureBinding | None = None
 
 
 class StreamingSessionPool:
@@ -193,7 +202,7 @@ class StreamingSessionPool:
             self._sessions.clear()
 
 
-def parse_table_set(raw_json: str) -> tuple[LoaderTable, ...]:
+def parse_table_set(raw_json: str, *, require_bound: bool = False) -> tuple[LoaderTable, ...]:
     """Parse ``QUADRINGENT_LOADER_TABLE_SET_JSON`` — jamais de valeur par défaut.
 
     Chaque entrée doit porter des colonnes non vides (voir ``services/tables.
@@ -218,6 +227,17 @@ def parse_table_set(raw_json: str) -> tuple[LoaderTable, ...]:
                 "PUT /v2/tables/{id}/discovered-columns"
             )
         evidence_key = entry.get("evidence_key")
+        binding = entry.get("capture_binding")
+        if binding is not None:
+            try:
+                binding = CaptureBinding.from_dict(binding)
+            except ValueError as error:
+                raise DestinationLoaderError("invalid loader capture binding") from error
+        if binding is not None or require_bound:
+            if binding is None or any(type(entry.get(name)) is not str or not entry[name]
+                                      or entry[name].strip() != entry[name]
+                                      for name in ("pipeline_id", "run_id", "evidence_key", "table_id")):
+                raise DestinationLoaderError("installed loader requires binding and pipeline/table/run evidence")
         tables.append(
             LoaderTable(
                 table_id=str(entry["table_id"]),
@@ -226,6 +246,7 @@ def parse_table_set(raw_json: str) -> tuple[LoaderTable, ...]:
                 key_columns=tuple(entry.get("key_columns", ())),
                 columns=tuple(columns),
                 evidence_key=str(evidence_key) if evidence_key else None,
+                pipeline_id=entry.get("pipeline_id"), run_id=entry.get("run_id"), capture_binding=binding,
             )
         )
     return tuple(tables)
@@ -310,17 +331,26 @@ def bind_loader_scopes(*, storage: StorageBackend, tables: tuple[LoaderTable, ..
             "history": plan.qualified_history_table,
             "mirror": plan.qualified_mirror_table,
         }
+        if table.capture_binding is not None:
+            expected.update(format_version="quadringent-loader-scope-v2",
+                            capture_binding=table.capture_binding.to_dict(),
+                            pipeline_id=table.pipeline_id, table_id=table.table_id, run_id=table.run_id,
+                            evidence_key=table.evidence_key)
         try:
-            raw = store.get_bounded(key, 4096)
+            raw = store.get_bounded(key, _RECEIPT_READ_BUDGET_BYTES)
         except FileNotFoundError:
             checkpoint = storage.checkpoint_store(loader_checkpoint_stream_key(table.table_id, table.evidence_key))
-            if checkpoint.load() is not None:
+            try:
+                existing_checkpoint = checkpoint.load_bound() if table.capture_binding is not None else checkpoint.load()
+            except ValueError as error:
+                raise DestinationLoaderError('legacy checkpoint requires a new initial copy') from error
+            if existing_checkpoint is not None:
                 raise DestinationLoaderError(
                     "checkpoint without proven Snowflake scope: new initial copy required"
                 ) from None
             # Relire après put_once couvre aussi une création concurrente refusée.
             store.put_once(key, json.dumps(expected, sort_keys=True, separators=(",", ":")).encode())
-            raw = store.get_bounded(key, 4096)
+            raw = store.get_bounded(key, _RECEIPT_READ_BUDGET_BYTES)
         try:
             observed = json.loads(raw)
         except (ValueError, UnicodeError):
@@ -333,6 +363,11 @@ def loader_stream_id(table: LoaderTable) -> str:
     """Canal Snowpipe stable au sein d'un run, isolé entre deux copies."""
 
     base = f"{table.schema_name}/{table.table_name}"
+    if table.capture_binding is not None:
+        identity = json.dumps({"binding": table.capture_binding.to_dict(), "pipeline_id": table.pipeline_id,
+                               "run_id": table.run_id, "evidence_key": table.evidence_key},
+                              sort_keys=True, separators=(",", ":")).encode()
+        return f"{base}/{hashlib.sha256(identity).hexdigest()}"
     if table.evidence_key:
         return f"{base}/{hashlib.sha256(table.evidence_key.encode()).hexdigest()[:16]}"
     return base
@@ -342,12 +377,13 @@ def loader_stream_id(table: LoaderTable) -> str:
 class PendingReceipt:
     """Une fenêtre prouvée, y compris vide, dans l'ordre du journal."""
 
-    previous: JournalPosition | None
-    start: JournalPosition
-    position: JournalPosition
+    previous: JournalPosition | BoundCheckpoint | None
+    start: JournalPosition | BoundCheckpoint
+    position: JournalPosition | BoundCheckpoint
     raw: dict[str, str] | None
     store: ObjectStore
     fleet: bool
+    event_count: int | None = None
 
 
 def _receipt_position(value: Any) -> JournalPosition | None:
@@ -366,6 +402,9 @@ def discover_pending_receipts(
     max_receipts: int = _RECEIPT_LIST_BUDGET,
     predecessors: dict[JournalPosition, JournalPosition | None] | None = None,
     current_checkpoint: JournalPosition | None | object = _UNREAD_CHECKPOINT,
+    capture_binding: CaptureBinding | None = None,
+    snapshot_boundary: BoundCheckpoint | None = None,
+    receiver_registry: ReceiverNameRegistry | None = None,
 ) -> list[PendingReceipt]:
     """Suit les liens ``previous`` des reçus, sans ordonner les receveurs par nom.
 
@@ -374,6 +413,11 @@ def discover_pending_receipts(
     reçus antérieurs au checkpoint sont exclus même après une rotation.
     """
 
+    if capture_binding is not None:
+        return _discover_bound_receipts(store, checkpoint_store, fleet_store=fleet_store,
+                                        max_receipts=max_receipts, current_checkpoint=current_checkpoint,
+                                        binding=capture_binding, predecessors=predecessors,
+                                        snapshot_boundary=snapshot_boundary, receiver_registry=receiver_registry)
     by_previous: dict[JournalPosition | None, PendingReceipt] = {}
     ends: set[JournalPosition] = set()
     sources = ((store, False),) if fleet_store is None else ((store, False), (fleet_store, True))
@@ -489,6 +533,226 @@ def committed_receipt_index(
         if receipt.position.receiver == committed.receiver and receipt.position.sequence >= committed.sequence:
             return index
     raise DestinationLoaderError("Snowpipe token absent from the receipt chain and checkpoint")
+
+
+def _discover_bound_receipts(store, checkpoint_store, *, fleet_store, max_receipts,
+                             current_checkpoint, binding, predecessors=None, snapshot_boundary=None,
+                             receiver_registry=None):
+    by_previous, names = {}, {}
+    sources = ((store, False),) if fleet_store is None else ((store, False), (fleet_store, True))
+    try:
+        for source, fleet in sources:
+            for key in source.list_receipt_keys(max_receipts):
+                receipt = validate_bound_receipt(source, key, binding)
+                previous, start, end = (BoundCheckpoint.from_dict(receipt[name]) for name in ('previous', 'start', 'end'))
+                for point in (previous, start, end):
+                    if receiver_registry is not None:
+                        receiver_registry.require(binding, point)
+                    identity = point.receiver_identity
+                    prior = names.setdefault(identity.receiver_name, identity)
+                    if prior != identity:
+                        raise ValueError('receiver name has multiple native identities')
+                if previous in by_previous:
+                    raise ValueError('concurrent receipts for the same predecessor')
+                if predecessors is not None:
+                    if end in predecessors and predecessors[end] != previous:
+                        raise ValueError('receipt position has multiple predecessors')
+                    predecessors[end] = previous
+                by_previous[previous] = PendingReceipt(previous, start, end, receipt['raw'], source, fleet,
+                                                       receipt['event_count'])
+        current = checkpoint_store.load_bound() if current_checkpoint is _UNREAD_CHECKPOINT else current_checkpoint
+        if current is not None:
+            binding.validate_checkpoint(current)
+        boundary = snapshot_boundary or binding.bootstrap
+        binding.validate_checkpoint(boundary)
+        if receiver_registry is not None:
+            receiver_registry.require(binding, boundary)
+            if current is not None:
+                receiver_registry.require(binding, current)
+        cursor, visited, chain = binding.bootstrap, set(), []
+        while cursor in by_previous:
+            if cursor in visited:
+                raise ValueError('cycle in the bound receipt chain')
+            visited.add(cursor)
+            item = by_previous[cursor]
+            chain.append(item)
+            cursor = item.position
+        if len(visited) != len(by_previous):
+            raise ValueError('receipt chain does not descend from original bootstrap')
+        points = [binding.bootstrap] + [item.position for item in chain]
+        resume = current or boundary
+        if resume in points:
+            return chain[points.index(resume):]
+        overlapping = [index for index, item in enumerate(chain)
+                       if item.start.receiver_identity == resume.receiver_identity
+                       and item.start.sequence <= resume.sequence < item.position.sequence]
+        if len(overlapping) == 1:
+            if resume != boundary:
+                raise ValueError('only the original copy boundary may overlap a receipt')
+            return chain[overlapping[0]:]
+        if current is not None and current != boundary:
+            raise ValueError('bound checkpoint absent from original receipt chain')
+        if (resume.receiver_identity == binding.bootstrap.receiver_identity
+                and resume.sequence < binding.bootstrap.sequence):
+            raise ValueError('copy boundary precedes original capture bootstrap')
+        matching = [point.sequence for point in points if point.receiver_identity == resume.receiver_identity]
+        if matching and resume.sequence < max(matching):
+            raise ValueError('copy boundary lies in an unproved receipt gap')
+        return []  # Capture has not yet reached this admitted copy boundary.
+    except (ValueError, FileNotFoundError, TypeError) as error:
+        raise DestinationLoaderError('invalid bound receipt chain') from error
+
+
+def _bound_evidence(table, storage):
+    binding = table.capture_binding
+    if type(binding) is not CaptureBinding or any(type(value) is not str or not value for value in (
+            table.pipeline_id, table.run_id, table.evidence_key)):
+        raise DestinationLoaderError('installed loader requires bound pipeline/table/run evidence')
+    try:
+        evidence = EvidenceReader(storage.object_store('')).read(table.evidence_key)
+        if evidence is None:
+            return None
+        if ((evidence.pipeline_id, evidence.table_id, evidence.run_id) !=
+                (table.pipeline_id, table.table_id, table.run_id)
+                or evidence.boundary.capture_binding != binding):
+            raise ValueError('copy evidence differs from the original capture admission')
+        point = evidence.require_bound()
+        registry = _bound_registry(table, storage)
+        registry.require(binding, point)
+        key = copy_intent_key(table.pipeline_id, table.table_id, table.run_id)
+        intent = _decode_checkpoint_json(storage.object_store('receiver-authority-v1').get_bounded(key, 65536))
+        if (type(intent) is not dict or set(intent) != {'format_version', 'pipeline_id', 'table_id', 'run_id', 'boundary'}
+                or intent['format_version'] != 'quadringent-copy-intent-v1'
+                or (intent['pipeline_id'], intent['table_id'], intent['run_id']) !=
+                (table.pipeline_id, table.table_id, table.run_id)
+                or JournalBoundary.from_dict(intent['boundary']) != evidence.boundary):
+            raise ValueError('copy evidence differs from durable original copy intent')
+        if type(evidence.rows_copied) is not int or evidence.rows_copied < 0:
+            raise ValueError('invalid copy population')
+        return evidence
+    except (ValueError, TypeError, FileNotFoundError) as error:
+        raise DestinationLoaderError('invalid bound initial-copy evidence') from error
+
+
+def _bound_registry(table, storage):
+    binding = table.capture_binding
+    kind = {'aws': 's3', 'gcs': 'gcs'}.get(getattr(storage, 'kind', None))
+    if kind is None or binding.registry_authority != f'{kind}://{storage.raw_bucket}/receiver-authority-v1':
+        raise DestinationLoaderError('capture registry authority differs from the configured storage')
+    return ReceiverNameRegistry(storage.object_store('receiver-authority-v1'), authority=binding.registry_authority,
+                                source_system=binding.source_system, journal=binding.journal)
+
+
+def _bound_batch(table, receipt, *, preserve_decimals):
+    if receipt.raw is None:
+        return None
+    raw = receipt.raw
+    manifest = receipt.store.get(raw['manifest_key'])
+    payload = receipt.store.get(raw['payload_key'])
+    if any(hashlib.sha256(data).hexdigest() != raw[name] for data, name in (
+            (manifest, 'manifest_sha256'), (payload, 'payload_sha256'))):
+        raise DestinationLoaderError('RAW differs from certified receipt digests')
+    batch = read_raw_batch(manifest, payload, payload_name=raw['payload_key'], preserve_decimals=preserve_decimals)
+    if (batch.manifest.capture_binding != table.capture_binding
+            or batch.manifest.bound_high_watermark != receipt.position
+            or batch.manifest.format_version != 'as400-raw-v2'
+            or batch.manifest.event_count != receipt.event_count
+            or raw['payload_key'] != f'batch-{batch.manifest.batch_id}.jsonl'
+            or any(event.position.receiver != receipt.start.receiver_identity.receiver_name
+                   or not receipt.start.sequence <= event.position.sequence <= receipt.position.sequence
+                   for event in batch.events)):
+        raise DestinationLoaderError('RAW differs from the complete certified scan')
+    target = table.table_name.strip().upper()
+    if any(event.library != table.schema_name or (not receipt.fleet and event.table != target)
+           for event in batch.events if not receipt.fleet or event.table == target):
+        raise DestinationLoaderError('RAW events belong to another source table')
+    return RawBatch(batch.manifest, tuple(event for event in batch.events if event.table == target))
+
+
+def _bound_preflight(table, storage, raw_prefix_root, *, history_mode, receipt_cache=None):
+    checkpoint = storage.checkpoint_store(loader_checkpoint_stream_key(table.table_id, table.evidence_key))
+    current = checkpoint.load_bound()
+    evidence = _bound_evidence(table, storage)
+    if evidence is None:
+        if current is not None:
+            raise DestinationLoaderError('bound checkpoint lacks its original copy evidence')
+        return checkpoint, current, None, [], []
+    def object_store(prefix):
+        return receipt_cache.object_store(prefix) if receipt_cache is not None else storage.object_store(prefix)
+    pending = discover_pending_receipts(
+        object_store(raw_prefix_for_table(raw_prefix_root, table.schema_name, table.table_name)), checkpoint,
+        current_checkpoint=current, capture_binding=table.capture_binding,
+        snapshot_boundary=evidence.require_bound(), receiver_registry=_bound_registry(table, storage))
+    batches = [_bound_batch(table, item, preserve_decimals=history_mode == 'sql') for item in pending]
+    snapshots, refs = [], set()
+    if current is None:
+        snapshot_store = storage.object_store(snapshot_prefix(raw_prefix_root, table.table_name))
+        expected = {'pipeline_id': table.pipeline_id, 'table_id': table.table_id, 'run_id': table.run_id,
+                    'boundary': evidence.require_bound().to_dict()}
+        for ref in evidence.snapshot_batches:
+            keys = (ref.payload_key, ref.manifest_key)
+            if keys in refs:
+                raise DestinationLoaderError('duplicate snapshot batch reference')
+            refs.add(keys)
+            batch = read_published_batch(snapshot_store, *keys, preserve_decimals=history_mode == 'sql')
+            if (batch.manifest.format_version != 'as400-snapshot-v2'
+                    or batch.manifest.capture_binding != table.capture_binding
+                    or batch.manifest.copy_context != expected
+                    or any((event.library, event.table) != (table.schema_name, table.table_name)
+                           or event.position.receiver != 'SNAPSHOT:' + table.run_id
+                           for event in batch.events)):
+                raise DestinationLoaderError('snapshot RAW differs from the bound copy attempt')
+            snapshots.append(batch)
+        if sum(len(batch.events) for batch in snapshots) != evidence.rows_copied:
+            raise DestinationLoaderError('snapshot population differs from copy evidence')
+    return checkpoint, current, evidence, pending, (snapshots, batches)
+
+
+def _load_bound_table_once(table, *, plan, storage, raw_prefix_root, streaming_client_factory, cursor,
+                            flush_each_batch=False, session_pool=None, receipt_cache=None, history_mode='streaming',
+                            on_snapshot_applied=None, cycle_metrics=None):
+    if history_mode != 'sql' or session_pool is not None:
+        raise DestinationLoaderError('bound capture requires SQL history until full Streaming offsets are supported')
+    checkpoint, current, evidence, pending, prepared = _bound_preflight(
+        table, storage, raw_prefix_root, history_mode=history_mode, receipt_cache=receipt_cache)
+    if evidence is None or (current is not None and not pending):
+        return 0, 0
+    snapshots, batches = prepared
+    history = HistorySqlLoader(plan=plan, cursor=cursor)
+    merge = MirrorMergePlan(plan=plan)
+    try:
+        if current is None:
+            cursor.execute(f'DELETE FROM {plan.qualified_mirror_table}')
+            for batch in snapshots:
+                existing = existing_history_event_ids(plan, batch, cursor) if history.needs_history_lookup else ()
+                _load_history_batch(history, batch, existing, cycle_metrics)
+                if batch.events:
+                    merge.execute(cursor, event_ids=tuple(event.event_id for event in batch.events))
+            checkpoint.compare_and_set_bound(None, evidence.require_bound())
+            current = evidence.require_bound()
+            if on_snapshot_applied is not None:
+                on_snapshot_applied()
+        processed, appended = 0, 0
+        for item, batch in zip(pending, batches, strict=True):
+            overlapping_boundary = (current == evidence.require_bound()
+                                    and item.start.receiver_identity == current.receiver_identity
+                                    and item.start.sequence <= current.sequence < item.position.sequence)
+            if item.previous != current and not overlapping_boundary:
+                raise DestinationLoaderError('bound loader predecessor changed')
+            if batch is not None and item.start.receiver_identity == evidence.require_bound().receiver_identity:
+                batch = RawBatch(batch.manifest, tuple(event for event in batch.events
+                                                       if event.position.sequence > evidence.require_bound().sequence))
+            if batch is not None and batch.events:
+                existing = existing_history_event_ids(plan, batch, cursor) if history.needs_history_lookup else ()
+                result = _load_history_batch(history, batch, existing, cycle_metrics)
+                appended += result.events_appended
+                merge.execute(cursor, event_ids=tuple(event.event_id for event in batch.events))
+                processed += 1
+            checkpoint.compare_and_set_bound(current, item.position)
+            current = item.position
+        return processed, appended
+    finally:
+        history.close()
 
 
 def existing_history_event_ids(plan: TableDestinationPlan, batch: RawBatch, cursor: Any) -> frozenset[str]:
@@ -679,6 +943,8 @@ def load_snapshot_once(
     désormais au moins la frontière de bascule.
     """
 
+    if table.capture_binding is not None:
+        raise DestinationLoaderError('bound snapshots require complete loader preflight')
     if not table.evidence_key:
         return False
     if checkpoint_store.load() is not None:
@@ -806,6 +1072,12 @@ def _load_table_once(
         raise DestinationLoaderError("SQL mode cannot open a Snowpipe channel")
     if receipt_cache is not None and receipt_cache.storage is not storage:
         raise DestinationLoaderError("receipt cache bound to another storage backend")
+    if table.capture_binding is not None:
+        return _load_bound_table_once(
+            table, plan=plan, storage=storage, raw_prefix_root=raw_prefix_root,
+            streaming_client_factory=streaming_client_factory, cursor=cursor, flush_each_batch=flush_each_batch,
+            session_pool=session_pool, receipt_cache=receipt_cache, history_mode=history_mode,
+            on_snapshot_applied=on_snapshot_applied, cycle_metrics=cycle_metrics)
     with measure_loader_stage(cycle_metrics, "discovery_raw"):
         object_store_factory = storage.object_store if receipt_cache is None else receipt_cache.object_store
         object_store = object_store_factory(raw_prefix_for_table(raw_prefix_root, table.schema_name, table.table_name))
@@ -1064,6 +1336,13 @@ def run_once(*, storage: StorageBackend, tables: tuple[LoaderTable, ...], raw_pr
     measurements: list[tuple[LoaderTable, TableDestinationPlan, int, int]] = []
     for table in tables:
         plan = build_plan(table, database=database, schema=schema, mirror_schema=mirror_schema)
+        if table.capture_binding is not None:
+            if history_mode != 'sql' or session_pool is not None:
+                raise DestinationLoaderError('bound capture requires SQL history until full Streaming offsets are supported')
+            _, _, evidence, _, _ = _bound_preflight(table, storage, raw_prefix_root,
+                                                    history_mode=history_mode, receipt_cache=receipt_cache)
+            if evidence is None:
+                continue
         if ensure_schema:
             ensure_tables_exist(plan, cursor)
         snapshot_applied = False
@@ -1111,7 +1390,9 @@ def main(argv: list[str] | None = None) -> int:
     if history_mode not in {"streaming", "sql"}:
         raise DestinationLoaderError("QUADRINGENT_HISTORY_MODE must be streaming or sql")
 
-    tables = parse_table_set(_env("QUADRINGENT_LOADER_TABLE_SET_JSON"))
+    tables = parse_table_set(_env("QUADRINGENT_LOADER_TABLE_SET_JSON"), require_bound=True)
+    if history_mode != 'sql':
+        raise DestinationLoaderError('installed bound loader requires SQL history until full Streaming offsets are supported')
     raw_prefix_root = _env("AS400_RAW_PREFIX")
     database = _env("QUADRINGENT_DESTINATION_DATABASE")
     schema = _env("QUADRINGENT_DESTINATION_SCHEMA")

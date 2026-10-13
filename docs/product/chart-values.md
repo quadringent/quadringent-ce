@@ -90,8 +90,9 @@ Generated from `chart/values.schema.json` by `scripts/generate_chart_values_doc.
 | `fleetObserve.manifestBudget` | `integer` | no | Strictly positive integer. |
 | `safety` | `object` | no |  |
 | `safety.maxConsecutiveErrors` | `integer` | no | Never more than 3: each error is another IBM i sign-on. |
-| `bootstrap` | `object` | no | Explicit reader bootstrap. |
-| `bootstrap.mode` | `string` | no | checkpoint requires durable state; tail reads a finite window; explicit requires receiver + sequence. |
+| `bootstrap` | `object` | no | Original native admission and historical bootstrap settings. |
+| `bootstrap.captureBinding` | `string` | no | Original quadringent-capture-binding-v1 JSON required by native capture; never inferred from tail or a legacy checkpoint. |
+| `bootstrap.mode` | `string` | no | Installed native capture requires checkpoint mode and its original captureBinding; tail and explicit cannot replace that admission. |
 | `bootstrap.receiver` | `string` | no | Starting receiver (explicit mode). |
 | `bootstrap.sequence` | `string` | no | Starting sequence (explicit mode). |
 | `nodeSelector` | `object` | no | Kubernetes node selector for the site's cluster. |

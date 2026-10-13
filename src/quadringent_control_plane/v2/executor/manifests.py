@@ -23,6 +23,7 @@ from typing import Mapping, Sequence
 
 from quadringent.storage_layout import journal_prefix as _journal_prefix
 from quadringent.reader_scope import READER_CHECKPOINT_SCOPE, reader_checkpoint_stream_key
+from quadringent.capture_binding import CaptureBinding
 
 from .boundary import JournalBoundary
 
@@ -93,6 +94,8 @@ ENV_READER_TIMEOUT_SECONDS = "AS400_READER_TIMEOUT_SECONDS"
 ENV_MAX_SECONDS = "AS400_MAX_SECONDS"
 ENV_TABLE_SET = "AS400_FLEET_TABLES"
 ENV_TABLE_BOOTSTRAP_JSON = "AS400_TABLE_BOOTSTRAP_JSON"
+ENV_CAPTURE_BINDING_JSON = "AS400_CAPTURE_BINDING_JSON"
+ENV_BOUNDARY_JSON = "AS400_BOUNDARY_JSON"
 
 # Contrat requis par ``scripts/as400_continuous_capture.py`` (constaté au
 # premier démarrage réel, 2026-09-24) : ces variables sont lues *avant* tout
@@ -239,6 +242,19 @@ def journal_key(journal_library: str, journal_name: str) -> str:
     return f"{journal_library.strip().upper()}.{journal_name.strip().upper()}"
 
 
+def _require_capture_scope(binding: CaptureBinding, *, source_id: str, journal_library: str,
+                           journal_name: str, storage_backend: str, raw_bucket: str, raw_prefix: str) -> None:
+    scope_id = reader_checkpoint_stream_key(storage_backend=storage_backend, source_id=source_id,
+                                            journal_library=journal_library, journal_name=journal_name,
+                                            raw_bucket=raw_bucket, raw_prefix=raw_prefix)
+    backend = {"aws": "s3", "s3": "s3", "gcs": "gcs"}.get(storage_backend)
+    if (binding.scope_id != scope_id or binding.source_system != "ibmi"
+            or binding.journal != journal_name.strip().upper()
+            or binding.bootstrap.receiver_identity.journal_library != journal_library.strip().upper()
+            or binding.registry_authority != f"{backend}://{raw_bucket}/receiver-authority-v1"):
+        raise ManifestError("capture binding differs from the declared source/journal/storage scope")
+
+
 def _short_hash(*parts: str, length: int = 10) -> str:
     digest = hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
     return digest[:length]
@@ -277,7 +293,7 @@ class TableBootstrap:
     boundary: JournalBoundary
 
     def to_env_entry(self) -> dict[str, object]:
-        return {
+        entry: dict[str, object] = {
             "table_id": self.table_id,
             "schema": self.schema_name,
             "table": self.table_name,
@@ -285,6 +301,9 @@ class TableBootstrap:
             "receiver_library": self.boundary.receiver_library,
             "sequence": self.boundary.bootstrap_sequence,
         }
+        if self.boundary.capture_binding is not None:
+            entry["boundary"] = self.boundary.to_dict()
+        return entry
 
 
 @dataclass(frozen=True)
@@ -369,6 +388,16 @@ def build_reader_deployment(spec: ReaderDesiredSpec) -> dict[str, object]:
         ANNOTATION_TABLE_SET: table_ids,
     }
     sorted_tables = sorted(spec.tables, key=lambda t: t.table_id)
+    bindings = [table.boundary.capture_binding for table in sorted_tables]
+    binding = bindings[0]
+    if any(item != binding for item in bindings):
+        raise ManifestError("all tables in a shared reader must use the same original capture binding")
+    if binding is not None:
+        _require_capture_scope(binding, source_id=spec.source_id, journal_library=spec.journal_library,
+                               journal_name=spec.journal_name, storage_backend=spec.storage_backend,
+                               raw_bucket=spec.raw_bucket, raw_prefix=spec.raw_prefix)
+        for table in sorted_tables:
+            table.boundary.require_bound()
     schema = sorted_tables[0].schema_name.strip().upper()
     # ``ISERIES_TABLE`` reste requis même en mode flotte : c'est la table
     # « ancre » que ``fleet_mode_from_environment`` exige comme membre de
@@ -421,7 +450,7 @@ def build_reader_deployment(spec: ReaderDesiredSpec) -> dict[str, object]:
     # L'identité ne peut pas être remplacée par un environnement additionnel.
     for key in (ENV_STREAM_KEY, "AS400_CHECKPOINT_SCOPE", ENV_RAW_PREFIX, ENV_RAW_BUCKET,
                 ENV_STORAGE_BACKEND,
-                ENV_JOURNAL_LIBRARY, ENV_JOURNAL_NAME):
+                ENV_JOURNAL_LIBRARY, ENV_JOURNAL_NAME, ENV_CAPTURE_BINDING_JSON, ENV_BOUNDARY_JSON):
         if key in spec.extra_env:
             raise ManifestError("reader source/journal/RAW identity cannot be replaced")
     # Position de départ lue par ``as400_continuous_capture._bootstrap_position``
@@ -440,6 +469,9 @@ def build_reader_deployment(spec: ReaderDesiredSpec) -> dict[str, object]:
     env[ENV_BOOTSTRAP_RECEIVER] = earliest.boundary.receiver_name
     env[ENV_BOOTSTRAP_RECEIVER_LIBRARY] = earliest.boundary.receiver_library
     env[ENV_BOOTSTRAP_SEQUENCE] = str(earliest.boundary.bootstrap_sequence)
+    if binding is not None:
+        env[ENV_CAPTURE_BINDING_JSON] = json.dumps(binding.to_dict(), sort_keys=True, separators=(",", ":"))
+        env[ENV_BOUNDARY_JSON] = json.dumps(earliest.boundary.to_dict(), sort_keys=True, separators=(",", ":"))
     if len(table_names) > 1:
         # Mode flotte : ``fleet_mode_from_environment`` exige les deux
         # variables ensemble et au moins deux tables — jamais posées seules
@@ -525,6 +557,9 @@ class LoaderTableSpec:
     # ``quadringent_destination_loader.load_snapshot_once``). ``None`` pour
     # une table sans copie initiale connue.
     evidence_key: str | None = None
+    pipeline_id: str | None = None
+    run_id: str | None = None
+    capture_binding: CaptureBinding | None = None
 
     def to_env_entry(self) -> dict[str, object]:
         entry: dict[str, object] = {
@@ -536,6 +571,11 @@ class LoaderTableSpec:
         }
         if self.evidence_key:
             entry["evidence_key"] = self.evidence_key
+        if self.capture_binding is not None:
+            if not self.pipeline_id or not self.run_id or not self.evidence_key:
+                raise ManifestError("bound loader table requires pipeline, run and evidence identities")
+            entry.update(pipeline_id=self.pipeline_id, run_id=self.run_id,
+                         capture_binding=self.capture_binding.to_dict())
         return entry
 
 
@@ -746,6 +786,15 @@ def build_initial_copy_job(spec: InitialCopyDesiredSpec) -> dict[str, object]:
         ENV_PIPELINE_ID: spec.pipeline_id,
         ENV_TABLE_ID: spec.table_id,
     }
+    if spec.boundary.capture_binding is not None:
+        spec.boundary.require_bound()
+        _require_capture_scope(spec.boundary.capture_binding, source_id=spec.source_id,
+                               journal_library=spec.boundary.receiver_identity.journal_library,
+                               journal_name=spec.boundary.receiver_identity.journal_name,
+                               storage_backend=spec.storage_backend, raw_bucket=spec.raw_bucket,
+                               raw_prefix=spec.raw_prefix)
+        env[ENV_CAPTURE_BINDING_JSON] = json.dumps(spec.boundary.capture_binding.to_dict(), sort_keys=True, separators=(",", ":"))
+        env[ENV_BOUNDARY_JSON] = json.dumps(spec.boundary.to_dict(), sort_keys=True, separators=(",", ":"))
     container: dict[str, object] = {
         "name": "initial-copy",
         "image": spec.image,

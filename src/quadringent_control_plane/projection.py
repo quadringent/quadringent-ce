@@ -9,6 +9,8 @@ from quadringent.site_config import SiteConfig, current as _current_site
 from quadringent.slo import REQUIRED_SLO_CHECK_IDS
 from quadringent.observability_snapshot import ACCEPTED_OBSERVABILITY_SCHEMAS
 from quadringent.slo_alerts import slo_report_digest, validate_alert_state
+from quadringent.capture_binding import CaptureBinding
+from quadringent.receiver_identity import BoundCheckpoint
 
 from . import model as _model
 from .costs import project_costs
@@ -264,8 +266,11 @@ def _window_delivery(value, flux, source, now):
             require(isinstance(value.get(key),str) and re.fullmatch(r'[a-z0-9][a-z0-9-]{0,79}',value[key]) is not None)
         window=value['window']
         intent=window['intent']
-        require(window['format_version']=='quadringent-closed-window-v2' and window['window_id']==value['window_id'])
-        require(intent.get('format_version')=='quadringent-window-intent-v2' and intent.get('window_id')==value['window_id'])
+        bound = window['format_version'] == 'quadringent-closed-window-v3'
+        require(window['format_version'] in ('quadringent-closed-window-v2', 'quadringent-closed-window-v3')
+                and window['window_id']==value['window_id'])
+        require(intent.get('format_version') == ('quadringent-window-intent-v3' if bound else 'quadringent-window-intent-v2')
+                and intent.get('window_id')==value['window_id'])
         stream_id=intent.get('stream_id')
         require(isinstance(stream_id,str) and 1<=len(stream_id)<=512
                 and re.fullmatch(r'[a-z0-9][a-z0-9._/-]*',stream_id) is not None
@@ -275,7 +280,14 @@ def _window_delivery(value, flux, source, now):
         duration,grace=intent['duration_seconds'],intent['closure_grace_seconds']
         require(type(duration) is int and 600<=duration<=3600 and type(grace) is int and 0<=grace<=120)
         require(started+timedelta(seconds=duration)<=closed<=sealed<=started+timedelta(seconds=duration+grace))
-        require(_existing_checkpoint(intent['previous']) is not None and _existing_checkpoint(window['end']) is not None)
+        if bound:
+            binding = CaptureBinding.from_dict(intent['capture_binding'])
+            require((binding.source_system, binding.journal) == site.event_scope()[:2])
+            for point in (intent['previous'], window['end']):
+                binding.validate_checkpoint(BoundCheckpoint.from_dict(point))
+        else:
+            require('capture_binding' not in intent)
+            require(_existing_checkpoint(intent['previous']) is not None and _existing_checkpoint(window['end']) is not None)
         count=window['event_count']
         require(type(count) is int and 0<=count<=MAX_PUBLIC_COUNT)
         destination=value['destination']

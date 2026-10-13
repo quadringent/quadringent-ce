@@ -318,15 +318,17 @@ Current reads and qualification require `ATTACHED`, `ONLINE` or `SAVED` status.
 `PARTIAL`, `FREED`, `EMPTY` and missing/unknown statuses fail before a scan or idle
 success. The reader rechecks status, library and bounds after the scan, before
 RAW/receipts/checkpoint publication; required metadata never uses a stale fallback.
-These checks do not establish durable receiver-generation identity: replacement
-under the same name with identical bounds remains a separate, unqualified gap.
-The checkpoint-v2 storage APIs retain scope, capture epoch, journal/library and
-native receiver generation under full-envelope CAS; v1 cannot be adopted or v2
-rewritten by legacy writers. A separate worker lookup reads the IBM i IFS object
-identity triplet for an exact receiver path, currently requiring system ASP 1.
-These building blocks are not yet wired into continuous capture or initial-copy
-boundaries. Runtime/RAW/receipt propagation, historical name reservations and
-native append/recreation/restore stability remain required before activation.
+Current source binds capture and initial-copy boundaries to the original admission,
+checkpoint-v2 and the exact IBM i IFS object identity, requiring system ASP 1.
+Fresh identity checks surround scans and copies; idle polls also validate identity.
+Immutable name claims precede event reads, RAW-v2 and receipt-v3 publication. Legacy
+checkpoints are not adopted from today's catalog. Direct Helm capture requires the
+original `bootstrap.captureBinding` JSON; tail cannot manufacture that admission.
+The bound loader currently supports SQL history; Streaming offsets remain gated.
+A table added after the journal advanced requires proven backfill. Registry restore
+requires a complete, verified inventory at the same authority, including old and
+orphaned claims. Native append, replacement, restoration and artifact qualification
+remain separate gates; these source changes are absent from the original 0.3.5 release.
 A nine-result sentinel fails.
 Read each segment separately under the aggregate 1,000-entry budget. Decoded images
 and independent ROWPOS must cover exactly the same positions. Retain/revalidate

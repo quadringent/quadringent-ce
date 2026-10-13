@@ -36,6 +36,16 @@ data:
   {{- end }}
   {{- end }}
   {{- $bootstrapMode := required "bootstrap.mode is required" .Values.bootstrap.mode }}
+  {{- if .Values.bootstrap.captureBinding }}
+  {{- $binding := mustFromJson .Values.bootstrap.captureBinding }}
+  {{- if ne $binding.format_version "quadringent-capture-binding-v1" }}
+  {{- fail "bootstrap.captureBinding must contain the original native capture admission" }}
+  {{- end }}
+  {{- if ne $bootstrapMode "checkpoint" }}
+  {{- fail "native capture admission cannot be replaced by tail or explicit legacy bootstrap" }}
+  {{- end }}
+  AS400_CAPTURE_BINDING_JSON: {{ .Values.bootstrap.captureBinding | quote }}
+  {{- end }}
   {{- if eq $bootstrapMode "tail" }}
   AS400_BOOTSTRAP_RECEIVER: "__TAIL__"
   {{- else if eq $bootstrapMode "explicit" }}

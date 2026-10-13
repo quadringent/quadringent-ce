@@ -170,13 +170,12 @@ safety:
   # rafale peut désactiver le profil source. La garde durable borne à 3.
   maxConsecutiveErrors: 3
 
-# Amorçage explicite : `checkpoint` refuse de démarrer sans état durable,
-# `tail` lit une fenêtre finie au plus près de la source, et `explicit` exige
-# un receiver + une séquence. Le pilote de coexistence utilise `tail`.
+# Native capture requires the durable original admission, including on restart.
 bootstrap:
   mode: checkpoint
   receiver: ""
   sequence: ""
+  captureBinding: ""
 
 # Placement : propre au cluster du site, déclaré dans les values du site.
 nodeSelector: {}

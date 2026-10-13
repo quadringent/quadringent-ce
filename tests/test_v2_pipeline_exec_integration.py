@@ -36,6 +36,10 @@ from fastapi.testclient import TestClient
 from quadringent_control_plane import k8s_jobs, k8s_pods
 from quadringent_control_plane.v2 import entrypoint, schema as v2_schema
 from quadringent_control_plane.v2.crypto import SecretBox
+from quadringent.capture_binding import CaptureBinding
+from quadringent_control_plane.v2.executor.boundary import JournalBoundary
+from quadringent_control_plane.v2.executor.evidence import copy_intent_key
+from capture_binding_fakes import MemoryCaptureStorage
 
 _FAKE_CA_PEM = (
     "-----BEGIN CERTIFICATE-----\n"
@@ -137,8 +141,14 @@ def _fake_java(tmp_path: Path) -> Path:
     script = tmp_path / "fake-java.py"
     script.write_text(
         "#!/usr/bin/env python3\n"
-        "print('as400-receiver-catalog-v2')\n"
-        "print('receiver\\tQGPL\\tRCV0001\\tATTACHED\\t1\\t4200\\t-\\t-\\t-\\t-')\n",
+        "import os\n"
+        "if os.environ.get('AS400_RECEIVER_IDENTITY_NAME'):\n"
+        "    assert os.environ['AS400_RECEIVER_IDENTITY_ASP'] == '1'\n"
+        "    print('as400-receiver-identity-v1')\n"
+        "    print('identity\\tQGPL\\tQSQJRN\\tQGPL\\tRCV0001\\t1\\t123\\t456\\t789')\n"
+        "else:\n"
+        "    print('as400-receiver-catalog-v2')\n"
+        "    print('receiver\\tQGPL\\tRCV0001\\tATTACHED\\t1\\t4200\\t-\\t-\\t-\\t-')\n",
         encoding="utf-8",
     )
     script.chmod(script.stat().st_mode | stat.S_IEXEC)
@@ -154,6 +164,10 @@ def wired_app(tmp_path, monkeypatch):
 
     fake_api = _FakeKubernetesApi()
     monkeypatch.setattr(k8s_jobs, "https_transport", lambda *a, **k: fake_api)
+    storage = MemoryCaptureStorage()
+    monkeypatch.setattr("quadringent.storage_backend.StorageBackend", lambda *args, **kwargs: storage)
+    monkeypatch.setattr("quadringent_control_plane.v2.executor.kubernetes.StorageBackend",
+                        lambda *args, **kwargs: storage)
 
     dsn = f"sqlite:///{tmp_path / 'pipeline-exec-integration.sqlite3'}"
     environ = {
@@ -194,7 +208,7 @@ def wired_app(tmp_path, monkeypatch):
                 json={"email": "operateur@example.com", "password": "un-mot-de-passe-robuste"},
             )
             assert login.status_code == 200
-            yield client, engine, fake_api
+            yield client, engine, fake_api, storage
     finally:
         engine.dispose()
 
@@ -204,7 +218,7 @@ def _idempotency_key(label: str) -> dict[str, str]:
 
 
 def test_pipeline_start_creates_a_real_kubernetes_job_via_build_app(wired_app) -> None:
-    client, engine, fake_api = wired_app
+    client, engine, fake_api, storage = wired_app
 
     created_source = client.post(
         "/v2/sources",
@@ -280,3 +294,17 @@ def test_pipeline_start_creates_a_real_kubernetes_job_via_build_app(wired_app) -
 
     blob = _json.dumps(job_manifest)
     assert "un-mot-de-passe-ibmi" not in blob
+    env = {entry["name"]: entry["value"] for entry in container["env"] if "value" in entry}
+    boundary = JournalBoundary.from_dict(_json.loads(env["AS400_BOUNDARY_JSON"]))
+    binding = CaptureBinding.from_dict(_json.loads(env["AS400_CAPTURE_BINDING_JSON"]))
+    assert boundary.require_bound() == binding.bootstrap
+    assert binding.bootstrap.receiver_identity.native_generation == "1:123:456:789"
+    assert binding.registry_authority == "s3://acme-raw/receiver-authority-v1"
+    intent = _json.loads(storage.object_store("receiver-authority-v1").get_bounded(
+        copy_intent_key(pipeline_after["id"], "tbl-pe-1", env["AS400_SNAPSHOT_RUN_ID"]), 65_536))
+    assert intent["boundary"] == boundary.to_dict()
+    reader_manifest = next(m for k, m in fake_api.objects.items() if "/deployments/" in k)
+    reader_env = {entry["name"]: entry["value"]
+                  for entry in reader_manifest["spec"]["template"]["spec"]["containers"][0]["env"]
+                  if "value" in entry}
+    assert _json.loads(reader_env["AS400_CAPTURE_BINDING_JSON"]) == binding.to_dict()

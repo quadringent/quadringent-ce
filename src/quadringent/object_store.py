@@ -11,13 +11,53 @@ import time
 from typing import Any, Protocol
 
 from .contract import ChangeEvent, JournalPosition
+from .capture_binding import CaptureBinding
+from .receiver_identity import BoundCheckpoint
 from .raw import RawBatch, RawBatchManifest, RawBatchWriter, read_raw_batch
 
 
-def receipt_index_key(position: JournalPosition) -> str:
-    identity = json.dumps({'receiver': position.receiver, 'sequence': position.sequence},
+def receipt_index_key(position: JournalPosition | BoundCheckpoint) -> str:
+    record = position.to_dict() if isinstance(position, BoundCheckpoint) else {
+        'receiver': position.receiver, 'sequence': position.sequence}
+    identity = json.dumps(record,
                           sort_keys=True, separators=(',', ':')).encode()
     return 'scan-index/end-' + hashlib.sha256(identity).hexdigest() + '.json'
+
+
+def validate_bound_scan(*, start: BoundCheckpoint, end: BoundCheckpoint,
+                        previous: BoundCheckpoint | None, capture_binding: CaptureBinding,
+                        manifest_content: bytes | None, payload: bytes | None,
+                        scan_completed_at: datetime | None) -> RawBatch | None:
+    """Validate the entire scan before publishing any table coverage."""
+    if type(capture_binding) is not CaptureBinding or any(type(point) is not BoundCheckpoint
+                                                        for point in (start, end)):
+        raise ValueError('bound scan requires complete positions and binding')
+    for point in (start, end, previous):
+        if point is not None:
+            capture_binding.validate_checkpoint(point)
+    if (start.receiver_identity != end.receiver_identity or start.sequence > end.sequence):
+        raise ValueError('invalid bound scanned range')
+    if previous is None:
+        if (start.receiver_identity != capture_binding.bootstrap.receiver_identity
+                or start.sequence != capture_binding.bootstrap.sequence + 1):
+            raise ValueError('first bound scan must follow the original bootstrap')
+        previous = capture_binding.bootstrap
+    if previous.receiver_identity.receiver_name == start.receiver_identity.receiver_name and (
+            previous.receiver_identity != start.receiver_identity or start.sequence != previous.sequence + 1):
+        raise ValueError('bound scan does not follow its exact predecessor')
+    if not isinstance(scan_completed_at, datetime) or scan_completed_at.utcoffset() is None:
+        raise ValueError('bound scan requires a timezone-aware completion timestamp')
+    if (manifest_content is None) != (payload is None):
+        raise ValueError('bound RAW pair incomplete')
+    if manifest_content is None:
+        return None
+    batch = read_raw_batch(manifest_content, payload)
+    if (batch.manifest.capture_binding != capture_binding or batch.manifest.bound_high_watermark != end):
+        raise ValueError('RAW binding differs from the certified scan')
+    if any(event.position.receiver != start.receiver_identity.receiver_name
+           or not start.sequence <= event.position.sequence <= end.sequence for event in batch.events):
+        raise ValueError('raw events escape scanned range')
+    return batch
 
 
 class ObjectStore(Protocol):
@@ -41,6 +81,11 @@ class CheckpointStore(Protocol):
 
     def load(self) -> JournalPosition | None:
         """Read the current durable position."""
+
+    def load_bound(self) -> BoundCheckpoint | None: ...
+
+    def compare_and_set_bound(self, previous: BoundCheckpoint | None,
+                              position: BoundCheckpoint) -> None: ...
 
     def compare_and_set(self, previous: JournalPosition | None, position: JournalPosition) -> None:
         """Atomically advance only from the caller's exact predecessor."""
@@ -422,10 +467,11 @@ class RawFirstCaptureCoordinator:
         ).receipt
 
     def capture_receipted_window_result(
-        self, *, start: JournalPosition, end: JournalPosition,
-        previous: JournalPosition | None,
+        self, *, start: JournalPosition | BoundCheckpoint, end: JournalPosition | BoundCheckpoint,
+        previous: JournalPosition | BoundCheckpoint | None,
         manifest_content: bytes | None = None, payload: bytes | None = None,
         scan_completed_at: datetime | None = None,
+        capture_binding: CaptureBinding | None = None,
     ) -> ReceiptCaptureResult:
         """Persist an exact scanned range before its checkpoint, including empty scans.
 
@@ -433,11 +479,36 @@ class RawFirstCaptureCoordinator:
         remain unchanged. Receiver transitions must come from the ordered source
         planner, never from lexical receiver comparison.
         """
-        if start.receiver != end.receiver or start.sequence > end.sequence:
+        bound = capture_binding is not None
+        if bound:
+            validate_bound_scan(start=start, end=end, previous=previous, capture_binding=capture_binding,
+                                manifest_content=manifest_content, payload=payload,
+                                scan_completed_at=scan_completed_at)
+            if not isinstance(start, BoundCheckpoint) or not isinstance(end, BoundCheckpoint):
+                raise ValueError('bound receipt requires complete positions')
+            for point in (start, end, previous):
+                if point is not None:
+                    capture_binding.validate_checkpoint(point)
+            if start.receiver_identity != end.receiver_identity:
+                raise ValueError('a scan cannot cross native receiver identities')
+            if scan_completed_at is None:
+                raise ValueError('bound receipt requires the completed scan timestamp')
+        elif any(isinstance(point, BoundCheckpoint) for point in (start, end, previous)):
+            raise ValueError('bound positions require a capture binding')
+        start_position = start.position if bound else start
+        end_position = end.position if bound else end
+        previous_position = previous.position if bound and previous is not None else previous
+        if start_position.receiver != end_position.receiver or start.sequence > end.sequence:
             raise ValueError('invalid scanned range')
-        if previous is not None and previous.receiver == start.receiver and start.sequence != previous.sequence + 1:
+        if previous is not None and previous_position.receiver == start_position.receiver and start.sequence != previous.sequence + 1:
             raise ValueError('scan does not follow predecessor')
-        current = self.checkpoint_store.load()
+        if bound and previous is not None and previous_position.receiver == start_position.receiver and (
+                previous.receiver_identity != start.receiver_identity):
+            raise ValueError('same-name scan changed its native receiver identity')
+        if bound and previous is None and (start.receiver_identity != capture_binding.bootstrap.receiver_identity
+                                          or start.sequence != capture_binding.bootstrap.sequence + 1):
+            raise ValueError('first bound scan must follow the original bootstrap')
+        current = self.checkpoint_store.load_bound() if bound else self.checkpoint_store.load()
         if current not in (previous, end):
             raise ValueError('checkpoint differs from scanned predecessor')
         if (manifest_content is None) != (payload is None):
@@ -446,8 +517,11 @@ class RawFirstCaptureCoordinator:
         event_count = 0
         if manifest_content is not None:
             batch = read_raw_batch(manifest_content, payload)
-            if batch.manifest.high_watermark != end or any(
-                e.position.receiver != start.receiver or not start.sequence <= e.position.sequence <= end.sequence
+            if bound and (batch.manifest.capture_binding != capture_binding
+                          or batch.manifest.bound_high_watermark != end):
+                raise ValueError('RAW binding differs from the certified scan')
+            if batch.manifest.high_watermark != end_position or any(
+                e.position.receiver != start_position.receiver or not start.sequence <= e.position.sequence <= end.sequence
                 for e in batch.events
             ):
                 raise ValueError('raw events escape scanned range')
@@ -459,9 +533,13 @@ class RawFirstCaptureCoordinator:
                 'manifest_sha256': hashlib.sha256(manifest_content).hexdigest(),
             }
         def position(value):
-            return None if value is None else {'receiver': value.receiver, 'sequence': value.sequence}
+            return (None if value is None else value.to_dict() if bound else
+                    {'receiver': value.receiver, 'sequence': value.sequence})
         receipt = {'format_version': 'quadringent-scan-receipt-v1', 'previous': position(previous),
                    'start': position(start), 'end': position(end), 'event_count': event_count, 'raw': raw}
+        if bound:
+            receipt.update(format_version='quadringent-scan-receipt-v3',
+                           capture_binding=capture_binding.to_dict())
         # Same range start must never accept a different ending or population.
         identity = json.dumps(position(start), sort_keys=True, separators=(',', ':')).encode()
         key = 'receipts/scan-' + hashlib.sha256(identity).hexdigest() + '.json'
@@ -475,16 +553,16 @@ class RawFirstCaptureCoordinator:
                 if not isinstance(error, FileNotFoundError) and not _is_not_found(error):
                     raise
             else:
-                if existing.get('format_version') != 'quadringent-scan-receipt-v2':
+                if existing.get('format_version') != ('quadringent-scan-receipt-v3' if bound else 'quadringent-scan-receipt-v2'):
                     raise ValueError('cannot retrofit scan time onto legacy receipt')
                 timestamp = existing.get('scan_completed_at')
                 if not isinstance(timestamp, str) or datetime.fromisoformat(timestamp).utcoffset() is None:
                     raise ValueError('invalid prepared scan timestamp')
-            receipt['format_version'] = 'quadringent-scan-receipt-v2'
+            receipt['format_version'] = 'quadringent-scan-receipt-v3' if bound else 'quadringent-scan-receipt-v2'
             receipt['scan_completed_at'] = timestamp
         content = json.dumps(receipt, sort_keys=True, separators=(',', ':')).encode() + b'\n'
         index_key = receipt_index_key(end)
-        index_content = json.dumps({'format_version': 'quadringent-scan-index-v1',
+        index_content = json.dumps({'format_version': 'quadringent-scan-index-v2' if bound else 'quadringent-scan-index-v1',
                                     'receipt_key': key, 'receipt_sha256': hashlib.sha256(content).hexdigest()},
                                    sort_keys=True, separators=(',', ':')).encode() + b'\n'
         if current == end:
@@ -506,7 +584,10 @@ class RawFirstCaptureCoordinator:
         self.store.put_once(index_key, index_content)
         publish_ms = (time.perf_counter() - publish_started) * 1000
         checkpoint_started = time.perf_counter()
-        self.checkpoint_store.compare_and_set(previous, end)
+        if bound:
+            self.checkpoint_store.compare_and_set_bound(previous, end)
+        else:
+            self.checkpoint_store.compare_and_set(previous, end)
         checkpoint_ms = (time.perf_counter() - checkpoint_started) * 1000
         return ReceiptCaptureResult(receipt, publish_ms, checkpoint_ms,
                                     len(payload or b''), len(manifest_content or b''))

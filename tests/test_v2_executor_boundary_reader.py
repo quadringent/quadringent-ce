@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 import pytest
 
 from quadringent.continuous import ReceiverSnapshot
+from quadringent.receiver_identity import ReceiverIdentity
 from quadringent_control_plane.v2 import db as v2_db, schema as v2_schema
 from quadringent_control_plane.v2.crypto import SecretBox
 from quadringent_control_plane.v2.executor.boundary_reader import (
@@ -34,6 +35,42 @@ class _FakeCatalog:
         if self._error is not None:
             raise self._error
         return self._snapshots
+
+    def identity(self, *, journal_library, journal_name, receiver_library, receiver_name, asp_number):
+        assert asp_number == 1
+        return ReceiverIdentity(journal_library, journal_name, receiver_library, receiver_name,
+                                "offline-native-v1", "generation-a")
+
+
+@pytest.mark.parametrize("change", ["generation", "rotation", "duplicate"])
+def test_native_boundary_acquisition_rejects_changes_between_observations(engine, change):
+    from dataclasses import replace
+
+    secret_box = SecretBox(SecretBox.generate_key())
+    _seed(engine, secret_box)
+    original = ReceiverSnapshot("QGPL", "RCV0001", 1, 100, "ATTACHED")
+
+    class ChangingCatalog(_FakeCatalog):
+        snapshot_calls = 0
+        identity_calls = 0
+
+        def snapshot(self, required_receiver=None):
+            self.snapshot_calls += 1
+            if self.snapshot_calls == 2 and change == "rotation":
+                return [replace(original, receiver="RCV0002")]
+            if change == "duplicate":
+                return [original, original]
+            return [original]
+
+        def identity(self, **kwargs):
+            self.identity_calls += 1
+            identity = super().identity(**kwargs)
+            return replace(identity, native_generation="generation-b") if self.identity_calls == 2 else identity
+
+    catalog = ChangingCatalog([original])
+    reader = _reader(engine, secret_box, lambda **kwargs: catalog)
+    with pytest.raises(BoundaryUnavailableError):
+        reader.read_boundary(source_id="src1", table_id="tbl1")
 
 
 @pytest.fixture()

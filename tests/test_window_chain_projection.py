@@ -70,7 +70,7 @@ class ChainProjectionTests(unittest.TestCase):
             identity = key.split('/')[1]
             if identity not in self.proofs: raise FileNotFoundError(key)
             return json.dumps(self.proofs[identity]).encode()
-        with patch('quadringent_control_plane.window_chain.read_window_chain', return_value=self.chain), patch('quadringent_control_plane.window_chain.read_closed_window', side_effect=lambda store, window_id: self.closed[window_id]):
+        with patch('quadringent_control_plane.window_chain.read_window_chain', return_value=self.chain), patch('quadringent_control_plane.window_chain.read_closed_window', side_effect=lambda store, window_id, **_context: self.closed[window_id]):
             return project_window_chain(BoundedChainStore(read), run_id='r1',
                 flux=fresh_running_document()['flux'], source=LIVE_SOURCE, now=NOW, storage_backend=backend)
 

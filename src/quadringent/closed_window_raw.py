@@ -6,6 +6,8 @@ import json
 from .proof_windows import read_closed_window
 from .raw import read_raw_batch
 from .site_config import SiteConfig
+from .capture_binding import CaptureBinding
+from .receiver_identity import BoundCheckpoint
 
 MAX_RAW_BYTES = 256 * 1024 * 1024
 MAX_OBJECT_BYTES = 32 * 1024 * 1024
@@ -19,7 +21,8 @@ class ClosedRawWindow:
     event_ids_sha256: str
 
 
-def collect_closed_window_raw(store, *, window_id, site: SiteConfig, max_raw_bytes=MAX_RAW_BYTES):
+def collect_closed_window_raw(store, *, window_id, site: SiteConfig, max_raw_bytes=MAX_RAW_BYTES,
+                              capture_binding=None):
     """Read only the closed read-set; never list a growing capture prefix.
 
     Metadata has separate bounded reads. The raw budget includes manifests
@@ -30,7 +33,11 @@ def collect_closed_window_raw(store, *, window_id, site: SiteConfig, max_raw_byt
         raise ValueError('the declared site configuration is required')
     if type(max_raw_bytes) is not int or not 0 < max_raw_bytes <= MAX_RAW_BYTES:
         raise ValueError('invalid raw window budget')
-    closed = read_closed_window(store, window_id=window_id)
+    closed = read_closed_window(store, window_id=window_id, capture_binding=capture_binding)
+    binding = (CaptureBinding.from_dict(closed['intent']['capture_binding'])
+               if closed['intent']['format_version'] == 'quadringent-window-intent-v3' else None)
+    if binding is not None and (binding.source_system, binding.journal) != site.event_scope()[:2]:
+        raise ValueError('closed window capture domain differs from the declared proof lane')
     remaining = max_raw_bytes
     keys, identities = [], set()
     for ref in closed['receipts']:
@@ -54,7 +61,11 @@ def collect_closed_window_raw(store, *, window_id, site: SiteConfig, max_raw_byt
             objects[kind] = data
         batch = read_raw_batch(objects['manifest'], objects['payload'])
         end = receipt['end']
-        if (batch.manifest.high_watermark.receiver, batch.manifest.high_watermark.sequence) != (end['receiver'], end['sequence']):
+        if binding is not None:
+            if (batch.manifest.capture_binding != binding
+                    or batch.manifest.bound_high_watermark != BoundCheckpoint.from_dict(end)):
+                raise ValueError('raw complete watermark or binding differs from receipt')
+        elif (batch.manifest.high_watermark.receiver, batch.manifest.high_watermark.sequence) != (end['receiver'], end['sequence']):
             raise ValueError('raw watermark differs from receipt')
         if raw['payload_key'] != 'batch-'+batch.manifest.batch_id+'.jsonl':
             raise ValueError('raw batch identity differs from object key')

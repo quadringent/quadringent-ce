@@ -28,8 +28,8 @@ class BoundedChainStore:
         return value
 
 
-def project_window_chain(store, *, run_id, flux, source, now, storage_backend):
-    chain = read_window_chain(store, now=now)
+def project_window_chain(store, *, run_id, flux, source, now, storage_backend, capture_binding=None):
+    chain = read_window_chain(store, now=now, capture_binding=capture_binding)
     progress = {'declared_windows': chain['window_count'], 'matched_windows': 0,
                 'capture_complete': chain['capture_complete'], 'state': 'incomplete',
                 'evidence_kind': 'simulation' if storage_backend == 'local' else source.evidence_kind}
@@ -42,7 +42,8 @@ def project_window_chain(store, *, run_id, flux, source, now, storage_backend):
         if (not isinstance(proof, dict) or proof.get('archive_run_id') != run_id
                 or proof.get('window_id') != identity
                 or (storage_backend == 's3' and proof.get('storage_backend') != 's3')
-                or _encode(proof.get('window')) != _encode(read_closed_window(store, window_id=identity))):
+                or _encode(proof.get('window')) != _encode(read_closed_window(
+                    store, window_id=identity, capture_binding=capture_binding))):
             return {'state': 'invalid', 'reason': 'chain_destination_mismatch', 'chain': progress}
         proof = {**proof, 'storage_backend': storage_backend}
         delivery = _window_delivery(proof, flux, source, now)

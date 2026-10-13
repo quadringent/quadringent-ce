@@ -1,7 +1,7 @@
 from unittest.mock import Mock
 import pytest
 
-from quadringent.java_catalog import parse_receiver_identity_output, WorkerReceiverCatalog
+from quadringent.java_catalog import parse_receiver_identity_output, WorkerReceiverCatalog, JavaReceiverCatalog, CachedReceiverCatalog
 from quadringent.java_worker import PersistentJavaWorker
 
 OUTPUT = "as400-receiver-identity-v1\nidentity\tJRNLIB\tJRN\tRCVLIB\tRCV\t1\t123\t456\t789\n"
@@ -118,3 +118,46 @@ def test_identity_error_never_relays_remote_diagnostics():
         value.receiver_identity(receiver_library="RCVLIB", receiver_name="RCV", asp_number=1)
     assert str(caught.value) == "IBM i receiver identity lookup failed"
     value._kill_worker.assert_called_once()
+
+
+def test_short_lived_catalog_identity_is_read_only_scoped_and_does_not_cache(monkeypatch):
+    from types import SimpleNamespace
+    catalog = JavaReceiverCatalog(java='java', classpath='test-only', host='test.invalid', user='OFFLINE',
+                                   journal_library='JRNLIB', journal_name='JRN', password='test-only-secret')
+    run = Mock(return_value=SimpleNamespace(returncode=0, stdout=OUTPUT))
+    monkeypatch.setattr('quadringent.java_catalog.subprocess.run', run)
+    monkeypatch.setenv('AS400_OBJECT_LIBRARY', 'FOREIGN')
+    cached = CachedReceiverCatalog(catalog)
+    assert cached.identity(**EXPECTED) == parse()
+    assert cached.identity(**EXPECTED) == parse()
+    assert run.call_count == 2
+    call = run.call_args
+    assert 'test-only-secret' not in ' '.join(call.args[0])
+    assert call.kwargs['env']['ISERIES_PASSWORD'] == 'test-only-secret'
+    assert call.kwargs['env']['AS400_RECEIVER_IDENTITY_NAME'] == 'RCV'
+    assert call.kwargs['env']['AS400_RECEIVER_IDENTITY_ASP'] == '1'
+    assert 'AS400_OBJECT_LIBRARY' not in call.kwargs['env']
+    assert call.kwargs['timeout'] == 30.0
+
+
+@pytest.mark.parametrize('change', [{'journal_name': 'OTHER'}, {'asp_number': 2}, {'receiver_name': 'rcv'}])
+def test_short_lived_identity_refuses_foreign_request_before_spawn(monkeypatch, change):
+    catalog = JavaReceiverCatalog(java='java', classpath='test-only', host='test.invalid', user='OFFLINE',
+                                   journal_library='JRNLIB', journal_name='JRN')
+    run = Mock()
+    monkeypatch.setattr('quadringent.java_catalog.subprocess.run', run)
+    with pytest.raises(ValueError):
+        catalog.identity(**{**EXPECTED, **change})
+    run.assert_not_called()
+
+
+def test_metadata_snapshot_cannot_inherit_identity_mode(monkeypatch):
+    from types import SimpleNamespace
+    catalog = JavaReceiverCatalog(java='java', classpath='test-only', host='test.invalid', user='OFFLINE',
+                                   journal_library='JRNLIB', journal_name='JRN')
+    run = Mock(return_value=SimpleNamespace(returncode=0, stdout='as400-receiver-catalog-v2\n'))
+    monkeypatch.setattr('quadringent.java_catalog.subprocess.run', run)
+    for key in ('AS400_RECEIVER_IDENTITY_NAME', 'AS400_RECEIVER_IDENTITY_LIBRARY', 'AS400_RECEIVER_IDENTITY_ASP'):
+        monkeypatch.setenv(key, 'FOREIGN')
+    assert catalog.snapshot() == ()
+    assert not any(key.startswith('AS400_RECEIVER_IDENTITY_') for key in run.call_args.kwargs['env'])

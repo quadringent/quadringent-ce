@@ -18,6 +18,7 @@ du worktree) :
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import datetime, timezone
 
 import pytest
@@ -27,6 +28,37 @@ from quadringent_control_plane.v2.executor.boundary import JournalBoundary
 from quadringent_control_plane.v2.executor.evidence import EvidenceReader, InitialCopyEvidence
 from quadringent_control_plane.v2.executor.kubernetes import ExecutorConfig, ExecutorError, KubernetesPipelineExecutor
 from quadringent_control_plane.v2.services.pipelines import PipelinesService
+from quadringent.receiver_identity import ReceiverIdentity
+from capture_binding_fakes import MemoryCaptureStorage
+
+
+def _executor(engine, **kwargs):
+    executor = KubernetesPipelineExecutor(engine, storage=MemoryCaptureStorage(), **kwargs)
+    engine._capture_test_executor = executor
+    _seed_existing_runs(engine, executor)
+    return executor
+
+
+def _seed_existing_runs(engine, executor):
+    with engine.connect() as connection:
+        rows = connection.execute(v2_schema.pipelines.select()).mappings().all()
+    for row in rows:
+        if row["declared_state"] not in {"copying", "live", "paused"}:
+            continue
+        run_id = row["active_run_id"] or str(uuid.uuid5(uuid.NAMESPACE_DNS, "offline-copy-" + row["id"]))
+        with engine.begin() as connection:
+            connection.execute(v2_schema.pipelines.update().where(v2_schema.pipelines.c.id == row["id"])
+                               .values(active_run_id=run_id))
+        context = executor._load_context(row["id"])
+        identity = ReceiverIdentity(context.journal_library, context.journal_name, "QGPL", "RCV0001",
+                                    "offline-native-v1", "generation-a")
+        original = executor._admit_boundary(context, JournalBoundary("QGPL", "RCV0001", 4200,
+                         datetime(2026, 9, 23, 10, tzinfo=timezone.utc), receiver_identity=identity))
+        executor._write_copy_intent(context, run_id, original)
+        store = executor._evidence_reader._object_store
+        proof = InitialCopyEvidence(row["id"], context.table_id, run_id, original, 0,
+                                    datetime(2026, 9, 23, 11, tzinfo=timezone.utc))
+        store.objects[f"{executor._config.raw_prefix_root}/{context.table_id}/evidence/{run_id}.json"] = json.dumps(proof.to_dict()).encode()
 
 
 class _FakeJobsClient:
@@ -86,12 +118,19 @@ class _FakeBoundaryReader:
             receiver_name="RCV0001",
             last_sequence=self.sequence,
             observed_at=datetime(2026, 9, 23, 10, 0, tzinfo=timezone.utc),
+            receiver_identity=ReceiverIdentity("QGPL", "QSQJRN", "QGPL", "RCV0001",
+                                               "offline-native-v1", "generation-a"),
         )
 
 
 class _FakeEvidenceObjectStore:
+    def __init__(self):
+        self.objects = {}
+
     def get_bounded(self, key: str, max_bytes: int) -> bytes:
-        raise FileNotFoundError(key)
+        if key not in self.objects:
+            raise FileNotFoundError(key)
+        return self.objects[key]
 
 
 def _seed(engine, *, declared_state: str = "not_started", tls_pinned_pem: str | None = None) -> tuple[str, str, str]:
@@ -135,6 +174,8 @@ def _seed(engine, *, declared_state: str = "not_started", tls_pinned_pem: str | 
             v2_schema.pipelines.insert(),
             {"id": "ppl1", "table_id": "tbl1", "destination_id": "dst1", "declared_state": declared_state},
         )
+    if hasattr(engine, "_capture_test_executor"):
+        _seed_existing_runs(engine, engine._capture_test_executor)
     return "src1", "tbl1", "ppl1"
 
 
@@ -158,7 +199,7 @@ def executor_env(tmp_path):
         raw_bucket="acme-raw",
         checkpoint_location="acme-checkpoints",
     )
-    executor = KubernetesPipelineExecutor(
+    executor = _executor(
         engine,
         jobs_client=jobs,
         deployments_client=deployments,
@@ -292,12 +333,7 @@ def test_reconcile_uses_durable_evidence_after_the_copy_job_expires(executor_env
     environment = {item["name"]: item["value"] for item in original["spec"]["template"]["spec"]["containers"][0]["env"]}
     proof = InitialCopyEvidence(
         pipeline_id="ppl1", table_id="tbl1", run_id=environment["AS400_SNAPSHOT_RUN_ID"],
-        boundary=JournalBoundary(
-            receiver_library=environment["AS400_BOOTSTRAP_RECEIVER_LIBRARY"],
-            receiver_name=environment["AS400_BOOTSTRAP_RECEIVER"],
-            last_sequence=int(environment["AS400_BOOTSTRAP_SEQUENCE"]),
-            observed_at=datetime.fromisoformat(environment["AS400_BOOTSTRAP_OBSERVED_AT"]),
-        ),
+        boundary=JournalBoundary.from_dict(json.loads(environment["AS400_BOUNDARY_JSON"])),
         rows_copied=1, completed_at=datetime(2026, 9, 23, 11, 0, tzinfo=timezone.utc),
     )
     jobs.created.clear()  # Le TTL Kubernetes a supprimé le Job.
@@ -378,6 +414,7 @@ def test_only_one_reader_deployment_per_journal_regardless_of_table_count(execut
             {"id": "ppl2", "table_id": "tbl2", "destination_id": "dst1", "declared_state": "copying"},
         )
 
+    _seed_existing_runs(engine, executor)
     service = PipelinesService(engine)
     executor.execute(pipeline_id="ppl1", event="start")
 
@@ -469,7 +506,7 @@ def test_start_provisions_referenced_secrets_when_a_provisioner_is_injected(tmp_
     engine = v2_db.create_engine_for(dsn)
     _seed(engine, declared_state="not_started")
     secrets_provisioner = _FakeSecretsProvisioner()
-    executor = KubernetesPipelineExecutor(
+    executor = _executor(
         engine,
         jobs_client=_FakeJobsClient(),
         deployments_client=_FakeDeploymentsClient(),
@@ -529,7 +566,7 @@ def _loader_executor(engine, *, deployments=None, loader_image="registry.example
                      reader_poll_seconds=None, loader_poll_seconds=None, loader_flush_each_batch=None,
                      loader_history_mode=None,
                      run_id_factory=lambda: "1c1e7b0a-6b9a-4a34-9a4e-0000000000a1"):
-    return KubernetesPipelineExecutor(
+    return _executor(
         engine,
         jobs_client=_FakeJobsClient(),
         deployments_client=deployments or _FakeDeploymentsClient(),
@@ -910,7 +947,7 @@ def test_start_provisions_the_pinned_ca_secret_when_a_provisioner_is_injected(tm
     engine = v2_db.create_engine_for(dsn)
     _seed(engine, declared_state="not_started", tls_pinned_pem="-----BEGIN CERTIFICATE-----\nX\n-----END CERTIFICATE-----\n")
     secrets_provisioner = _FakeSecretsProvisioner()
-    executor = KubernetesPipelineExecutor(
+    executor = _executor(
         engine,
         jobs_client=_FakeJobsClient(),
         deployments_client=_FakeDeploymentsClient(),
@@ -971,6 +1008,7 @@ def test_partial_pause_keeps_four_table_capture_but_only_active_loader(executor_
         for index in range(2, 5):
             connection.execute(v2_schema.tables.insert(), {"id": f"tbl{index}", "source_id": "src1", "schema_name": "SALES", "table_name": f"DETAIL{index}", "journal_library": "QGPL", "journal_name": "QSQJRN", "key_columns": "ORDER_ID", "discovered_columns": [{"name": "ORDER_ID", "kind": "integer", "nullable": False}]})
             connection.execute(v2_schema.pipelines.insert(), {"id": f"ppl{index}", "table_id": f"tbl{index}", "destination_id": "dst1", "declared_state": "paused", "state_before_pause": previous})
+    _seed_existing_runs(engine, executor)
     desired = executor._desired_reader_manifests("src1", override={})
     reader = next(iter(desired.values()))
     assert set(reader["metadata"]["annotations"]["quadringent.io/table-ids"].split(",")) == {"tbl1", "tbl2", "tbl3", "tbl4"}

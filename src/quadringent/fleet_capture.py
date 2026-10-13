@@ -29,12 +29,16 @@ import re
 from typing import Callable, Mapping, Protocol, Sequence
 
 from .contract import ChangeEvent, JournalPosition
+from .capture_binding import CaptureBinding
+from .receiver_identity import BoundCheckpoint
 from .object_store import (
     CheckpointStore,
     ObjectStore,
     ReceiptCaptureResult,
+    RawFirstCaptureCoordinator,
     publish_raw_artifacts,
     read_raw_batch,
+    validate_bound_scan,
 )
 from .raw import RawBatchWriter, _batch_id
 from .storage_layout import journal_prefix
@@ -238,6 +242,45 @@ class FleetTableRouter:
             payload_bytes=payload_bytes,
         )
 
+    def route_bound_window(self, *, start: BoundCheckpoint, end: BoundCheckpoint,
+                           previous: BoundCheckpoint, capture_binding: CaptureBinding,
+                           manifest_content: bytes | None = None, payload: bytes | None = None,
+                           scan_completed_at=None) -> None:
+        for point in (start, end, previous):
+            capture_binding.validate_checkpoint(point)
+        validate_bound_scan(start=start, end=end, previous=previous, capture_binding=capture_binding,
+                            manifest_content=manifest_content, payload=payload,
+                            scan_completed_at=scan_completed_at)
+        windows = {} if manifest_content is None else {
+            item.table: item for item in split_window_batch(manifest_content, payload,
+                                                           tables=self.tables,
+                                                           expected_end=end.position)}
+        if manifest_content is not None:
+            batch = read_raw_batch(manifest_content, payload)
+            if (batch.manifest.capture_binding != capture_binding
+                    or batch.manifest.bound_high_watermark != end):
+                raise FleetRoutingError('fleet RAW binding differs from the journal')
+        # A late table requires a proven backfill; it cannot start at today's cursor.
+        targets = []
+        for table in self.tables:
+            store = self._store_factory(table_object_prefix(self.root, table))
+            checkpoint = self._checkpoint_factory(table_checkpoint_key(self.root, table))
+            current = checkpoint.load_bound()
+            if current is None:
+                if previous != capture_binding.bootstrap or store.list_receipt_keys(1000):
+                    raise FleetRoutingError('new table lacks original bound coverage; backfill required')
+            elif current not in (previous, end):
+                raise FleetRoutingError('table checkpoint differs from the bound journal predecessor')
+            targets.append((table, store, checkpoint, current))
+        for table, store, checkpoint, current in targets:
+            if current is None:
+                checkpoint.compare_and_set_bound(None, capture_binding.bootstrap)
+            window = windows.get(table)
+            RawFirstCaptureCoordinator(store, checkpoint).capture_receipted_window_result(
+                start=start, end=end, previous=previous, capture_binding=capture_binding,
+                manifest_content=window.manifest if window else None,
+                payload=window.payload if window else None, scan_completed_at=scan_completed_at)
+
     def _cover(self, table: str, end: JournalPosition, window: TableWindow | None) -> str:
         store = self._store_factory(table_object_prefix(self.root, table))
         checkpoint = self._checkpoint_factory(table_checkpoint_key(self.root, table))
@@ -332,6 +375,8 @@ def split_window_batch(
             event_ids,
             batch.manifest.high_watermark,
             payload_sha256,
+            capture_binding=batch.manifest.capture_binding,
+            bound_high_watermark=batch.manifest.bound_high_watermark,
         )
         manifest = {
             "batch_id": batch_id,
@@ -344,6 +389,9 @@ def split_window_batch(
             },
             "payload_sha256": payload_sha256,
         }
+        if batch.manifest.capture_binding is not None:
+            manifest.update(capture_binding=batch.manifest.capture_binding.to_dict(),
+                            bound_high_watermark=batch.manifest.bound_high_watermark.to_dict())
         manifest_content_for_table = (
             json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8") + b"\n"
         )
@@ -422,8 +470,17 @@ class FleetWindowCoordinator:
         manifest_content: bytes | None = None,
         payload: bytes | None = None,
         scan_completed_at: object | None = None,
+        capture_binding: CaptureBinding | None = None,
     ) -> ReceiptCaptureResult:
-        self._route(end=end, manifest_content=manifest_content, payload=payload)
+        if capture_binding is None:
+            self._route(end=end, manifest_content=manifest_content, payload=payload)
+        else:
+            if self.checkpoint_store.load_bound() not in (previous, end):
+                raise FleetRoutingError('journal checkpoint differs from the bound predecessor')
+            self._router.route_bound_window(start=start, end=end, previous=previous,
+                                            manifest_content=manifest_content, payload=payload,
+                                            scan_completed_at=scan_completed_at,
+                                            capture_binding=capture_binding)
         return self._inner.capture_receipted_window_result(
             start=start,
             end=end,
@@ -431,6 +488,7 @@ class FleetWindowCoordinator:
             manifest_content=manifest_content,
             payload=payload,
             scan_completed_at=scan_completed_at,
+            **({'capture_binding': capture_binding} if capture_binding is not None else {}),
         )
 
     def capture_raw_transition(

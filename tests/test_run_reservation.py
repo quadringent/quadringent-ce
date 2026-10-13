@@ -1,9 +1,12 @@
 import site_fixture
 import importlib
 import json
+import os
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock, patch
 
+from capture_binding_fakes import installed_capture_state
 
 SITE = site_fixture.build_test_site()
 
@@ -83,14 +86,29 @@ class RunReservationTests(unittest.TestCase):
 
     def test_capture_does_not_initialize_source_after_reservation_failure(self):
         capture = importlib.import_module('as400_continuous_capture')
-        with patch('sys.argv', ['capture', '--reserve-run-id', 'new-run']), \
-             patch.object(capture, '_reserve_run', side_effect=ValueError('refused')), \
-             patch.object(capture, 'DynamoDbCheckpointStore') as checkpoint,patch.object(capture,'DynamoDbSourceGate'), \
-             patch.object(capture, 'PersistentJavaWorker') as worker:
-            with self.assertRaisesRegex(ValueError, 'refused'):
-                capture.main()
-            checkpoint.assert_not_called()
-            worker.assert_not_called()
+        environment = {**site_fixture.TEST_SITE_ENV, 'AS400_RAW_BUCKET': SITE.raw_bucket,
+                       'AS400_RAW_PREFIX': f'{SITE.stream_prefix}/runs/new-run',
+                       'AS400_STREAM_KEY': SITE.stream_prefix,
+                       'AS400_JOURNAL_LIBRARY': SITE.source_schema,
+                       'AS400_JOURNAL_NAME': SITE.journal_name}
+        with TemporaryDirectory() as directory:
+            admission = installed_capture_state(directory, environment)
+            checkpoint_bytes = admission.checkpoint.path.read_bytes()
+            raw_store = Mock()
+            with patch.dict(os.environ, admission.environment, clear=True), \
+                 patch('sys.argv', ['capture', '--reserve-run-id', 'new-run']), \
+                 patch.object(capture, '_reserve_run', side_effect=ValueError('refused')) as reserve, \
+                 patch.object(capture, '_checkpoint_store', return_value=admission.checkpoint) as checkpoint, \
+                 patch.object(capture, '_object_store', side_effect=lambda backend, prefix:
+                              admission.authority_store if prefix == 'receiver-authority-v1' else raw_store), \
+                 patch.object(capture, 'PersistentJavaWorker') as worker:
+                with self.assertRaisesRegex(ValueError, 'refused'):
+                    capture.main()
+                checkpoint.assert_called_once_with('aws', SITE.stream_prefix)
+                reserve.assert_called_once_with('new-run')
+                worker.assert_not_called()
+                raw_store.put_once.assert_not_called()
+                self.assertEqual(admission.checkpoint.path.read_bytes(), checkpoint_bytes)
 
     def test_wrong_aws_account_never_creates_an_s3_client(self):
         capture = importlib.import_module('as400_continuous_capture')

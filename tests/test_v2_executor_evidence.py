@@ -17,6 +17,7 @@ from quadringent_control_plane.v2.executor.evidence import (
     EvidenceError,
     EvidenceReader,
     InitialCopyEvidence,
+    copy_intent_key,
     evidence_key,
 )
 
@@ -41,6 +42,21 @@ class _FakeObjectStore:
 def test_evidence_key_is_namespaced_by_table_and_run() -> None:
     key = evidence_key("raw/example", "tbl-1", "run-1")
     assert key == "raw/example/tbl-1/evidence/run-1.json"
+
+
+def test_copy_intent_key_preserves_all_three_identities() -> None:
+    original = copy_intent_key("pipe-1", "tbl-1", "run-1")
+    assert original == copy_intent_key("pipe-1", "tbl-1", "run-1")
+    assert original.startswith("copy-intents-v1/") and original.endswith(".json")
+    assert len({original, copy_intent_key("pipe-2", "tbl-1", "run-1"),
+                copy_intent_key("pipe-1", "tbl-2", "run-1"),
+                copy_intent_key("pipe-1", "tbl-1", "run-2")}) == 4
+
+
+@pytest.mark.parametrize("invalid", [None, "", " run-1 ", 7])
+def test_copy_intent_key_refuses_invalid_identity(invalid) -> None:
+    with pytest.raises(ValueError):
+        copy_intent_key("pipe-1", "tbl-1", invalid)
 
 
 def test_missing_evidence_reads_as_none_not_an_error() -> None:
@@ -78,3 +94,11 @@ def test_evidence_missing_required_field_fails_closed() -> None:
     reader = EvidenceReader(store)
     with pytest.raises(EvidenceError):
         reader.read(key)
+
+
+def test_evidence_rejects_duplicate_json_fields() -> None:
+    evidence = InitialCopyEvidence("pipe-1", "tbl-1", "run-1", BOUNDARY, 1,
+                                   datetime(2026, 9, 23, tzinfo=timezone.utc))
+    raw = json.dumps(evidence.to_dict())[:-1] + ', "pipeline_id": "pipe-1"}'
+    with pytest.raises(EvidenceError):
+        EvidenceReader(_FakeObjectStore({"proof": raw.encode()})).read("proof")

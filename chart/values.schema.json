@@ -588,8 +588,12 @@
     "bootstrap": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Explicit reader bootstrap.",
+      "description": "Original native admission and historical bootstrap settings.",
       "properties": {
+        "captureBinding": {
+          "type": "string",
+          "description": "Original quadringent-capture-binding-v1 JSON required by native capture; never inferred from tail or a legacy checkpoint."
+        },
         "mode": {
           "type": "string",
           "enum": [
@@ -597,7 +601,7 @@
             "tail",
             "explicit"
           ],
-          "description": "checkpoint requires durable state; tail reads a finite window; explicit requires receiver + sequence."
+          "description": "Installed native capture requires checkpoint mode and its original captureBinding; tail and explicit cannot replace that admission."
         },
         "receiver": {
           "type": "string",

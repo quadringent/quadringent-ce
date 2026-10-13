@@ -44,6 +44,8 @@ src/quadringent/**
 !src/quadringent/gcs_backend.py
 !src/quadringent/checkpoint.py
 !src/quadringent/receiver_identity.py
+!src/quadringent/capture_binding.py
+!src/quadringent/receiver_registry.py
 !src/quadringent/table_discovery.py
 !src/quadringent/snowflake_destination.py
 !src/quadringent/snowflake_streaming_loader.py

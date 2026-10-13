@@ -3,6 +3,7 @@
 import argparse
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import re
 import sys
@@ -13,6 +14,7 @@ from quadringent.object_store import S3ObjectStore
 from quadringent.proof_windows import read_window_chain
 from quadringent.site_config import current as current_site
 from quadringent.verification_window import run_archive_prefix
+from quadringent.capture_binding import CaptureBinding
 
 
 def main(argv=None):
@@ -35,7 +37,9 @@ def main(argv=None):
         except FileNotFoundError:
             print(json.dumps({'status': 'pending', 'run_id': args.run_id}))
             return 2
-        chain = read_window_chain(store, now=datetime.now(timezone.utc))
+        binding_json = os.environ.get('AS400_CAPTURE_BINDING_JSON')
+        binding = CaptureBinding.from_dict(json.loads(binding_json)) if binding_json is not None else None
+        chain = read_window_chain(store, now=datetime.now(timezone.utc), capture_binding=binding)
         print(json.dumps({'status': 'observed', 'run_id': args.run_id, 'chain': chain}))
         return 0
     except Exception as error:

@@ -31,7 +31,9 @@ import signal
 import sys
 import time
 
-from quadringent.checkpoint import DynamoDbCheckpointStore
+from quadringent.checkpoint import DynamoDbCheckpointStore, _decode_checkpoint_json
+from quadringent.capture_binding import CaptureBinding
+from quadringent.receiver_registry import ReceiverNameRegistry
 from quadringent.fleet_capture import (
     FleetConfigurationError,
     FleetTableRouter,
@@ -45,7 +47,7 @@ from quadringent.console_snapshot import (
     S3SnapshotSink,
     ThrottledSink,
 )
-from quadringent.continuous import ContinuousCaptureService, finite_tail_bootstrap
+from quadringent.continuous import ContinuousCaptureService
 from quadringent.contract import JournalPosition
 from quadringent.continuous import budget_exhausted, lag_trend, should_log_poll
 from quadringent.java_catalog import CachedReceiverCatalog, WorkerReceiverCatalog
@@ -115,6 +117,7 @@ def main() -> int:
         args.proof_window_id, args.proof_window_count,
         args.proof_window_seconds, args.max_seconds,
     )
+    binding = _installed_capture_binding(os.environ)
 
     backend = backend_from_environment(os.environ)
     if backend != "aws" and (args.reserve_run_id is not None or proof_options is not None
@@ -122,17 +125,28 @@ def main() -> int:
         # Réservation, fenêtres de preuve et console S3 sont liées au site AWS
         # déclaré : les refuser avant toute I/O plutôt que de les simuler.
         raise ValueError("run reservation, proof windows and S3 console snapshot require the aws backend")
-    if args.reserve_run_id is not None:
-        _reserve_run(args.reserve_run_id)
-
     checkpoint = _checkpoint_store(backend, _required("AS400_STREAM_KEY"))
     object_store = _object_store(backend, os.environ.get("AS400_RAW_PREFIX", ""))
+    registry = ReceiverNameRegistry(_object_store(backend, 'receiver-authority-v1'),
+                                    authority=binding.registry_authority,
+                                    source_system=binding.source_system, journal=binding.journal)
+    if registry.load_binding(binding.scope_id) != binding:
+        raise ValueError('installed capture binding differs from its durable original admission')
+    registry.require(binding, binding.bootstrap)
+    current_bound = checkpoint.load_bound()
+    if current_bound is not None:
+        binding.validate_checkpoint(current_bound)
+        registry.require(binding, current_bound)
+    elif object_store.list_receipt_keys(1000):
+        raise ValueError('bound reader checkpoint absent with existing RAW: explicit migration required')
     checkpoint_scope = os.environ.get("AS400_CHECKPOINT_SCOPE", "")
     if checkpoint_scope:
         from quadringent.reader_scope import READER_CHECKPOINT_SCOPE, require_scoped_checkpoint_bootstrap
         if checkpoint_scope != READER_CHECKPOINT_SCOPE:
             raise ValueError("unknown reader checkpoint scope")
         require_scoped_checkpoint_bootstrap(checkpoint, object_store)
+    if args.reserve_run_id is not None:
+        _reserve_run(args.reserve_run_id)
     fleet_router = (
         FleetTableRouter(
             root=fleet.table_root,
@@ -152,7 +166,8 @@ def main() -> int:
     from quadringent.proof_windows import prepare_window_chain
     if window_count is None:
         prepare_window_chain(object_store, checkpoint,
-                             initial_window_id=args.proof_window_id, window_count=None)
+                             initial_window_id=args.proof_window_id, window_count=None,
+                             capture_binding=binding)
     else:
         # Validate an existing run contract before prepare_window can write a
         # different root intent. Only explicit absence permits a fresh chain.
@@ -163,7 +178,7 @@ def main() -> int:
         else:
             prepare_window_chain(object_store, checkpoint,
                                  initial_window_id=args.proof_window_id,
-                                 window_count=window_count)
+                                 window_count=window_count, capture_binding=binding)
     if proof_options:
         from quadringent.proof_windows import prepare_window
         run_id=object_store.prefix.rsplit('/',1)[-1]
@@ -171,11 +186,12 @@ def main() -> int:
         from quadringent.run_reservation import is_reservation_marker
         if not is_reservation_marker(marker, run_id=run_id):
             raise ValueError('missing or incompatible isolated run reservation')
-        prepare_window(object_store,checkpoint,now=datetime.now(timezone.utc),**proof_options)
+        prepare_window(object_store,checkpoint,now=datetime.now(timezone.utc),
+                       capture_binding=binding, **proof_options)
         if window_count is not None:
             prepare_window_chain(object_store, checkpoint,
                                  initial_window_id=args.proof_window_id,
-                                 window_count=window_count)
+                                 window_count=window_count, capture_binding=binding)
     java = os.environ.get("AS400_JAVA", "java")
     classpath = _required("AS400_JAVA_CLASSPATH")
     host = _required("ISERIES_HOST")
@@ -229,7 +245,7 @@ def main() -> int:
         max_decoded_entries=max_decoded_entries,
         empty_probe=_flag("AS400_EMPTY_PROBE", True),
     )
-    initial_checkpoint = checkpoint.load()
+    initial_checkpoint = checkpoint.load_bound()
     try:
         catalog_rows = [
             {
@@ -240,7 +256,7 @@ def main() -> int:
             }
             for item in catalog.snapshot(
                 required_receiver=(
-                    initial_checkpoint.receiver if initial_checkpoint else None
+                    initial_checkpoint.position.receiver if initial_checkpoint else binding.bootstrap.position.receiver
                 )
             )
         ]
@@ -272,25 +288,6 @@ def main() -> int:
         ),
         flush=True,
     )
-    bootstrap = _bootstrap_position()
-    if os.environ.get("AS400_BOOTSTRAP_RECEIVER") == "__TAIL__":
-        receivers = list(catalog.snapshot())
-        bootstrap = finite_tail_bootstrap(receivers, batch_entries)
-        tail = receivers[-1]
-        print(
-            json.dumps(
-                {
-                    "event": "bootstrap_tail",
-                    "receiver": bootstrap.receiver,
-                    "sequence": bootstrap.sequence,
-                    "status": tail.status,
-                    "source_tail_sequence": tail.last_sequence,
-                    "finite": True,
-                },
-                sort_keys=True,
-            ),
-            flush=True,
-        )
     service = ContinuousCaptureService(
         catalog,
         runner,
@@ -298,7 +295,8 @@ def main() -> int:
         checkpoint,
         max_entries=batch_entries,
         catch_up_max_entries=catch_up_entries,
-        bootstrap=bootstrap,
+        capture_binding=binding,
+        receiver_registry=registry,
         poll_seconds=float(os.environ.get("AS400_POLL_SECONDS", "5")),
         min_poll_seconds=float(os.environ.get("AS400_MIN_POLL_SECONDS", "1")),
         # AS400_RECEIPTED_SCANS : posée par ``build_reader_deployment`` même
@@ -306,7 +304,7 @@ def main() -> int:
         # storage_layout.py) — sans reçus, le chargeur de destination
         # (``list_receipt_keys``) ne découvre jamais les lots publiés par un
         # lecteur mono-table.
-        receipted_scans=bool(proof_options) or fleet_router is not None or _flag("AS400_RECEIPTED_SCANS", False),
+        receipted_scans=True,
         proof_window_id=args.proof_window_id,
         proof_window_count=window_count,
     )
@@ -663,6 +661,26 @@ def _bootstrap_position() -> JournalPosition | None:
     if receiver is None or sequence is None:
         raise ValueError("AS400_BOOTSTRAP_RECEIVER and AS400_BOOTSTRAP_SEQUENCE are both required")
     return JournalPosition(receiver, int(sequence))
+
+
+def _installed_capture_binding(environ) -> CaptureBinding:
+    raw = environ.get('AS400_CAPTURE_BINDING_JSON')
+    if not isinstance(raw, str) or len(raw.encode()) > 65536:
+        raise ValueError('AS400_CAPTURE_BINDING_JSON with original native admission is required')
+    binding = CaptureBinding.from_dict(_decode_checkpoint_json(raw))
+    backend = backend_from_environment(environ)
+    bucket = environ.get('AS400_RAW_BUCKET') or environ.get('AS400_GCS_RAW_BUCKET')
+    authority = f"{'gcs' if backend == 'gcs' else 's3'}://{bucket}/receiver-authority-v1"
+    identity = binding.bootstrap.receiver_identity
+    if (environ.get('AS400_STREAM_KEY') != binding.scope_id
+            or environ.get('AS400_JOURNAL_LIBRARY') != identity.journal_library
+            or environ.get('AS400_JOURNAL_NAME') != identity.journal_name
+            or binding.source_system != 'ibmi' or binding.journal != identity.journal_name
+            or binding.registry_authority != authority):
+        raise ValueError('installed reader configuration differs from its original capture binding')
+    if environ.get('AS400_BOOTSTRAP_RECEIVER') == '__TAIL__':
+        raise ValueError('tail bootstrap cannot replace an original native admission')
+    return binding
 
 
 def _required(name: str) -> str:

@@ -9,7 +9,7 @@ from .snowflake_autonomous import autonomous_plan, reconcile_autonomous_files
 from .verification_window import run_archive_prefix
 
 
-def verify_closed_window_destination(cursor, store, *, run_id, window_id, observed_at, site):
+def verify_closed_window_destination(cursor, store, *, run_id, window_id, observed_at, site, capture_binding=None):
     if not isinstance(site, SiteConfig):
         raise ValueError('the declared site configuration is required')
     if not isinstance(run_id,str) or re.fullmatch(r'[a-z0-9][a-z0-9-]{0,79}',run_id) is None:
@@ -25,9 +25,9 @@ def verify_closed_window_destination(cursor, store, *, run_id, window_id, observ
         raise ValueError('unsupported window storage provenance')
     if not isinstance(observed_at,datetime) or observed_at.utcoffset() is None:
         raise ValueError('destination observation requires timezone')
-    acquired=collect_closed_window_raw(store,window_id=window_id,site=site)
+    acquired=collect_closed_window_raw(store,window_id=window_id,site=site, capture_binding=capture_binding)
     window=acquired.window
-    if window['format_version'] != 'quadringent-closed-window-v2':
+    if window['format_version'] not in ('quadringent-closed-window-v2', 'quadringent-closed-window-v3'):
         raise ValueError('destination window requires timed closure')
     if datetime.fromisoformat(window['sealed_at']) > observed_at:
         raise ValueError('window closure is in the future')

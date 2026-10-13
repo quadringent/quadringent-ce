@@ -9,6 +9,8 @@ import tempfile
 from typing import Any, Iterable, Sequence
 
 from .contract import ChangeEvent, JournalPosition, deduplicate
+from .capture_binding import CaptureBinding
+from .receiver_identity import BoundCheckpoint
 
 
 @dataclass(frozen=True)
@@ -19,9 +21,12 @@ class RawBatchManifest:
     event_ids: tuple[str, ...]
     high_watermark: JournalPosition
     payload_sha256: str
+    capture_binding: CaptureBinding | None = None
+    bound_high_watermark: BoundCheckpoint | None = None
+    copy_context: dict[str, Any] | None = None
 
     def to_record(self) -> dict[str, Any]:
-        return {
+        record = {
             "batch_id": self.batch_id,
             "format_version": self.format_version,
             "event_count": self.event_count,
@@ -32,6 +37,13 @@ class RawBatchManifest:
             },
             "payload_sha256": self.payload_sha256,
         }
+        if self.capture_binding is not None:
+            record['capture_binding'] = self.capture_binding.to_dict()
+            if self.copy_context is not None:
+                record['copy_context'] = self.copy_context
+            else:
+                record['bound_high_watermark'] = self.bound_high_watermark.to_dict()
+        return record
 
 
 @dataclass(frozen=True)
@@ -136,6 +148,16 @@ class RawBatchReader:
             batches.append(self._read_batch(manifest_path))
         if not batches:
             return []
+        bindings = [batch.manifest.capture_binding for batch in batches]
+        if any(binding is not None for binding in bindings) and any(binding != bindings[0] for binding in bindings):
+            raise ValueError('RAW replay cannot mix capture bindings or legacy batches')
+        native_names = {}
+        for batch in batches:
+            point = batch.manifest.bound_high_watermark
+            if point is not None:
+                identity = point.receiver_identity
+                if native_names.setdefault(identity.receiver_name, identity) != identity:
+                    raise ValueError('RAW replay reuses a receiver name with another native identity')
         receivers = {batch.manifest.high_watermark.receiver for batch in batches}
         if self.receiver_order is None and len(receivers) != 1:
             raise ValueError("raw replay requires explicit receiver order")
@@ -193,7 +215,35 @@ def read_raw_batch(
 ) -> RawBatch:
     """Validate and reconstruct a batch from bytes returned by any store."""
 
-    manifest_record = json.loads(manifest_content.decode("utf-8"))
+    manifest_record = json.loads(manifest_content.decode("utf-8"), object_pairs_hook=_unique_fields)
+    if type(manifest_record) is not dict:
+        raise ValueError('RAW manifest must be an object')
+    binding = None
+    bound_watermark = None
+    copy_context = None
+    version = manifest_record.get("format_version")
+    if version in ("as400-raw-v2", "as400-snapshot-v2"):
+        context_field = 'copy_context' if version == 'as400-snapshot-v2' else 'bound_high_watermark'
+        if set(manifest_record) != {"batch_id", "format_version", "event_count", "event_ids",
+                                   "high_watermark", "payload_sha256", "capture_binding",
+                                   context_field}:
+            raise ValueError("bound RAW manifest fields invalid")
+        binding = CaptureBinding.from_dict(manifest_record["capture_binding"])
+        if (type(manifest_record['event_count']) is not int or manifest_record['event_count'] < 1
+                or type(manifest_record['event_ids']) is not list
+                or any(type(value) is not str for value in manifest_record['event_ids'])
+                or type(manifest_record['high_watermark']) is not dict
+                or set(manifest_record['high_watermark']) != {'receiver', 'sequence'}
+                or type(manifest_record['high_watermark']['sequence']) is not int
+                or type(manifest_record['high_watermark']['receiver']) is not str):
+            raise ValueError('bound RAW fields must preserve their exact types')
+        if version == 'as400-snapshot-v2':
+            copy_context = _validated_copy_context(binding, manifest_record['copy_context'])
+        else:
+            bound_watermark = BoundCheckpoint.from_dict(manifest_record["bound_high_watermark"])
+            binding.validate_checkpoint(bound_watermark)
+    elif any(field in manifest_record for field in ('capture_binding', 'bound_high_watermark', 'copy_context')):
+        raise ValueError("legacy RAW cannot carry an ignored binding")
     watermark_record = manifest_record["high_watermark"]
     manifest = RawBatchManifest(
         batch_id=str(manifest_record["batch_id"]),
@@ -205,9 +255,14 @@ def read_raw_batch(
             sequence=int(watermark_record["sequence"]),
         ),
         payload_sha256=str(manifest_record["payload_sha256"]),
+        capture_binding=binding,
+        bound_high_watermark=bound_watermark,
+        copy_context=copy_context,
     )
-    if manifest.format_version != RawBatchWriter.FORMAT_VERSION:
+    if manifest.format_version not in (RawBatchWriter.FORMAT_VERSION, "as400-raw-v2", 'as400-snapshot-v2'):
         raise ValueError(f"unsupported raw format: {manifest.format_version}")
+    if bound_watermark is not None and bound_watermark.position != manifest.high_watermark:
+        raise ValueError("bound RAW watermark projection differs")
 
     actual_hash = hashlib.sha256(payload).hexdigest()
     if actual_hash != manifest.payload_sha256:
@@ -239,6 +294,8 @@ def read_raw_batch(
         list(manifest.event_ids),
         manifest.high_watermark,
         manifest.payload_sha256,
+        capture_binding=binding, bound_high_watermark=bound_watermark,
+        copy_context=copy_context,
     )
     if manifest.batch_id != expected_batch_id:
         raise ValueError(f"raw batch identity mismatch: {payload_name}")
@@ -246,7 +303,71 @@ def read_raw_batch(
            or event.position.sequence > manifest.high_watermark.sequence
            for event in events):
         raise ValueError(f"raw high-watermark mismatch: {payload_name}")
+    if binding is not None and copy_context is None and any((event.source_system, event.journal) !=
+                                   (binding.source_system, binding.journal) for event in events):
+        raise ValueError("RAW events differ from the admitted EVENT_ID domain")
+    if copy_context is not None and (manifest.high_watermark.receiver != 'SNAPSHOT:' + copy_context['run_id']
+            or not events or any(event.source_system != binding.source_system
+                                 or event.journal != f'SNAPSHOT:{event.library}.{event.table}'
+                                 or (event.library, event.table) != (events[0].library, events[0].table)
+                                 for event in events)):
+        raise ValueError('snapshot payload differs from the admitted copy attempt')
     return RawBatch(manifest=manifest, events=events)
+
+
+def bind_raw_batch(manifest_content: bytes, payload: bytes, *, binding: CaptureBinding,
+                   end: BoundCheckpoint) -> bytes:
+    """Bind certified source bytes without changing historical EVENT_IDs."""
+    binding.validate_checkpoint(end)
+    batch = read_raw_batch(manifest_content, payload)
+    if batch.manifest.high_watermark != end.position:
+        raise ValueError("RAW does not reach the bound scan end")
+    if batch.manifest.capture_binding is not None:
+        if batch.manifest.capture_binding != binding or batch.manifest.bound_high_watermark != end:
+            raise ValueError("RAW already belongs to another binding")
+        return manifest_content
+    record = batch.manifest.to_record()
+    record.update(format_version="as400-raw-v2", capture_binding=binding.to_dict(),
+                  bound_high_watermark=end.to_dict())
+    record["batch_id"] = _batch_id("as400-raw-v2", list(batch.manifest.event_ids), end.position,
+                                    batch.manifest.payload_sha256,
+                                    capture_binding=binding, bound_high_watermark=end)
+    content = _canonical_json(record).encode() + b"\n"
+    read_raw_batch(content, payload)
+    return content
+
+
+def _validated_copy_context(binding: CaptureBinding, context: object) -> dict[str, Any]:
+    if type(context) is not dict or set(context) != {'pipeline_id', 'table_id', 'run_id', 'boundary'}:
+        raise ValueError('snapshot copy context fields invalid')
+    if any(type(context[field]) is not str or not context[field] or context[field].strip() != context[field]
+           or any(ord(char) < 32 for char in context[field])
+           for field in ('pipeline_id', 'table_id', 'run_id')):
+        raise ValueError('snapshot copy context identity invalid')
+    binding.validate_checkpoint(BoundCheckpoint.from_dict(context['boundary']))
+    return context
+
+
+def bind_snapshot_batch(manifest_content: bytes, payload: bytes, *, binding: CaptureBinding,
+                        boundary: BoundCheckpoint, pipeline_id: str, table_id: str, run_id: str) -> bytes:
+    binding.validate_checkpoint(boundary)
+    context = _validated_copy_context(binding, dict(pipeline_id=pipeline_id, table_id=table_id,
+                                                   run_id=run_id, boundary=boundary.to_dict()))
+    batch = read_raw_batch(manifest_content, payload)
+    if batch.manifest.high_watermark.receiver != 'SNAPSHOT:' + run_id:
+        raise ValueError('initial-copy RAW must carry its virtual snapshot position')
+    if batch.manifest.capture_binding is not None:
+        if batch.manifest.capture_binding != binding or batch.manifest.copy_context != context:
+            raise ValueError('snapshot already belongs to another copy')
+        return manifest_content
+    record = batch.manifest.to_record()
+    record.update(format_version='as400-snapshot-v2', capture_binding=binding.to_dict(), copy_context=context)
+    record['batch_id'] = _batch_id('as400-snapshot-v2', list(batch.manifest.event_ids),
+                                   batch.manifest.high_watermark, batch.manifest.payload_sha256,
+                                   capture_binding=binding, copy_context=context)
+    content = _canonical_json(record).encode() + b'\n'
+    read_raw_batch(content, payload)
+    return content
 
 
 def _write_once(path: Path, content: bytes) -> None:
@@ -281,14 +402,26 @@ def _canonical_json(value: dict[str, Any]) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+def _unique_fields(pairs):
+    record = {}
+    for key, value in pairs:
+        if key in record:
+            raise ValueError('duplicate RAW manifest field')
+        record[key] = value
+    return record
+
+
 def _batch_id(
     format_version: str,
     event_ids: list[str],
     high_watermark: JournalPosition,
     payload_sha256: str,
+    *,
+    capture_binding: CaptureBinding | None = None,
+    bound_high_watermark: BoundCheckpoint | None = None,
+    copy_context: dict[str, Any] | None = None,
 ) -> str:
-    identity = _canonical_json(
-        {
+    record = {
             "format_version": format_version,
             "event_ids": event_ids,
             "high_watermark": {
@@ -297,5 +430,18 @@ def _batch_id(
             },
             "payload_sha256": payload_sha256,
         }
-    ).encode("utf-8")
+    if format_version == "as400-raw-v2":
+        if capture_binding is None or bound_high_watermark is None:
+            raise ValueError("bound RAW identity requires its full capture binding")
+        capture_binding.validate_checkpoint(bound_high_watermark)
+        record.update(capture_binding=capture_binding.to_dict(),
+                      bound_high_watermark=bound_high_watermark.to_dict())
+    elif format_version == 'as400-snapshot-v2':
+        if capture_binding is None or bound_high_watermark is not None:
+            raise ValueError('snapshot requires its copy context, without a native high watermark')
+        record.update(capture_binding=capture_binding.to_dict(),
+                      copy_context=_validated_copy_context(capture_binding, copy_context))
+    elif capture_binding is not None or bound_high_watermark is not None or copy_context is not None:
+        raise ValueError("legacy RAW identity cannot ignore a binding")
+    identity = _canonical_json(record).encode("utf-8")
     return hashlib.sha256(identity).hexdigest()[:32]

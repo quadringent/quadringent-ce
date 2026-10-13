@@ -45,8 +45,18 @@ public final class ReadOnlyReceiverCatalog {
     }
 
     private static void run(Settings settings) throws Exception {
+        String identityName = System.getenv("AS400_RECEIVER_IDENTITY_NAME");
+        ReadOnlyReceiverIdentity.Request identityRequest = identityName == null ? null
+                : new ReadOnlyReceiverIdentity.Request(
+                        System.getenv("AS400_RECEIVER_IDENTITY_LIBRARY"), identityName,
+                        Integer.parseInt(System.getenv("AS400_RECEIVER_IDENTITY_ASP")));
         Class.forName("com.ibm.as400.access.AS400JDBCDriver");
         try (Connection connection = openConnection(settings)) {
+            if (identityRequest != null) {
+                ReadOnlyReceiverIdentity.writeIdentity(connection, settings.journalLibrary(),
+                        settings.journalName(), identityRequest, System.out);
+                return;
+            }
             writeReceivers(
                     connection,
                     settings.journalLibrary(),

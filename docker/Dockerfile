@@ -78,6 +78,8 @@ COPY java/third-party-sources.sha256 /usr/share/quadringent/
 COPY src/quadringent/__init__.py /app/quadringent/
 COPY src/quadringent/checkpoint.py /app/quadringent/
 COPY src/quadringent/receiver_identity.py /app/quadringent/
+COPY src/quadringent/capture_binding.py /app/quadringent/
+COPY src/quadringent/receiver_registry.py /app/quadringent/
 COPY src/quadringent/console_snapshot.py /app/quadringent/
 COPY src/quadringent/continuous.py /app/quadringent/
 COPY src/quadringent/contract.py /app/quadringent/

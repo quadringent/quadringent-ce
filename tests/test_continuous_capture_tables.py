@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import os
+import json
 import unittest
 from unittest.mock import patch
 
 import as400_continuous_capture as capture
+from quadringent.capture_binding import CaptureBinding
+from quadringent.receiver_identity import BoundCheckpoint, ReceiverIdentity
 
 
 ENV = {
@@ -17,8 +20,14 @@ ENV = {
     "ISERIES_SCHEMA": "SALES",
     "ISERIES_TABLE": "SALE",
     "AS400_JOURNAL_NAME": "DEMOJRN",
+    "AS400_JOURNAL_LIBRARY": "JLIB",
     "AS400_JAVA_CLASSPATH": "test-only",
 }
+IDENTITY = ReceiverIdentity("JLIB", "DEMOJRN", "RLIB", "RCV1", "native-test-v1", "generation-a")
+BINDING = CaptureBinding(ENV["AS400_STREAM_KEY"], "fixture-epoch", "ibmi", "DEMOJRN",
+                         "s3://" + ENV["AS400_RAW_BUCKET"] + "/receiver-authority-v1",
+                         BoundCheckpoint(ENV["AS400_STREAM_KEY"], "fixture-epoch", IDENTITY, 20))
+ENV["AS400_CAPTURE_BINDING_JSON"] = json.dumps(BINDING.to_dict())
 
 
 class ContinuousCaptureTablesTests(unittest.TestCase):
@@ -27,9 +36,13 @@ class ContinuousCaptureTablesTests(unittest.TestCase):
             "sys.argv", ["capture"]
         ), patch.object(capture, "PersistentJavaWorker") as worker, patch.object(
             capture, "DynamoDbCheckpointStore"
-        ), patch.object(capture, "DynamoDbSourceGate"), patch.object(
+        ) as checkpoint, patch.object(capture, "DynamoDbSourceGate"), patch.object(
             capture, "S3ObjectStore"
-        ) as stores:
+        ) as stores, patch.object(capture, "ReceiverNameRegistry", autospec=True) as registry:
+            checkpoint.return_value.load_bound.return_value = None
+            checkpoint.return_value.load.return_value = None
+            stores.return_value.list_receipt_keys.return_value = ()
+            registry.return_value.load_binding.return_value = BINDING
             stores.return_value.get_bounded.side_effect = FileNotFoundError("window-chain.json")
             worker.side_effect = RuntimeError("source boundary reached")
             with self.assertRaisesRegex(RuntimeError, "source boundary reached"):
@@ -40,11 +53,15 @@ class ContinuousCaptureTablesTests(unittest.TestCase):
     def test_absent_table_list_keeps_mono_table_worker_contract(self) -> None:
         with patch.dict(os.environ, ENV, clear=True), patch("sys.argv", ["capture"]), patch.object(
             capture, "PersistentJavaWorker"
-        ) as worker, patch.object(capture, "DynamoDbCheckpointStore"), patch.object(
+        ) as worker, patch.object(capture, "DynamoDbCheckpointStore") as checkpoint, patch.object(
             capture, "DynamoDbSourceGate"
         ), patch.object(
             capture, "S3ObjectStore"
-        ) as stores:
+        ) as stores, patch.object(capture, "ReceiverNameRegistry", autospec=True) as registry:
+            checkpoint.return_value.load_bound.return_value = None
+            checkpoint.return_value.load.return_value = None
+            stores.return_value.list_receipt_keys.return_value = ()
+            registry.return_value.load_binding.return_value = BINDING
             stores.return_value.get_bounded.side_effect = FileNotFoundError("window-chain.json")
             worker.side_effect = RuntimeError("source boundary reached")
             with self.assertRaisesRegex(RuntimeError, "source boundary reached"):

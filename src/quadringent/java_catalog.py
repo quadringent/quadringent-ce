@@ -188,8 +188,12 @@ class JavaReceiverCatalog(ReceiverCatalog):
         # appelant fuiter vers une source qui n'a jamais été épinglée.
         self.ca_file = ca_file
 
-    def snapshot(self, required_receiver: str | None = None) -> Sequence[ReceiverSnapshot]:
+    def _environment(self, required_receiver: str | None = None) -> dict[str, str]:
         environment = os.environ.copy()
+        for key in ("AS400_RECEIVER_IDENTITY_NAME", "AS400_RECEIVER_IDENTITY_LIBRARY",
+                    "AS400_RECEIVER_IDENTITY_ASP", "AS400_CATALOG_REQUIRES_RECEIVER",
+                    "AS400_OBJECT_LIBRARY"):
+            environment.pop(key, None)
         if self.password is not None:
             environment["ISERIES_PASSWORD"] = self.password
         environment.update(
@@ -219,6 +223,26 @@ class JavaReceiverCatalog(ReceiverCatalog):
             environment.pop("AS400_COMMAND_PORT", None)
         else:
             environment["AS400_COMMAND_PORT"] = str(self.command_port)
+        return environment
+
+    def identity(self, *, journal_library: str, journal_name: str, receiver_library: str,
+                 receiver_name: str, asp_number: int) -> ReceiverIdentity:
+        validate_receiver_identity_request(receiver_library=journal_library,
+                                           receiver_name=journal_name, asp_number=asp_number)
+        validate_receiver_identity_request(receiver_library=receiver_library,
+                                           receiver_name=receiver_name, asp_number=asp_number)
+        if (journal_library, journal_name) != (self.journal_library, self.journal_name):
+            raise ValueError("receiver identity journal differs from catalog")
+        environment = self._environment()
+        environment.update({"AS400_RECEIVER_IDENTITY_LIBRARY": receiver_library,
+                            "AS400_RECEIVER_IDENTITY_NAME": receiver_name,
+                            "AS400_RECEIVER_IDENTITY_ASP": str(asp_number)})
+        output = self._invoke(environment)
+        return parse_receiver_identity_output(output, journal_library=journal_library,
+                                              journal_name=journal_name, receiver_library=receiver_library,
+                                              receiver_name=receiver_name, asp_number=asp_number)
+
+    def _invoke(self, environment: dict[str, str]) -> str:
         try:
             completed = subprocess.run(
                 [self.java, "-cp", self.classpath, self.class_name],
@@ -234,8 +258,11 @@ class JavaReceiverCatalog(ReceiverCatalog):
             # Do not propagate stderr: JDBC diagnostics can contain endpoint
             # details and the runtime contract must remain safe by default.
             raise RuntimeError("IBM i receiver catalog failed")
+        return completed.stdout
+
+    def snapshot(self, required_receiver: str | None = None) -> Sequence[ReceiverSnapshot]:
         try:
-            return parse_catalog_output(completed.stdout)
+            return parse_catalog_output(self._invoke(self._environment(required_receiver)))
         except ValueError as error:
             raise RuntimeError("IBM i receiver catalog output invalid") from error
 
@@ -317,6 +344,10 @@ class CachedReceiverCatalog:
         self.fetch_count = 0
         self.stale_count = 0
         self.consecutive_stale = 0
+
+    def identity(self, **request) -> ReceiverIdentity:
+        # Native generations must never be served from the metadata cache.
+        return self.inner.identity(**request)
 
     def snapshot(self, required_receiver: str | None = None) -> Sequence[ReceiverSnapshot]:
         now = self.clock()

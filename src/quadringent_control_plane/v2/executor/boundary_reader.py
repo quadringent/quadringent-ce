@@ -58,6 +58,7 @@ from sqlalchemy.engine import Engine
 
 from quadringent.continuous import ReceiverSnapshot
 from quadringent.java_catalog import JavaReceiverCatalog
+from quadringent.receiver_identity import ReceiverIdentity
 
 from .. import schema as v2_schema
 from ..crypto import SecretBox
@@ -122,6 +123,9 @@ class ReceiverCatalogFactory(Protocol):
 
 class _CatalogProtocol(Protocol):
     def snapshot(self, required_receiver: str | None = None) -> Sequence[ReceiverSnapshot]: ...
+
+    def identity(self, *, journal_library: str, journal_name: str, receiver_library: str,
+                 receiver_name: str, asp_number: int) -> ReceiverIdentity: ...
 
 
 def _default_catalog_factory(
@@ -227,20 +231,46 @@ class JavaBoundaryReader:
             )
             try:
                 snapshots = catalog.snapshot()
+                attached = _attached_receiver(snapshots)
+                if attached is None:
+                    raise BoundaryUnavailableError(
+                        "capability_unavailable", "no unique ATTACHED receiver for this journal"
+                    )
+                identity_args = dict(journal_library=journal.journal_library, journal_name=journal.journal_name,
+                                     receiver_library=attached.receiver_library, receiver_name=attached.receiver,
+                                     asp_number=1)
+                # System ASP 1 is the supported policy; the native provider checks it.
+                before = catalog.identity(**identity_args)
+                fresh = _attached_receiver(catalog.snapshot(required_receiver=attached.receiver))
+                if fresh is None or (fresh.receiver_library, fresh.receiver) != (attached.receiver_library, attached.receiver):
+                    raise BoundaryUnavailableError("executor_unavailable", "receiver changed during boundary acquisition")
+                identity = catalog.identity(**identity_args)
+                if type(identity) is not ReceiverIdentity or identity != before:
+                    raise BoundaryUnavailableError("executor_unavailable", "native receiver identity changed during acquisition")
+                if (identity.journal_library, identity.journal_name, identity.receiver_library, identity.receiver_name) != (
+                    journal.journal_library, journal.journal_name, fresh.receiver_library, fresh.receiver
+                ):
+                    raise BoundaryUnavailableError("executor_unavailable", "native identity differs from receiver metadata")
+                attached = fresh
+            except BoundaryUnavailableError:
+                raise
             except Exception as error:  # noqa: BLE001 — jamais de détail JDBC distant
                 raise BoundaryUnavailableError(
                     "executor_unavailable", "cannot read the journal position"
                 ) from error
-        attached = _attached_receiver(snapshots)
-        if attached is None:
-            raise BoundaryUnavailableError(
-                "capability_unavailable", "no ATTACHED receiver for this journal"
-            )
         # Receveur fraîchement attaché sans entrée encore écrite : la
         # capture continue doit démarrer à sa première séquence, jamais à
         # une valeur inventée — voir ``JournalBoundary.bootstrap_sequence``
         # (démarre à ``last_sequence + 1``).
         last_sequence = attached.last_sequence
+        if (attached.first_sequence is not None and
+                (type(attached.first_sequence) is not int or attached.first_sequence < 1)):
+            raise BoundaryUnavailableError("executor_unavailable", "invalid receiver first sequence")
+        if last_sequence is not None and (
+            type(last_sequence) is not int or last_sequence < 0
+            or (attached.first_sequence is not None and last_sequence < attached.first_sequence - 1)
+        ):
+            raise BoundaryUnavailableError("executor_unavailable", "invalid receiver sequence bounds")
         if last_sequence is None:
             if attached.first_sequence is None:
                 raise BoundaryUnavailableError(
@@ -254,6 +284,7 @@ class JavaBoundaryReader:
                 receiver_name=attached.receiver,
                 last_sequence=last_sequence,
                 observed_at=self._now(),
+                receiver_identity=identity,
             )
         except BoundaryError as error:
             raise BoundaryUnavailableError(
@@ -311,7 +342,5 @@ class JavaBoundaryReader:
 
 
 def _attached_receiver(snapshots: Sequence[ReceiverSnapshot]) -> ReceiverSnapshot | None:
-    for item in snapshots:
-        if item.status == "ATTACHED":
-            return item
-    return None
+    attached = [item for item in snapshots if item.status == "ATTACHED"]
+    return attached[0] if len(attached) == 1 else None

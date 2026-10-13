@@ -32,6 +32,11 @@ def test_private_config_and_error_do_not_print_payload(tmp_path):
 def fixture(tmp_path):
     from test_native_qualification_proof import PureProofTests
     before,after,operations=PureProofTests().resume_fixture()
+    from test_native_qualification_bound_boundary import fixture as bound_fixture
+    _,_,binding=bound_fixture()
+    for snapshot in (before,after):
+        point=binding.checkpoint(binding.bootstrap.receiver_identity,snapshot['checkpoint']['sequence'])
+        snapshot['checkpoint'].update(bound_checkpoint=point.to_dict(),capture_binding=binding.to_dict())
     before['history_mode']=after['history_mode']='streaming'
     for item in (before,after,operations['resume']):
         for key in ('reader','loader'):

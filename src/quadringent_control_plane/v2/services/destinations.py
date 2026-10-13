@@ -12,6 +12,7 @@ propres identifiants.
 
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import uuid
@@ -317,10 +318,11 @@ def _generate_rsa_key_pair() -> tuple[str, str]:
 
 
 def _public_key_body(public_key_pem: str) -> str:
-    """Le contenu base64 sans les en-têtes PEM, tel qu'attendu par Snowflake."""
+    """Return the complete public DER key as a single base64 SQL value."""
 
-    lines = [line for line in public_key_pem.strip().splitlines() if "BEGIN" not in line and "END" not in line]
-    return "\n".join(lines)
+    public_key = serialization.load_pem_public_key(public_key_pem.encode("ascii"))
+    der = public_key.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    return base64.b64encode(der).decode("ascii")
 
 
 def _build_setup_script(

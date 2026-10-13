@@ -7,7 +7,7 @@ from quadringent.qualification import collect
 
 
 def fixture():
-    args=SimpleNamespace(journal_library='S',journal_name='J',pipeline='p1',table='S.T',table_id='t1',namespace='dev',context='site',capture_digest='sha256:'+'b'*64)
+    args=SimpleNamespace(journal_library='S',journal_name='J',pipeline='p1',table='S.T',table_id='t1',copy_run_id='run1',copy_boundary='R1:10',namespace='dev',context='site',capture_digest='sha256:'+'b'*64)
     boundary={'receiver_name':'R1','receiver_library':'S','last_sequence':10}
     checkpoint={'receiver':'R2','sequence':15}
     catalog={'kind':'ibmi-source-receiver-catalog',**{k:getattr(args,k) for k in collect.SCOPE},'journal_library':'S','journal_name':'J',
@@ -98,7 +98,7 @@ def test_live_collector_reads_each_authenticated_receiver_window_once(monkeypatc
         b=copy['boundary'];calls.append((b['receiver_name'],b['last_sequence']+1,checkpoint['sequence']))
         return {'receiver':b['receiver_name'],'start':b['last_sequence']+1,'end':checkpoint['sequence'],'decoded':0,'scan_complete':True,'records':[],'raw_batches':[]}
     monkeypatch.setattr(collector,'_journal_single',read)
-    result=collector.journal([{}],{'boundary':boundary},checkpoint)
+    result=collector.journal([{}],{'pipeline_id':'p1','table_id':'t1','run_id':'run1','boundary':boundary},checkpoint)
     assert calls==[('R1',11,12),('R2',13,15)]
     assert result['receiver_catalog']['output']==catalog['output']
     assert len(result['segments'])==2
@@ -111,7 +111,7 @@ def test_catalog_transport_reuses_public_readonly_catalog_without_timestamp_inve
     probe=SimpleNamespace(args=args,exec_json=execute)
     collector=collect.LiveCollector(probe)
     reader={**catalog['reader'],'pod':'actual-reader','container':'reader'}
-    result=collector.receiver_catalog([reader],{'boundary':boundary})
+    result=collector.receiver_catalog([reader],{'pipeline_id':'p1','table_id':'t1','run_id':'run1','boundary':boundary})
     assert result['reader']==reader
     assert 'ReadOnlyReceiverCatalog' in scripts[0]
     assert "AS400_RECEIVER_METADATA_LIMIT='9'" in scripts[0]

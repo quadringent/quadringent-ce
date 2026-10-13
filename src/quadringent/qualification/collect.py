@@ -16,6 +16,7 @@ import subprocess
 import sys
 import time
 from . import proof as n
+from .boundary import legacy_inspection_allowed, read_boundary, read_checkpoint, read_copy_boundary, scope_context
 
 SCOPE=('pipeline','table','table_id','namespace','context')
 ALLOWED=set(SCOPE)|{'kubeconfig','reader_deployment','loader_deployment','capture_digest','loader_digest','columns','pk',
@@ -98,10 +99,15 @@ def history_row(record,columns,library,table):
             'EVENT_ID':event,'OPERATION':operation,'JOURNAL_RECEIVER':receiver,'JOURNAL_SEQUENCE':str(sequence)}
 
 
-def receiver_windows(boundary,checkpoint,catalog,args):
+def receiver_windows(boundary,checkpoint,catalog,args,*,historical=False):
     """Conserve l’ordre SQL source ; aucune chaîne déduite des noms ou de l’horloge."""
     from quadringent.continuous import require_readable_receiver, require_receiver_link
     from quadringent.java_catalog import parse_catalog_output
+    original=read_boundary(boundary,allow_legacy=legacy_inspection_allowed(args,historical=historical),
+                           journal_library=args.journal_library,journal_name=args.journal_name)
+    read_checkpoint(checkpoint,original)
+    if original.capture_binding is not None:
+        raise ValueError("bound receiver rotation requires independently observed native generations for every receiver")
     if (not isinstance(catalog,dict) or catalog.get('kind')!='ibmi-source-receiver-catalog' or
         catalog.get('journal_library')!=args.journal_library or catalog.get('journal_name')!=args.journal_name or
         any(catalog.get(k)!=getattr(args,k) for k in SCOPE)):
@@ -120,7 +126,6 @@ def receiver_windows(boundary,checkpoint,catalog,args):
     if not 1<=len(rows)<=8:raise ValueError("receiver chain over budget or truncated")
     if len(rows)>1 and not rows[0].chain_links_observed:
         raise ValueError("native receiver links required for multi-receiver qualification")
-    if type(boundary.get('last_sequence'))is not int or boundary['last_sequence']<0:raise ValueError("initial boundary absent")
     names=set();previous=None;windows=[];budget=0
     for index,row in enumerate(rows):
         require_readable_receiver(row)
@@ -132,12 +137,12 @@ def receiver_windows(boundary,checkpoint,catalog,args):
         if index and row.chain_links_observed:
             require_receiver_link(rows[index-1],row)
         names.add(name);previous=last
-        if index==0 and (name!=boundary.get('receiver_name') or library!=boundary.get('receiver_library')):
+        if index==0 and (name!=original.receiver_name or library!=original.receiver_library):
             raise ValueError("initial receiver not anchored in the copy")
         if index==len(rows)-1:
             if name!=checkpoint.get('receiver') or row.status!='ATTACHED':raise ValueError("checkpoint outside the last attached receiver")
         elif row.status=='ATTACHED':raise ValueError("receiver attached before the end of the chain")
-        start=boundary['last_sequence']+1 if index==0 else first
+        start=original.last_sequence+1 if index==0 else first
         end=checkpoint.get('sequence') if index==len(rows)-1 else last
         if type(end)is not int or not first<=start<=last+1 or not first-1<=end<=last or end<start-1:
             raise ValueError("inconsistent receiver boundary")
@@ -147,20 +152,19 @@ def receiver_windows(boundary,checkpoint,catalog,args):
     return windows
 
 
-def validate_oracle_parts(copy,journal,positions,checkpoint,args,columns):
-    boundary=copy.get('boundary',{})
-    if (copy.get('pipeline_id')!=args.pipeline or copy.get('table_id')!=args.table_id or copy.get('run_id')!=args.copy_run_id or
-        str(boundary.get('receiver_name'))+':'+str(boundary.get('last_sequence'))!=args.copy_boundary):
-        raise ValueError("copy evidence outside the attempt/boundary")
-    low=boundary.get('last_sequence');receiver=boundary.get('receiver_name')
+def validate_oracle_parts(copy,journal,positions,checkpoint,args,columns,*,historical=False):
+    original=read_copy_boundary(copy,args,historical=historical)
+    read_checkpoint(checkpoint,original)
+    boundary=copy['boundary']
+    low=original.last_sequence;receiver=original.receiver_name
     high=checkpoint.get('sequence') if isinstance(checkpoint,dict) else None
     multi=journal.get('kind')=='ibmi-multi-receiver-journal'
     if multi:
-        windows=receiver_windows(boundary,checkpoint,journal.get('receiver_catalog'),args)
+        windows=receiver_windows(boundary,checkpoint,journal.get('receiver_catalog'),args,historical=historical)
     else:
         if (type(low) is not int or type(high) is not int or low<0 or high<low or high-low>1000 or
                 checkpoint.get('receiver')!=receiver):raise ValueError("checkpoint absent, rotation or window too large")
-        windows=[{'receiver':receiver,'receiver_library':boundary.get('receiver_library'),'start':low+1,'end':high}]
+        windows=[{'receiver':receiver,'receiver_library':original.receiver_library,'start':low+1,'end':high}]
     snapshot=copy.get('records');rows=copy.get('rows_copied')
     if type(rows) is not int or not 1<=rows<=n.MAX_ROWS or not isinstance(snapshot,list) or len(snapshot)!=rows:
         raise ValueError("complete snapshot absent")
@@ -255,7 +259,8 @@ def bind_rotation_mutation_receipts(acks,oracle,rotation,before,after,catalog_be
     # avant de rendre un binding ; aucune preuve partielle n'est publiée.
     n.evaluate_rotation(before,after,{'rotation':rotation,'catalog_before':catalog_before,'catalog_after':catalog_after,
         'mutations':receipts,'columns':args.columns if isinstance(args.columns,dict) else json.loads(Path(args.columns).read_text()),
-        'pk':args.pk,'journal_library':args.journal_library,'journal_name':args.journal_name})
+        'pk':args.pk,'journal_library':args.journal_library,'journal_name':args.journal_name},
+        historical=legacy_inspection_allowed(args))
     return receipts
 
 
@@ -445,9 +450,7 @@ def projected_initial_copy_job(args,evidence_key,document):
     if job['uid']!=document['job_uid'] or any(copy.get(k)!=v for k,v in
         {'pipeline_id':args.pipeline,'table_id':args.table_id,'run_id':args.copy_run_id}.items()):
         raise ValueError("copy/Job projection mismatch")
-    boundary=copy.get('boundary',{})
-    if str(boundary.get('receiver_name'))+':'+str(boundary.get('last_sequence'))!=args.copy_boundary:
-        raise ValueError("boundary projection mismatch")
+    read_copy_boundary(copy,args,historical=True)
     observed=original['observed_utc'];when=n.stamp(observed)
     if not n.stamp(job['created_utc'])<=n.stamp(raw_job['status']['completionTime'])<=when or job['succeeded']!=1:
         raise ValueError("projection observation predates success")
@@ -585,7 +588,7 @@ def validate_retained_parts(parts, args, columns):
             records.extend(e.to_record() for e in decoded.events)
         if json.loads(json.dumps(records,default=str))!=segment['records']:
             raise ValueError("retained journal changed or bytes omitted")
-    return validate_oracle_parts(parts['copy'], journal, parts['positions'], parts['checkpoint'], args, columns)
+    return validate_oracle_parts(parts['copy'], journal, parts['positions'], parts['checkpoint'], args, columns,historical=True)
 
 
 def union_history_oracles(current, retained):
@@ -630,6 +633,8 @@ class LiveCollector:
     def __init__(self,probe):self.probe=probe;self.args=probe.args
     def copy(self,loader,*,args=None,evidence_key=None):
         a=args or self.args;p=self.probe
+        historical=bool(args is not None and evidence_key is not None and a.copy_run_id!=self.args.copy_run_id)
+        allow_legacy=legacy_inspection_allowed(a,historical=historical)
         evidence_expression=repr(evidence_key) if evidence_key is not None else "t.evidence_key"
         # Utilise les mêmes octets immuables que le Job, jamais HISTORY.
         script=f'''import hashlib,json,os,sys
@@ -637,9 +642,14 @@ class LiveCollector:
 from quadringent.storage_backend import StorageBackend
 from quadringent.storage_layout import snapshot_prefix
 from quadringent.raw import read_raw_batch
+from quadringent.checkpoint import _decode_checkpoint_json
+from quadringent.qualification.boundary import read_copy_boundary
+from quadringent.receiver_registry import ReceiverNameRegistry
+from types import SimpleNamespace
 tables=[t for t in l.parse_table_set(os.environ['QUADRINGENT_LOADER_TABLE_SET_JSON']) if t.table_id=={a.table_id!r}]
 if len(tables)!=1:raise SystemExit(1)
 t=tables[0];plan=l.build_plan(t,database={a.database!r},schema={a.schema!r})
+if not {allow_legacy!r} and (t.pipeline_id!={a.pipeline!r} or t.run_id!={a.copy_run_id!r} or t.capture_binding is None):raise SystemExit(1)
 if (os.environ['QUADRINGENT_DESTINATION_DATABASE']!={a.database!r} or os.environ['QUADRINGENT_DESTINATION_SCHEMA']!={a.schema!r} or
  t.schema_name.upper()!={p.library!r} or t.table_name.upper()!={p.table!r} or list(t.key_columns)!=[{a.pk!r}] or
  [x['name'] for x in t.columns]!={list(p.columns)!r} or plan.history_table!={a.history!r} or plan.mirror_table!={a.mirror!r}):raise SystemExit(1)
@@ -647,8 +657,12 @@ groups={{'int':{{'int','integer','smallint','bigint'}},'decimal':{{'decimal','nu
 if any(str(x['kind']).lower() not in groups[{p.columns!r}[x['name']]] for x in t.columns):raise SystemExit(1)
 storage=StorageBackend.from_environment(os.environ);root=storage.object_store('')
 evidence_key={evidence_expression}
-raw=root.get_bounded(evidence_key,262144);evidence=json.loads(raw)
-if evidence.get('pipeline_id')!={a.pipeline!r} or evidence.get('table_id')!={a.table_id!r} or evidence.get('run_id')!={a.copy_run_id!r}:raise SystemExit(1)
+raw=root.get_bounded(evidence_key,262144);evidence=_decode_checkpoint_json(raw)
+boundary=read_copy_boundary(evidence,SimpleNamespace(**{scope_context(a)!r}),expected_binding=None if {historical!r} else t.capture_binding,original_only=True,historical={historical!r})
+if boundary.capture_binding is not None:
+ if boundary.capture_binding.registry_authority!=('s3' if storage.kind=='aws' else 'gcs')+'://'+storage.raw_bucket+'/receiver-authority-v1':raise SystemExit(1)
+ registry=ReceiverNameRegistry(storage.object_store('receiver-authority-v1'),authority=boundary.capture_binding.registry_authority,source_system='ibmi',journal=boundary.capture_binding.journal)
+ registry.require(boundary.capture_binding,boundary.require_bound())
 batches=evidence.get('snapshot_batches')
 if not isinstance(batches,list) or not 1<=len(batches)<=100:raise SystemExit(1)
 store=storage.object_store(snapshot_prefix(os.environ.get('AS400_RAW_PREFIX',''),t.table_name))
@@ -660,6 +674,7 @@ for ref in batches:
   keys.add(key)
  payload=store.get_bounded(ref['payload_key'],2000000);manifest=store.get_bounded(ref['manifest_key'],262144)
  batch=read_raw_batch(manifest,payload,preserve_decimals=True)
+ if boundary.capture_binding is not None and (batch.manifest.format_version!='as400-snapshot-v2' or batch.manifest.capture_binding!=boundary.capture_binding or batch.manifest.copy_context!={{'pipeline_id':{a.pipeline!r},'table_id':{a.table_id!r},'run_id':{a.copy_run_id!r},'boundary':boundary.require_bound().to_dict()}}):raise SystemExit(1)
  if batch.manifest.high_watermark.receiver!='SNAPSHOT:'+{a.copy_run_id!r} or batch.manifest.high_watermark.sequence!=max(e.position.sequence for e in batch.events):raise SystemExit(1)
  records.extend(e.to_record() for e in batch.events)
  if len(records)>1000:raise SystemExit(1)
@@ -670,13 +685,13 @@ print(json.dumps(evidence,default=str))
         return p.exec_json(loader[0]['pod'],loader[0]['container'],script)
 
     def receiver_catalog(self,reader,copy):
-        a=self.args;p=self.probe;b=copy['boundary']
+        a=self.args;p=self.probe;b=read_copy_boundary(copy,a)
         command=['java','-cp','/app/probe.jar:/app/lib/*','io.quadringent.as400.ReadOnlyReceiverCatalog']
         script=f'''import hashlib,json,os,subprocess
 from pathlib import Path
 from datetime import datetime,timezone
 if os.environ['AS400_JOURNAL_LIBRARY']!={a.journal_library!r} or os.environ['AS400_JOURNAL_NAME']!={a.journal_name!r}:raise SystemExit(1)
-env=dict(os.environ);env.update(AS400_RECEIVER_METADATA_LIMIT='9',AS400_CATALOG_REQUIRES_RECEIVER={b['receiver_name']!r},AS400_CATALOG_QUERY_TIMEOUT_SECONDS='10')
+env=dict(os.environ);env.update(AS400_RECEIVER_METADATA_LIMIT='9',AS400_CATALOG_REQUIRES_RECEIVER={b.receiver_name!r},AS400_CATALOG_QUERY_TIMEOUT_SECONDS='10')
 env.pop('AS400_OBJECT_LIBRARY',None)
 run=subprocess.run({command!r},env=env,text=True,capture_output=True,timeout=25)
 if run.returncode or len(run.stdout.encode())>8192:raise SystemExit(1)
@@ -687,7 +702,9 @@ print(json.dumps({{'kind':'ibmi-source-receiver-catalog',**{ {k:getattr(a,k) for
         return result
 
     def journal(self,reader,copy,checkpoint):
-        if checkpoint['receiver']==copy['boundary']['receiver_name']:
+        boundary=read_copy_boundary(copy,self.args)
+        read_checkpoint(checkpoint,boundary)
+        if checkpoint['receiver']==boundary.receiver_name:
             return self._journal_single(reader,copy,checkpoint)
         catalog=self.receiver_catalog(reader,copy)
         windows=receiver_windows(copy['boundary'],checkpoint,catalog,self.args)
@@ -699,10 +716,13 @@ print(json.dumps({{'kind':'ibmi-source-receiver-catalog',**{ {k:getattr(a,k) for
         return {'kind':'ibmi-multi-receiver-journal','receiver_catalog':catalog,'segments':segments}
 
     def _journal_single(self,reader,copy,checkpoint):
-        a=self.args;p=self.probe;b=copy['boundary'];low=b['last_sequence'];high=checkpoint['sequence']
-        if checkpoint['receiver']!=b['receiver_name'] or not 0<=high-low<=1000:raise ValueError("rotation or window budget exceeded")
-        if high==low:return {'receiver':b['receiver_name'],'start':low+1,'end':high,'decoded':0,'scan_complete':True,'records':[],'raw_batches':[]}
-        request={'cmd':'sql_window','receiver':b['receiver_name'],'receiver_library':b['receiver_library'],'start_sequence':str(low+1),
+        a=self.args;p=self.probe;b=read_boundary(copy['boundary'],allow_legacy=legacy_inspection_allowed(a),
+                                               journal_library=a.journal_library,journal_name=a.journal_name)
+        read_checkpoint(checkpoint,b)
+        low=b.last_sequence;high=checkpoint['sequence']
+        if checkpoint['receiver']!=b.receiver_name or not 0<=high-low<=1000:raise ValueError("rotation or window budget exceeded")
+        if high==low:return {'receiver':b.receiver_name,'start':low+1,'end':high,'decoded':0,'scan_complete':True,'records':[],'raw_batches':[]}
+        request={'cmd':'sql_window','receiver':b.receiver_name,'receiver_library':b.receiver_library,'start_sequence':str(low+1),
                  'end_sequence':str(high),'max_server_entries':high-low,'max_decoded_entries':1000,'high_watermark_sequence':str(high)}
         command=['java','-cp','/app/probe.jar:/app/lib/*','io.quadringent.as400.PersistentJournalWorker']
         script=f'''import base64,json,os,re,subprocess,sys,tempfile
@@ -734,10 +754,10 @@ with tempfile.TemporaryDirectory(prefix='quadringent-readonly-oracle-') as direc
         return p.exec_json(reader[0]['pod'],reader[0]['container'],script)
 
     def positions(self,reader,copy):
-        a=self.args;p=self.probe;b=copy['boundary']
+        a=self.args;p=self.probe;b=read_copy_boundary(copy,a)
         command=['java','-cp','/app/probe.jar:/app/lib/*','io.quadringent.as400.QualificationSourceDriver','rowpos',
                  p.library,p.table,a.journal_library,a.journal_name,a.pk,','.join(p.columns),
-                 b['receiver_name'],str(b['last_sequence'])]
+                 b.receiver_name,str(b.last_sequence)]
         script=f'''import base64,json,os,subprocess
 stdin='\\n'.join(os.environ[k] for k in ('ISERIES_HOST','ISERIES_USER','ISERIES_PASSWORD'))+'\\n'
 run=subprocess.run({command!r},input=stdin,text=True,capture_output=True,timeout=25)

@@ -39,7 +39,7 @@ def fixture():
 
 def test_rotation_retains_history_and_runtime():
     before, after, operations = fixture()
-    result = p.evaluate_rotation(before, after, operations)
+    result = p.evaluate_rotation(before, after, operations,historical=True)
     assert result['rotation_qualified'] is True
     assert result['native_cdc_qualified'] is False
     assert result['maximum_10s_qualified'] is False
@@ -74,7 +74,7 @@ def test_rotation_rejects_incomplete_or_altered_evidence(change):
     for name in ('catalog_before','catalog_after'):
         operations[name]['output_sha256']=hashlib.sha256(operations[name]['output'].encode()).hexdigest()
     with pytest.raises(ValueError):
-        p.evaluate_rotation(before, after, operations)
+        p.evaluate_rotation(before, after, operations,historical=True)
 
 
 @pytest.mark.parametrize('change', [
@@ -92,7 +92,7 @@ def test_rotation_rejects_incomplete_or_altered_evidence(change):
 def test_rotation_refuses_altered_catalogue_bytes_jar_or_reader(change):
     before, after, operations=fixture()
     change(operations['catalog_after'])
-    with pytest.raises(ValueError):p.evaluate_rotation(before,after,operations)
+    with pytest.raises(ValueError):p.evaluate_rotation(before,after,operations,historical=True)
 
 
 @pytest.mark.parametrize('change', [
@@ -106,10 +106,10 @@ def test_rotation_refuses_altered_catalogue_bytes_jar_or_reader(change):
 def test_rotation_requires_expected_journal_pins_and_actual_ack_scope(change):
     before,after,operations=fixture()
     change(operations)
-    with pytest.raises(ValueError):p.evaluate_rotation(before,after,operations)
+    with pytest.raises(ValueError):p.evaluate_rotation(before,after,operations,historical=True)
 
 
 @pytest.mark.parametrize('rows',[[],[{'ID':999}]])
 def test_rotation_evaluator_rejects_agreeing_but_wrong_business_state(rows):
     before,after,operations=fixture();after['source']=deepcopy(rows);after['mirror']=deepcopy(rows)
-    with pytest.raises(ValueError):p.evaluate_rotation(before,after,operations)
+    with pytest.raises(ValueError):p.evaluate_rotation(before,after,operations,historical=True)

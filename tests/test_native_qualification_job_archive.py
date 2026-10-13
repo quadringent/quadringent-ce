@@ -14,6 +14,7 @@ import test_native_qualification_retained as fixtures
 def archive_fixture(tmp_path):
     parts,args,_,_=fixtures.fixture('old')
     args.initial_copy_revision='historical-sha';args.expected_revision='current-sha'
+    args.initial_copy_admission='historical-admission'
     key=parts['copy']['artifacts'][0]['evidence_key']
     job=fixtures.job(args,key);job.update(apiVersion='batch/v1',kind='Job')
     job['metadata']['namespace']=args.namespace

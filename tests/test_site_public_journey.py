@@ -1,6 +1,7 @@
 """Public journey checks: pilot contact, security channel and generated pages."""
 import re
 import shutil
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -311,7 +312,11 @@ def test_readme_matches_scoped_receipts_and_preserves_historical_results():
     runtime = scoped_summary("runtime-0.3.5")
     recovery = scoped_summary("recovery-0.3.4")
     readme = flat(read("README.md"))
-    assert f'The current preview is **{runtime["version"]}**' in readme
+    source_version = tomllib.loads(read("pyproject.toml"))["project"]["version"]
+    assert f'Current source is **{source_version}**' in readme
+    assert f'The published **{runtime["version"]}**' in readme
+    assert "need fresh qualification" in readme
+    assert "Historical measurements apply only to their original artifacts and scopes" in readme
     for name in ["runtime-0.3.5.json", "recovery-0.3.4.json", "qualification-0.3.4.json"]:
         assert name in readme
     assert "8 new copy Jobs" in readme and "110 history C images" in readme

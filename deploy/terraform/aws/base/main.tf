@@ -88,7 +88,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "raw" {
     id     = "expiration"
     status = "Enabled"
 
-    filter {}
+    filter {
+      prefix = "${var.raw_prefix_root}/"
+    }
 
     expiration {
       days = var.lifecycle_expiration_days
@@ -136,6 +138,26 @@ data "aws_dynamodb_table" "existing_checkpoints" {
 
 data "aws_iam_policy_document" "runtime" {
   statement {
+    sid       = "DenyAuthorityNonConditionalPut"
+    effect    = "Deny"
+    actions   = ["s3:PutObject"]
+    resources = ["${local.raw_bucket_arn}/receiver-authority-v1/*"]
+
+    condition {
+      test     = "StringNotEquals"
+      variable = "s3:if-none-match"
+      values   = ["*"]
+    }
+  }
+
+  statement {
+    sid       = "DenyAuthorityDeletion"
+    effect    = "Deny"
+    actions   = ["s3:DeleteObject", "s3:DeleteObjectVersion"]
+    resources = ["${local.raw_bucket_arn}/receiver-authority-v1/*"]
+  }
+
+  statement {
     sid    = "S3RawObjects"
     effect = "Allow"
     actions = [
@@ -166,6 +188,13 @@ resource "aws_iam_policy" "runtime" {
   description = "Accès borné au bucket brut et à la table de checkpoints du site ${var.name}."
   policy      = data.aws_iam_policy_document.runtime.json
   tags        = local.tags
+
+  lifecycle {
+    precondition {
+      condition     = var.lifecycle_expiration_days == 0 || var.raw_prefix_root != ""
+      error_message = "Positive expiration requires an explicit canonical RAW prefix disjoint from receiver-authority-v1."
+    }
+  }
 }
 
 # Rôle IAM générique : le document de confiance (IRSA sur EKS, profil

@@ -437,7 +437,7 @@ def _module_workdir(workdir: Path, module: str) -> Path:
 
 def base_tfvars_for(inputs: InstallInputs) -> dict:
     tfvars: dict = (
-        {"name": inputs.name, "region": inputs.region}
+        {"name": inputs.name, "region": inputs.region, "raw_prefix_root": f"{inputs.name}/pending"}
         if inputs.cloud == "aws"
         else {"project_id": inputs.project, "name": inputs.name, "region": inputs.region}
     )

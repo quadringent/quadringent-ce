@@ -30,8 +30,26 @@ variable "lifecycle_expiration_days" {
   default     = 0
 
   validation {
-    condition     = var.lifecycle_expiration_days >= 0
-    error_message = "lifecycle_expiration_days doit être positif ou nul."
+    condition     = var.lifecycle_expiration_days >= 0 && floor(var.lifecycle_expiration_days) == var.lifecycle_expiration_days
+    error_message = "RAW expiration must be a whole nonnegative number of days."
+  }
+}
+
+variable "raw_prefix_root" {
+  description = "Approved canonical RAW prefix, without surrounding slashes; required for positive expiration and independent of the fixed receiver authority."
+  type        = string
+  default     = ""
+  nullable    = false
+
+  validation {
+    condition = var.raw_prefix_root == "" || (
+      can(regex("^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$", var.raw_prefix_root)) &&
+      !contains(split("/", var.raw_prefix_root), ".") &&
+      !contains(split("/", var.raw_prefix_root), "..") &&
+      var.raw_prefix_root != "receiver-authority-v1" &&
+      !startswith(var.raw_prefix_root, "receiver-authority-v1/")
+    )
+    error_message = "RAW prefix must be canonical, relative and disjoint from receiver-authority-v1 (no empty, dot or parent segments)."
   }
 }
 

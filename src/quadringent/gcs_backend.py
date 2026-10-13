@@ -26,7 +26,7 @@ from .checkpoint import (
     _validate_bound_update,
 )
 from .contract import JournalPosition
-from .object_store import _read_bounded, _validate_read_budget
+from .object_store import _read_bounded, _validate_object_key, _validate_read_budget
 from .receiver_identity import BoundCheckpoint
 from .source_gate import GATE_FORMAT_VERSION, SourceGatePolicy, _RevisionedSourceGate, _empty_record
 
@@ -134,6 +134,42 @@ class GcsObjectStore:
             if len(keys) > max_keys:
                 raise ValueError("receipt listing exceeds budget")
         return tuple(keys)
+
+    def list_keys(self, max_keys: int) -> tuple[str, ...]:
+        _validate_read_budget(max_keys)
+        if self.prefix:
+            _validate_object_key(self.prefix)
+        prefix = self.prefix + '/' if self.prefix else ''
+        keys = set()
+        token = None
+        seen_tokens = set()
+        while True:
+            args = {'prefix': prefix, 'page_size': min(1000, max_keys - len(keys) + 1)}
+            if token is not None:
+                args['page_token'] = token
+            iterator = self.client.list_blobs(self.bucket_name, **args)
+            pages = iter(iterator.pages)
+            page = next(pages, None)
+            if page is None and iterator.next_page_token is not None:
+                raise ValueError('invalid object listing pagination')
+            for blob in page or ():
+                name = getattr(blob, 'name', None)
+                if type(name) is not str or not name.startswith(prefix):
+                    raise ValueError('object listing escaped prefix')
+                key = _validate_object_key(name[len(prefix):])
+                if key in keys:
+                    raise ValueError('duplicate object listing key')
+                keys.add(key)
+                if len(keys) > max_keys:
+                    raise ValueError('object listing exceeds budget')
+            token = iterator.next_page_token
+            if token is None:
+                return tuple(sorted(keys))
+            if type(token) is not str or not token or token in seen_tokens:
+                raise ValueError('invalid object listing pagination')
+            seen_tokens.add(token)
+            if len(seen_tokens) > max_keys:
+                raise ValueError('object listing page budget exceeded')
 
     def _key(self, key: str) -> str:
         relative = Path(key)

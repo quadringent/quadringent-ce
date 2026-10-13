@@ -1,9 +1,49 @@
 # Backup, restore and version rollback
 
-This guide covers **control-plane v2 PostgreSQL**. CDC objects, checkpoints,
-fleet-state PVCs and Snowflake data need separate retention and consistency
-procedures. API administration does not confer Kubernetes, database or object
-storage permissions. Qualify in isolated, authorized DEV resources.
+This guide covers **control-plane v2 PostgreSQL** and selected native replay
+material. Fleet-state PVCs, secret material and Snowflake data have separate
+recovery procedures. API administration does not confer Kubernetes, database
+or object storage permissions. Qualify in isolated, authorized DEV resources.
+
+## Native replay material in current source
+
+Current source adds `quadringent recovery export`, `verify` and `restore`;
+these commands are absent from the published 0.3.5 artifacts. Stop **every**
+writer using the shared receiver authority, including admission, initial copy,
+capture and loading, before export or restore. `--writers-stopped` records your
+attestation; the command does not stop workloads or enforce a distributed lock.
+
+Prepare a private JSON selection with `format_version` set to
+`quadringent-native-recovery-selection-v1`, the original `authority` URL
+(`s3://<bucket>/receiver-authority-v1` or `gcs://<bucket>/receiver-authority-v1`),
+`raw_prefixes` listing the original reader and table prefixes, and
+`checkpoint_keys` listing the original source, table and destination keys.
+Use the same storage environment as capture. The complete receiver authority,
+including old and orphan name claims and original copy intents, is included.
+Objects under each selected RAW prefix retain their original bytes. Selected
+bound v2 checkpoints retain their complete positions and native identities.
+Include every required prefix and checkpoint: unselected site state is not
+backed up.
+
+```sh
+umask 077
+quadringent recovery export --selection /private/path/selection.json \
+  --directory /private/path/new-bundle --writers-stopped
+quadringent recovery verify --directory /private/path/new-bundle \
+  --expected-sha256 '<protected-original-manifest-sha256>'
+quadringent recovery restore --selection /private/path/selection.json \
+  --directory /private/path/new-bundle --writers-stopped \
+  --expected-sha256 '<protected-original-manifest-sha256>'
+```
+
+Protect the printed original manifest SHA256 separately. Verification is
+offline; export and restore use the site's object storage and checkpoints.
+Restore requires the same authority, RAW prefixes and checkpoint keys, refuses
+conflicting or extra objects, and never overwrites a different checkpoint.
+Keep writers stopped after any failure; an identical retry can complete a
+partial restore. Hashes, stable rereads and a successful restore do not prove
+IBM i generation stability, complete replay, Snowflake parity or recovery of
+PostgreSQL, secrets and PVCs. Qualify those before resuming the site.
 
 ## Preserve recovery material
 

@@ -161,6 +161,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
     from quadringent.qualification.cli import add_parser
     add_parser(subparsers)
+    from quadringent.recovery_cli import add_recovery_subcommand
+    add_recovery_subcommand(subparsers)
     return parser
 
 
@@ -432,6 +434,9 @@ def run(argv: Sequence[str], *, runner: CommandRunner | None = None, stdout: Tex
     if args.command == "qualification":
         from quadringent.qualification.cli import run_native
         return run_native(args.config,args.out_dir,args.phase,stdout=stdout)
+    if args.command == "recovery":
+        from quadringent.recovery_cli import run_recovery_command
+        return run_recovery_command(args, stdout=stdout)
     if args.command == "install":
         return _run_install(args, runner, stdout)
     if args.command == "uninstall":

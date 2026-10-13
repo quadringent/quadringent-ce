@@ -75,6 +75,9 @@ class ObjectStore(Protocol):
     def list_receipt_keys(self, max_keys: int) -> tuple[str, ...]:
         """Enumerate receipt keys only; reject rather than truncate overflow."""
 
+    def list_keys(self, max_keys: int) -> tuple[str, ...]:
+        """Enumerate every canonical relative key; reject incomplete listings."""
+
 
 class CheckpointStore(Protocol):
     """Durable source-offset contract used after raw publication."""
@@ -156,6 +159,61 @@ class FileObjectStore:
             if len(keys) > max_keys:
                 raise ValueError('receipt listing exceeds budget')
         return tuple(keys)
+
+    def list_keys(self, max_keys: int) -> tuple[str, ...]:
+        _validate_read_budget(max_keys)
+        keys = set()
+        directories = 0
+        flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+
+        def visit(descriptor: int, prefix: str) -> None:
+            nonlocal directories
+            directories += 1
+            if directories > max_keys * 8 + 1:
+                raise ValueError('object listing directory budget exceeded')
+            with os.scandir(descriptor) as entries:
+                for entry in entries:
+                    key = prefix + entry.name
+                    _validate_object_key(key)
+                    if entry.is_symlink():
+                        raise ValueError('object listing refuses symlinks')
+                    if entry.is_dir(follow_symlinks=False):
+                        try:
+                            child = os.open(entry.name, flags, dir_fd=descriptor)
+                        except OSError as error:
+                            raise ValueError('object listing directory changed or became a symlink') from error
+                        try:
+                            visit(child, key + '/')
+                        finally:
+                            os.close(child)
+                    elif entry.is_file(follow_symlinks=False):
+                        if key in keys:
+                            raise ValueError('duplicate object listing key')
+                        keys.add(key)
+                        if len(keys) > max_keys:
+                            raise ValueError('object listing exceeds budget')
+                    else:
+                        raise ValueError('object listing refuses special files')
+
+        if self.root.is_symlink():
+            raise ValueError('object listing refuses a symlink root')
+        try:
+            descriptor = os.open(self.root, flags)
+        except OSError as error:
+            raise ValueError('object listing root changed or became a symlink') from error
+        try:
+            visit(descriptor, '')
+        finally:
+            os.close(descriptor)
+        return tuple(sorted(keys))
+
+
+def _validate_object_key(key: object) -> str:
+    if (type(key) is not str or not key or len(key.encode('utf-8')) > 1024
+            or '\\' in key or any(ord(char) < 32 or ord(char) == 127 for char in key)
+            or any(part in ('', '.', '..') or part.strip() != part for part in key.split('/'))):
+        raise ValueError('object key must be a canonical relative path')
+    return key
 
 
 def _validate_read_budget(max_bytes: int) -> None:
@@ -297,6 +355,45 @@ class S3ObjectStore:
             seen_tokens.add(token)
             if len(seen_tokens) > max_keys:
                 raise ValueError('receipt listing page budget exceeded')
+
+    def list_keys(self, max_keys: int) -> tuple[str, ...]:
+        _validate_read_budget(max_keys)
+        if self.prefix:
+            _validate_object_key(self.prefix)
+        prefix = self.prefix + '/' if self.prefix else ''
+        keys = set()
+        token = None
+        seen_tokens = set()
+        while True:
+            args = {'Bucket': self.bucket, 'Prefix': prefix, 'MaxKeys': min(1000, max_keys - len(keys) + 1)}
+            if token is not None:
+                args['ContinuationToken'] = token
+            page = self.client.list_objects_v2(**args)
+            if type(page) is not dict or type(page.get('IsTruncated')) is not bool:
+                raise ValueError('invalid object listing pagination')
+            contents = page.get('Contents', [])
+            if type(contents) is not list or ('KeyCount' in page and (
+                    type(page['KeyCount']) is not int or page['KeyCount'] != len(contents))):
+                raise ValueError('invalid object listing page')
+            for item in contents:
+                if type(item) is not dict or type(item.get('Key')) is not str or not item['Key'].startswith(prefix):
+                    raise ValueError('object listing escaped prefix')
+                key = _validate_object_key(item['Key'][len(prefix):])
+                if key in keys:
+                    raise ValueError('duplicate object listing key')
+                keys.add(key)
+                if len(keys) > max_keys:
+                    raise ValueError('object listing exceeds budget')
+            if not page['IsTruncated']:
+                if page.get('NextContinuationToken') is not None:
+                    raise ValueError('invalid object listing pagination')
+                return tuple(sorted(keys))
+            token = page.get('NextContinuationToken')
+            if type(token) is not str or not token or token in seen_tokens:
+                raise ValueError('invalid object listing pagination')
+            seen_tokens.add(token)
+            if len(seen_tokens) > max_keys:
+                raise ValueError('object listing page budget exceeded')
 
     def _key(self, key: str) -> str:
         relative = Path(key)

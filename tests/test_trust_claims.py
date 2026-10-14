@@ -580,10 +580,23 @@ def test_product_refuses_ibmi_plaintext_in_chart_installer_and_onboarding() -> N
     assert "the product refuses plaintext" in _read(FOOTPRINT)
 
 
+# The capture image ships two side-effect-free boundary helpers from quadringent/qualification
+# (data classes and validation). The write-capable qualification driver stays out.
+SHIPPED_QUALIFICATION_HELPERS = ("src/quadringent/qualification/__init__.py", "src/quadringent/qualification/boundary.py")
+
+
 def test_capture_image_does_not_copy_qualification_code() -> None:
     dockerfile = _read(ROOT / "docker/Dockerfile")
     assert "quadringent_qualification" not in dockerfile
-    assert "quadringent/qualification" not in dockerfile
+    assert "QualificationSourceDriver" not in dockerfile
+    shipped = set(re.findall(r"src/quadringent/qualification/[\w./-]+", dockerfile))
+    assert shipped <= set(SHIPPED_QUALIFICATION_HELPERS), shipped
+    for helper in SHIPPED_QUALIFICATION_HELPERS:
+        tree = ast.parse(_read(ROOT / helper))
+        imported = {(node.module or "") for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+        imported |= {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+        assert all(name.startswith(("__future__", "dataclasses", "quadringent")) for name in imported), (helper, imported)
+        assert not re.search(r"subprocess|socket|jaydebeapi|pyodbc|QCMDEXC|CommandCall|INSERT|UPDATE|DELETE|CHGJRN", _read(ROOT / helper)), helper
     assert "quadringent_lab" not in dockerfile
     runtime = _read(ROOT / "docker/runtime-modules.txt")
     assert "qualification" not in runtime

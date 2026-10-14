@@ -175,3 +175,15 @@ def test_a_malformed_or_foreign_admission_is_refused():
             tableset.parse_admission({**admission, **change}, table_id="tbl1", pipeline_id="pip1")
     with pytest.raises(tableset.AdmissionError):
         tableset.parse_admission({"run_id": admission["run_id"]}, table_id="tbl1", pipeline_id="pip1")
+
+
+def test_the_public_key_is_one_complete_base64_line():
+    import base64
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from quadringent.local.snowflake_setup import public_key_body as _public_key_body
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048).public_key()
+    pem = key.public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode()
+    der = key.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    body = _public_key_body(pem)
+    assert "\n" not in body and body == base64.b64encode(der).decode("ascii")

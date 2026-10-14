@@ -29,9 +29,10 @@ def new_service_identities() -> tuple[str, str]:
 
 
 def public_key_body(public_key_pem: str) -> str:
-    """Base64 content without the PEM headers, as Snowflake expects it."""
-    lines = [line for line in public_key_pem.strip().splitlines() if "BEGIN" not in line and "END" not in line]
-    return "\n".join(lines)
+    """The complete public key as one base64 line, as the managed setup script writes it."""
+    # One base64 line: Snowflake truncates a key split across lines in the SQL value.
+    lines = [line.strip() for line in public_key_pem.strip().splitlines() if "BEGIN" not in line and "END" not in line]
+    return "".join(lines)
 
 
 def validated_scope(database: str, schema: str | None) -> tuple[str, str | None]:

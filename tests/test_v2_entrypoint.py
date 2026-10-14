@@ -32,6 +32,31 @@ def _environ(tmp_path: Path, **overrides: str) -> dict[str, str]:
     return base
 
 
+def test_main_help_is_english_without_starting_the_application(monkeypatch, capsys) -> None:
+    build = Mock(side_effect=AssertionError("help must not build the application"))
+    monkeypatch.setattr(entrypoint, "build_app", build)
+    with pytest.raises(SystemExit) as result:
+        entrypoint.main(["--help"])
+    assert result.value.code == 0
+    output = capsys.readouterr().out
+    assert "Quadringent v2 control plane" in output
+    assert "see docs/api-v2.md" in output
+    assert "--host" in output and "--port" in output
+    build.assert_not_called()
+
+
+def test_main_missing_database_fails_before_starting_uvicorn(monkeypatch) -> None:
+    import uvicorn
+
+    run = Mock(side_effect=AssertionError("missing configuration must not start a server"))
+    monkeypatch.delenv(entrypoint.ENV_DATABASE_URL, raising=False)
+    monkeypatch.setattr(uvicorn, "run", run)
+    with pytest.raises(entrypoint.ConfigurationError) as result:
+        entrypoint.main([])
+    assert str(result.value) == "QUADRINGENT_V2_DATABASE_URL is required to start the v2 control plane"
+    run.assert_not_called()
+
+
 def test_build_app_requires_a_database_url(tmp_path: Path) -> None:
     environ = _environ(tmp_path)
     del environ[entrypoint.ENV_DATABASE_URL]

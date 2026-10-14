@@ -313,7 +313,7 @@ class PostgresClaimUpgradeTests(unittest.TestCase):
     def test_unexpected_existing_claim_refuses_upgrade(self) -> None:
         existing, _ = self.render_existing(None)
         existing["spec"]["volumeClaimTemplates"][0]["metadata"]["name"] = "other"
-        self.render_existing(existing, expected_error="template PVC data unique obligatoire")
+        self.render_existing(existing, expected_error="Existing PostgreSQL StatefulSet requires exactly one PVC template named data")
 
     def test_new_claim_labels_are_independent_of_app_version(self) -> None:
         rendered, _ = self.render_existing(None)

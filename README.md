@@ -7,7 +7,7 @@ We build open-source change data capture from IBM i (formerly AS/400 and iSeries
 <!-- The thesis line also opens docs/pypi.md; tests/test_pypi_metadata.py checks that they match. -->
 <!-- source: docs/architecture.md, docs/licensing.md, docs/evidence.md, docs/product/your-data.md, docs/product/quadringent-destination-proof-contract.md, docs/product/synthetic-demo.md, docs/product/operator-guide.md, docs/product/try-it-local.md, site/runtime-0.3.5.json, site/recovery-0.3.4.json, site/qualification-0.3.4.json, CHANGELOG.md, pyproject.toml -->
 
-Version 0.4 · Apache-2.0. Source 0.4.3, latest published prerelease 0.4.2.
+Version 0.4 · Apache-2.0. Source 0.4.5, latest published prerelease 0.4.2.
 
 Initial copy of synthetic tables tested against a real IBM i and a real Snowflake account on four cloud targets (release 0.3.5, 2026-10-12), plus reader-kill recovery with source writes on 0.3.4. Receipt summaries are public. Limits (latency, IBM i CPU and I/O cost, IBM i 7.5 as the only release tested) and figures: [evidence page](docs/evidence.md).
 

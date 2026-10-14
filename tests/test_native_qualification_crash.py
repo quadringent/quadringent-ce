@@ -12,6 +12,11 @@ from quadringent.qualification import proof, cli
 def crash_fixture():
     from test_native_qualification_proof import PureProofTests
     before,after,operations=PureProofTests().resume_fixture()
+    from test_native_qualification_bound_boundary import fixture as bound_fixture
+    _,_,binding=bound_fixture()
+    for snapshot in (before,after):
+        point=binding.checkpoint(binding.bootstrap.receiver_identity,snapshot['checkpoint']['sequence'])
+        snapshot['checkpoint'].update(bound_checkpoint=point.to_dict(),capture_binding=binding.to_dict())
     before['reader'].update(pod='reader-pod',node='node1',replicaset='rs1',replicaset_uid='rs-uid',container_id='containerd://old',restart_count=0)
     after['reader'].update(uid='d1',pod='reader-pod',pod_uid='old',node='node1',replicaset='rs1',replicaset_uid='rs-uid',container_id='containerd://new',restart_count=1,running_started_utc='2026-09-30T10:00:03.5+00:00',desired_replicas=1,ready_replicas=1)
     for item in (before,after):

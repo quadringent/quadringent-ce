@@ -1,6 +1,10 @@
 """Le fichier loader ne doit pas masquer le package control-plane installé."""
+import json
 import subprocess
 import sys
+
+import pytest
+
 from quadringent.qualification.proof import NativeProbe
 
 
@@ -42,38 +46,88 @@ def test_identity_scripts_keep_exact_cloud_and_copy_predicates():
         assert "credentials.refresh(request)" in script
         assert "type(credentials) is not metadata_credentials.Credentials" in script
         assert "tables[0].evidence_key!='copy/evidence.json'" in script
-        assert "evidence.get('run_id')!='run'" in script
         assert "blob.download_as_bytes(if_generation_match=blob.generation,timeout=10,retry=None)" in script
         assert "'R:10'" in script
     assert "instance['id']!='123'" in probe.gcp_vm_identity_script()
 
 
+@pytest.mark.parametrize('method', ('gke_identity_script', 'gcp_vm_identity_script'))
+def test_identity_scripts_reject_copy_from_another_run(monkeypatch, capsys, method):
+    from test_native_qualification_bound_boundary import gcp_fixture, gcs_copy
+
+    evidence, binding = gcs_copy()
+    probe, _ = gcp_fixture(monkeypatch, evidence, binding)
+    probe.args.expected_gcp_instance_id = '123'
+    probe.args.expected_gcp_instance_name = 'vm'
+    probe.args.expected_gcp_zone = 'zone'
+    probe.args.expected_gcp_machine_type = 'machine'
+    metadata = sys.modules['google.auth.compute_engine._metadata']
+    info = {'email': probe.args.expected_gcp_service_account,
+            'scopes': ['https://www.googleapis.com/auth/cloud-platform']}
+    instance = {'instance/id': '123', 'instance/name': 'vm',
+                'instance/zone': 'projects/project/zones/zone',
+                'instance/machine-type': 'projects/project/machineTypes/machine'}
+    monkeypatch.setattr(metadata, 'get_service_account_info', lambda *a, **kw: info, raising=False)
+    monkeypatch.setattr(metadata, 'get', lambda request, key: instance[key], raising=False)
+
+    exec(compile(getattr(probe, method)(), '<identity-probe>', 'exec'), {})
+    result = json.loads(capsys.readouterr().out)
+    assert result['service_account_email'] == probe.args.expected_gcp_service_account
+    assert result['gcs_read']['verified'] is True
+    assert result['gcs_read']['key'] == probe.args.gcs_read_key
+    probe.args.copy_run_id = 'foreign-run'
+    with pytest.raises(ValueError, match='pipeline/table/run'):
+        exec(compile(getattr(probe, method)(), '<identity-probe>', 'exec'), {})
+    assert capsys.readouterr().out == ''
+
+
 def test_live_collector_scripts_use_installed_packages_and_exact_loader():
-    from argparse import Namespace
+    from copy import deepcopy
     from quadringent.qualification.collect import LiveCollector
+    from test_native_qualification_bound_boundary import fixture
+
+    evidence, args, binding = fixture()
     probe = NativeProbe.__new__(NativeProbe)
-    probe.args = Namespace(table_id='t1', database='DB', schema='S', pk='ID', history='H', mirror='M',
-                           pipeline='p1', copy_run_id='run1')
-    probe.library = 'LIB'
-    probe.table = 'TABLE'
+    probe.args = args
+    args.table, args.database, args.schema = 'S.T', 'DB', 'S'
+    args.pk, args.history, args.mirror = 'ID', 'H', 'M'
+    probe.library = 'S'
+    probe.table = 'T'
     probe.columns = {'ID': 'int'}
     scripts = []
     probe.exec_json = lambda pod, container, script: scripts.append(script)
     collector = LiveCollector(probe)
     collector.copy(({'pod': 'loader', 'container': 'loader'}, {}))
-    collector.journal(({'pod': 'reader', 'container': 'reader'}, {}),
-                      {'boundary': {'last_sequence': 10, 'receiver_name': 'R', 'receiver_library': 'LIB'}},
-                      {'receiver': 'R', 'sequence': 11})
+    checkpoint = {'receiver': 'R1', 'sequence': 11,
+                  'bound_checkpoint': binding.checkpoint(binding.bootstrap.receiver_identity, 11).to_dict(),
+                  'capture_binding': binding.to_dict()}
+    reader = ({'pod': 'reader', 'container': 'reader'}, {})
+    collector.journal(reader, evidence, checkpoint)
     for script in scripts:
         compile(script, '<live-collector>', 'exec')
         assert 'sys.path.insert' not in script
         assert 'from quadringent.raw import read_raw_batch' in script
     assert "'/app/quadringent_destination_loader.py'" in scripts[0]
-    assert "evidence.get('run_id')!='run1'" in scripts[0]
     assert "evidence_key=t.evidence_key" in scripts[0]
     assert "get_bounded(evidence_key,262144)" in scripts[0]
     assert "batch.manifest.high_watermark.receiver!='SNAPSHOT:'+'run1'" in scripts[0]
     assert "summary.get('scan_complete')!='true'" in scripts[1]
+    foreign = deepcopy(evidence)
+    foreign['run_id'] = 'foreign-run'
+    with pytest.raises(ValueError, match='pipeline/table/run'):
+        collector.journal(reader, foreign, checkpoint)
+    assert len(scripts) == 2
+
+
+def test_live_copy_script_rejects_copy_from_another_run(tmp_path, monkeypatch, capsys):
+    from test_native_qualification_bound_boundary import copy_script_fixture
+
+    collector, table, stores, evidence, _, _, _ = copy_script_fixture(tmp_path, monkeypatch, capsys)
+    evidence['run_id'] = 'foreign-run'
+    stores[''].values[table.evidence_key] = json.dumps(evidence).encode()
+    with pytest.raises(ValueError, match='pipeline/table/run'):
+        collector.copy(({'pod': 'loader', 'container': 'destination-loader'}, {}))
+    assert capsys.readouterr().out == ''
 
 
 def test_runtime_interpreter_and_module_path_follow_product_images():

@@ -71,11 +71,11 @@ class ControlPlaneJobsChartTests(unittest.TestCase):
     def documents(self, result: subprocess.CompletedProcess[str]) -> list[dict]:
         return [document for document in yaml.safe_load_all(result.stdout) if document]
 
-    def test_les_couts_exigent_le_fichier_du_pvc_persistant(self) -> None:
+    def test_costs_require_the_file_on_the_persistent_fleet_pvc(self) -> None:
         source = "controlPlane.infrastructureCostsSource=file:///var/lib/quadringent-fleet/infrastructure-costs.json"
         refused = self.render_launch(source, "controlPlane.fleetState.persistence.enabled=false")
         self.assertNotEqual(refused.returncode, 0)
-        self.assertIn("PVC flotte persistant", refused.stderr)
+        self.assertIn("controlPlane.infrastructureCostsSource requires the costs file on the persistent fleet PVC", refused.stderr)
         refused = self.render_launch("controlPlane.infrastructureCostsSource=https://example.invalid/costs.json")
         self.assertNotEqual(refused.returncode, 0)
         result = self.render_launch(source, "controlPlane.fleetState.persistence.enabled=true")
@@ -244,7 +244,7 @@ class ControlPlaneJobsChartTests(unittest.TestCase):
         )
 
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("operatorGroups ou adminGroups", result.stderr)
+        self.assertIn("controlPlane.auth.enabled requires non-empty operatorGroups or adminGroups", result.stderr)
 
     def test_public_host_requires_auth(self) -> None:
         result = self.render(

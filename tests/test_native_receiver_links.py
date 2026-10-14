@@ -110,25 +110,43 @@ def test_receiver_windows_excludes_reset_even_with_reciprocal_v2_links():
 
 def test_evaluate_rotation_accepts_reciprocal_v2_cont_links():
     before, after, operations = _linked_rotation_fixture()
-    result = proof.evaluate_rotation(before, after, operations)
+    result = proof.evaluate_rotation(before, after, operations, historical=True)
     assert result["rotation_qualified"] is True
     assert result["native_cdc_qualified"] is False
     assert result["maximum_10s_qualified"] is False
 
 
+@pytest.mark.parametrize('bound', (False, True))
+def test_current_rotation_refuses_links_without_independent_native_generations(bound):
+    from quadringent.receiver_identity import ReceiverIdentity
+    from test_native_qualification_bound_boundary import fixture
+
+    before, after, operations = _linked_rotation_fixture()
+    if bound:
+        _, _, binding = fixture()
+        for snapshot, generation in ((before, 'generation-a'), (after, 'generation-b')):
+            checkpoint = snapshot['checkpoint']
+            identity = ReceiverIdentity('S', 'J', 'S', checkpoint['receiver'], 'synthetic-v1', generation)
+            checkpoint.update(bound_checkpoint=binding.checkpoint(identity, checkpoint['sequence']).to_dict(),
+                              capture_binding=binding.to_dict())
+    reason = 'independently observed native generations' if bound else 'checkpoint identity record format'
+    with pytest.raises(ValueError, match=reason):
+        proof.evaluate_rotation(before, after, operations)
+
+
 @pytest.mark.parametrize("change", LINK_CHANGES)
 def test_evaluate_rotation_rejects_unproven_v2_links_despite_cont_bounds(change):
     before, after, operations = _linked_rotation_fixture()
-    assert proof.evaluate_rotation(before, after, operations)["rotation_qualified"] is True
+    assert proof.evaluate_rotation(before, after, operations, historical=True)["rotation_qualified"] is True
     _alter_links(operations["catalog_after"], change)
     with pytest.raises(ValueError):
-        proof.evaluate_rotation(before, after, operations)
+        proof.evaluate_rotation(before, after, operations, historical=True)
 
 
 @pytest.mark.parametrize("change", ("reset_ack", "reset_bounds"))
 def test_evaluate_rotation_excludes_reset_even_with_reciprocal_v2_links(change):
     before, after, operations = _linked_rotation_fixture()
-    assert proof.evaluate_rotation(before, after, operations)["rotation_qualified"] is True
+    assert proof.evaluate_rotation(before, after, operations, historical=True)["rotation_qualified"] is True
     if change == "reset_ack":
         operations["rotation"]["sequence_option"] = "RESET"
     else:
@@ -136,7 +154,7 @@ def test_evaluate_rotation_excludes_reset_even_with_reciprocal_v2_links(change):
         rows[1][4] = "1"
         _write_catalog(operations["catalog_after"], rows)
     with pytest.raises(ValueError):
-        proof.evaluate_rotation(before, after, operations)
+        proof.evaluate_rotation(before, after, operations, historical=True)
 
 
 @pytest.mark.parametrize("fixture_name", ("windows", "rotation"))
@@ -170,7 +188,7 @@ def test_receiver_windows_refuses_v1_for_multi_receiver_qualification():
 )
 def test_evaluate_rotation_refuses_v1_catalogs(before_version, after_version):
     before, after, operations = _linked_rotation_fixture()
-    assert proof.evaluate_rotation(before, after, operations)["rotation_qualified"] is True
+    assert proof.evaluate_rotation(before, after, operations, historical=True)["rotation_qualified"] is True
     for name, version in (
         ("catalog_before", before_version),
         ("catalog_after", after_version),
@@ -179,4 +197,4 @@ def test_evaluate_rotation_refuses_v1_catalogs(before_version, after_version):
             catalog = operations[name]
             _write_catalog(catalog, [row[:6] for row in _catalog_rows(catalog)], version=version)
     with pytest.raises(ValueError):
-        proof.evaluate_rotation(before, after, operations)
+        proof.evaluate_rotation(before, after, operations, historical=True)

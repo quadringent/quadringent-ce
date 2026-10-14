@@ -18,6 +18,9 @@ src/**
 !src/quadringent/
 src/quadringent/**
 !src/quadringent/__init__.py
+!src/quadringent/qualification/
+!src/quadringent/qualification/__init__.py
+!src/quadringent/qualification/boundary.py
 !src/quadringent/site_config.py
 !src/quadringent/infrastructure_costs.py
 !src/quadringent/slo.py

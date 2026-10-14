@@ -28,7 +28,7 @@
 {{- fail "postgres.enabled and externalDatabase are mutually exclusive" }}
 {{- end }}
 {{- if and (not .Values.postgres.enabled) (not $externalDb.url) (not $externalDb.existingSecret) }}
-{{- fail "controlPlane.v2.enabled exige postgres.enabled=true ou externalDatabase.url/existingSecret" }}
+{{- fail "controlPlane.v2.enabled requires postgres.enabled=true or externalDatabase.url/existingSecret" }}
 {{- end }}
 {{- if le (int $v2.port) 0 }}
 {{- fail "controlPlane.v2.port must be > 0" }}
@@ -80,7 +80,7 @@
 {{- $auth := .Values.controlPlane.auth | default dict }}
 {{- if $auth.enabled }}
 {{- if and (empty $auth.operatorGroups) (empty $auth.adminGroups) }}
-{{- fail "controlPlane.auth.enabled exige operatorGroups ou adminGroups non vides" }}
+{{- fail "controlPlane.auth.enabled requires non-empty operatorGroups or adminGroups" }}
 {{- end }}
 {{- if empty $auth.userHeader }}
 {{- fail "controlPlane.auth.userHeader is required when authentication is enabled" }}
@@ -91,7 +91,7 @@
 {{- end }}
 {{- $host := .Values.controlPlane.host | default "127.0.0.1" }}
 {{- if and (ne $host "127.0.0.1") (ne $host "localhost") (not $auth.enabled) }}
-{{- fail "controlPlane.host non loopback exige controlPlane.auth.enabled=true" }}
+{{- fail "non-loopback controlPlane.host requires controlPlane.auth.enabled=true" }}
 {{- end }}
 {{- /* Le nom du SA fait partie du contrat IRSA du site (la trust policy lie
   le sub exact) : le site le déclare donc, borné DNS-1123. */ -}}
@@ -124,7 +124,7 @@
 {{- $fleetStatePersistent := and $launch (get $fleetPersistence "enabled" | default false) }}
 {{- $costSource := .Values.controlPlane.infrastructureCostsSource | default "" }}
 {{- if and $costSource (or (not $fleetStatePersistent) (ne $costSource (printf "file://%s/infrastructure-costs.json" $fleetStateDir))) }}
-{{- fail "controlPlane.infrastructureCostsSource exige le fichier de coûts du PVC flotte persistant" }}
+{{- fail "controlPlane.infrastructureCostsSource requires the costs file on the persistent fleet PVC" }}
 {{- end }}
 {{- if $launch }}
 {{- if not .Values.controlPlane.launch.jobTemplate }}

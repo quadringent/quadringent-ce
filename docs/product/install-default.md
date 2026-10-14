@@ -13,7 +13,7 @@ Start with a proof of concept on a non-production IBM i. We help with pilots
 ([pilot guide](positioning-and-offer.md)). What we have measured, and on which
 version, is on the [evidence page](../evidence.md).
 
-The source prepares **0.4.3**. Installation links target the published
+The source prepares **0.4.5**. Installation links target the published
 **0.4.2 prerelease**, with native receiver bindings and selected replay
 recovery. Use only available, admitted release assets. The published
 [0.3.5 scoped receipt](../../site/runtime-0.3.5.json) covers initial

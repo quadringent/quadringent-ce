@@ -224,13 +224,13 @@ class InlineReadOnlyScriptsTests(unittest.TestCase):
         from quadringent.qualification import collect as l
         from argparse import Namespace
         from unittest.mock import Mock
-        args=Namespace(table_id='t1',table='S.T',pipeline='p1',copy_run_id='run1',copy_boundary='R1:10',database='DB',schema='DEV',pk='ID',history='T_HISTORY',mirror='T_MIRROR')
+        args=Namespace(table_id='t1',table='S.T',pipeline='p1',copy_run_id='run1',copy_boundary='R1:10',database='DB',schema='DEV',pk='ID',history='T_HISTORY',mirror='T_MIRROR',journal_library='S',journal_name='J')
         probe=Namespace(args=args,columns={'ID':'int','NOTE':'text'},library='S',table='T',exec_json=Mock(return_value={}),
                         loader_import_script=l.n.NativeProbe.loader_import_script)
         collector=l.LiveCollector(probe);workload=({'pod':'native','container':'reader'},{})
         collector.copy(workload)
         copy_script=probe.exec_json.call_args.args[2];compile(copy_script,'copy-inline','exec')
-        collector.journal(workload,{'boundary':{'last_sequence':10,'receiver_name':'R1','receiver_library':'S'}},{'receiver':'R1','sequence':11})
+        collector.journal(workload,{'pipeline_id':'p1','table_id':'t1','run_id':'run1','boundary':{'last_sequence':10,'receiver_name':'R1','receiver_library':'S'}},{'receiver':'R1','sequence':11})
         journal_script=probe.exec_json.call_args.args[2];compile(journal_script,'journal-inline','exec')
         self.assertIn("'cmd': 'sql_window'",journal_script);self.assertIn("'max_server_entries': 1",journal_script)
         self.assertNotIn("'cmd': 'exec'",journal_script);self.assertNotIn('put_once(',copy_script)

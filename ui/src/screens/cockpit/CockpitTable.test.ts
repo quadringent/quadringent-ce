@@ -122,11 +122,26 @@ test('loading and failed states never render tab content or the controls panel',
   assert.match(failed, /panne v2/);
 });
 
-test('the table controls panel offers all five contract actions', () => {
-  const markup = render({ tab: 'metrics' });
-  for (const label of ["Suspend", "Resume", "Restart the initial copy", "Remove", "Replay a range"]) {
+test('a live table offers pause, restart, remove and replay, and never resume', () => {
+  const markup = render({ tab: 'metrics', state: { status: 'ready', data: tableData({ pipeline: { id: 'pl_sales_order_lines', declaredState: 'live' } }) } });
+  for (const label of ["Suspend", "Restart the initial copy", "Remove", "Replay a range"]) {
     assert.match(markup, new RegExp(`>${label}<`));
   }
+  assert.doesNotMatch(markup, />Resume</);
+});
+
+test('a paused or attention table offers resume and never suspend', () => {
+  for (const declaredState of ['paused', 'attention'] as const) {
+    const markup = render({ tab: 'metrics', state: { status: 'ready', data: tableData({ pipeline: { id: 'pl_sales_order_lines', declaredState } }) } });
+    assert.match(markup, />Resume</, declaredState);
+    assert.doesNotMatch(markup, />Suspend</, declaredState);
+  }
+});
+
+test('a stopped table offers no action and says so', () => {
+  const markup = render({ tab: 'metrics', state: { status: 'ready', data: tableData({ pipeline: { id: 'pl_sales_order_lines', declaredState: 'stopped' } }) } });
+  assert.match(markup, /No action is available in the current state\./);
+  assert.doesNotMatch(markup, />Suspend<|>Resume<|>Remove</);
 });
 
 test('the function key bar is present and F12 jumps to the logs tab hash', () => {
@@ -230,4 +245,24 @@ test('an estimated cost names its basis and collection time without calling it o
   assert.doesNotMatch(markup, /average_throughput_estimate/);
   assert.match(markup, /Collected at <time dateTime="2026-09-23T09:00:00Z">/);
   assert.doesNotMatch(markup, /Observed on|Database:/);
+});
+
+test('the evidence tab links to the diagnostics of this table only, with or without evidence', () => {
+  const link = /href="#\/cockpit\/diagnostics\?pipeline=pl_sales_order_lines">Open diagnostics for this table</;
+  assert.match(render({ tab: 'proofs' }), link);
+  const absent = { state: 'absent', observedAt: null, eventCount: null, lagSeconds: null, duplicateCount: null, detail: 'Not measured.' };
+  const withEvidence = tableData({ evidence: {
+    pipelineId: 'pl_sales_order_lines', provenance: 'kubernetes_loader_log', evidenceKind: 'live',
+    collectedAt: '2026-10-10T12:00:00Z', reading: absent, delivery: absent, reconciliation: absent,
+  } });
+  assert.match(render({ tab: 'proofs', state: { status: 'ready', data: withEvidence } }), link);
+  assert.doesNotMatch(render({ tab: 'metrics' }), /cockpit\/diagnostics/);
+});
+
+test('a generated cost on the costs tab is labelled synthetic and never called measured', () => {
+  const synthetic = tableData({ costToday: { scope: 'table', id: 'pl_sales_order_lines', window: '24h', status: 'synthetic', amount: 4.82, currency: 'USD', basis: 'warehouse_credits', collectedAt: '2026-09-23T09:00:00Z' } });
+  const markup = render({ tab: 'costs', state: { status: 'ready', data: synthetic } });
+  assert.match(markup, /4\.82 USD/);
+  assert.match(markup, /Synthetic cost/);
+  assert.doesNotMatch(markup, /measured<|· measured|Basis|Collected/);
 });

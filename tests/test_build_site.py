@@ -166,20 +166,63 @@ def test_unknown_inline_tags_are_escaped_and_known_markup_is_kept(tmp_path):
     assert "<code>code &lt;x&gt;</code>" in page
 
 
-def test_guide_evidence_links_target_the_copied_public_site_file(tmp_path):
+@pytest.mark.parametrize("source, prefix, slug", [
+    ("README.md", "site/", "getting-started"),
+    ("docs/product/install-default.md", "../../site/", "installation"),
+])
+def test_guide_evidence_links_target_the_copied_public_site_file(tmp_path, source, prefix, slug):
     root = tmp_path / "source"
     (root / "site").mkdir(parents=True)
     (root / "site/index.html").write_text("<html><head><title>Q</title></head></html>")
     (root / "site/style.css").write_text("")
     receipt = root / "site/qualification-current.json"
     receipt.write_text('{"status":"PARTIAL"}')
-    (root / "README.md").write_text(
-        "# Current results\n\n[Evidence](site/qualification-current.json#scope)\n\n"
-        "[Absent](site/not-published.json)"
+    document = root / source
+    document.parent.mkdir(parents=True, exist_ok=True)
+    document.write_text(
+        f"# Current results\n\n[Evidence]({prefix}qualification-current.json#scope)\n\n"
+        f"[Absent]({prefix}not-published.json#missing)"
     )
     out = tmp_path / "built"
     build("https://github.com/example/project", out, source_root=root, site_url="https://example.github.io/project/")
-    guide = (out / "docs/getting-started/index.html").read_text()
+    guide = (out / f"docs/{slug}/index.html").read_text()
     assert 'href="../../qualification-current.json#scope"' in guide
     assert (out / "qualification-current.json").read_bytes() == receipt.read_bytes()
-    assert 'href="https://github.com/example/project/blob/main/site/not-published.json"' in guide
+    assert 'href="https://github.com/example/project/blob/main/site/not-published.json#missing"' in guide
+
+
+def test_readme_picture_renders_as_html_with_both_theme_images(tmp_path):
+    import subprocess, sys
+    out = tmp_path / "site"
+    subprocess.run([sys.executable, "scripts/build_site.py", "--repository-url", "https://github.com/quadringent/quadringent-ce",
+                    "--site-url", "https://quadringent.github.io/quadringent-ce/", "--output", str(out)], check=True,
+                   cwd=Path(__file__).resolve().parents[1], capture_output=True)
+    page = (out / "docs" / "getting-started" / "index.html").read_text()
+    assert "&lt;picture" not in page and "<picture>" in page
+    assert 'srcset="../../assets/cockpit-evidence-dark.png"' in page
+    assert 'src="../../assets/cockpit-evidence-light.png"' in page
+
+
+def test_guide_header_states_version_and_licence_and_carries_no_disclaimer(tmp_path):
+    root = tmp_path / "source"
+    (root / "site").mkdir(parents=True)
+    (root / "site/index.html").write_text("<html><head><title>Q</title></head><body><h1>Q</h1></body></html>")
+    (root / "site/style.css").write_text("")
+    (root / "README.md").write_text("# Start\n\nInstall.\n")
+    (root / "pyproject.toml").write_text('[project]\nname = "x"\nversion = "0.4.3"\n')
+    out = tmp_path / "built"
+    build("https://github.com/example/project", out, source_root=root, site_url="https://example.github.io/project/")
+    page = (out / "docs/getting-started/index.html").read_text()
+    assert '<p class="guide__scope">Community Edition · Version 0.4 · Apache-2.0</p>' in page
+    assert "DEV/INT" not in page and "Preview" not in page
+    (root / "pyproject.toml").unlink()
+    out = tmp_path / "built-without-version"
+    build("https://github.com/example/project", out, source_root=root, site_url="https://example.github.io/project/")
+    assert '<p class="guide__scope">Community Edition · Apache-2.0</p>' in (out / "docs/getting-started/index.html").read_text()
+
+
+def test_documented_search_snippets_carry_no_preview_or_dev_int_disclaimer():
+    from build_site import DOC_DESCRIPTIONS
+
+    for source, description in DOC_DESCRIPTIONS.items():
+        assert "DEV/INT" not in description and "preview" not in description.lower(), source

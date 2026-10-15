@@ -12,8 +12,6 @@
 
 .wizard__kicker {
   font-size: var(--t-micro);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--ink-3);
   margin: 0 0 var(--space-1, 4px);
 }

@@ -36,6 +36,7 @@ from .routes import confirmations as confirmations_routes
 from .routes import costs as costs_routes
 from .routes import destinations as destinations_routes
 from .routes import diagnostics as diagnostics_routes
+from .routes import diagnostics_report as diagnostics_report_routes
 from .routes import events as events_routes
 from .routes import pipelines as pipelines_routes
 from .routes import sources as sources_routes
@@ -300,6 +301,7 @@ def create_v2_app(
     app.include_router(users_routes.router)
     app.include_router(events_routes.router)
     app.include_router(webhooks_routes.router)
+    app.include_router(diagnostics_report_routes.router)
     if app.state.agent_tokens_service is not None:
         app.include_router(agent_tokens_routes.router)
 

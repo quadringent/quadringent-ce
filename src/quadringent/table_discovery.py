@@ -12,10 +12,11 @@ lit que le flux déjà capté par ``PersistentJavaWorker.discover`` (voir
 Sources pour les commandes CL générées (syntaxe vérifiée sur IBM i 7.4/7.5,
 référence CL command reference du IBM i Knowledge Center — Programming ->
 Control language) :
-  - CRTJRNRCV (Create Journal Receiver) :
-    https://www.ibm.com/docs/en/i/7.5?topic=cjrp-create-journal-receiver-crtjrnrcv
-  - CRTJRN (Create Journal) :
-    https://www.ibm.com/docs/en/i/7.5?topic=cj-create-journal-crtjrn
+  - CRTJRNRCV (Create Journal Receiver), THRESHOLD default 1500000 KB :
+    https://www.ibm.com/docs/en/i/7.5?topic=ssw_ibm_i_75/cl/crtjrnrcv.htm
+  - CRTJRN (Create Journal), MNGRCV(*SYSTEM) needs a receiver threshold
+    other than *NONE :
+    https://www.ibm.com/docs/en/i/7.5?topic=ssw_ibm_i_75/cl/crtjrn.htm
   - STRJRNPF (Start Journal Physical File) :
     https://www.ibm.com/docs/en/i/7.5?topic=sjpf-start-journal-physical-file-strjrnpf
   - CHGJRNOBJ (Change Journaled Object) :
@@ -25,6 +26,7 @@ Control language) :
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import re
 
 DISCOVER_ROW_TAG = "table"
 _ROW_FIELD_COUNT = 15
@@ -208,7 +210,21 @@ class TableReadiness:
     cl_commands: tuple[ClCommand, ...] = field(default_factory=tuple)
 
 
-def classify_table(table: DiscoveredTable, *, has_journal_in_library: bool = True) -> TableReadiness:
+# IBM i object names: at most 10 characters, starting with a letter, $, # or @.
+_IBMI_NAME = re.compile(r"[A-Z$#@][A-Z0-9$#@_.]{0,9}")
+
+
+def _valid_ibmi_name(value: str | None) -> bool:
+    return value is not None and _IBMI_NAME.fullmatch(value) is not None
+
+
+def classify_table(
+    table: DiscoveredTable,
+    *,
+    has_journal_in_library: bool = True,
+    existing_journal: tuple[str, str] | None = None,
+    several_journals: bool = False,
+) -> TableReadiness:
     """Classe une table seule, sans tenir compte des autres tables sélectionnées.
 
     L'état ``journal_mismatch`` est intrinsèquement une propriété d'une
@@ -217,16 +233,29 @@ def classify_table(table: DiscoveredTable, *, has_journal_in_library: bool = Tru
     """
 
     if not table.journaled:
-        commands = _journal_setup_commands(table, has_journal_in_library=has_journal_in_library)
-        return TableReadiness(
-            table=table,
-            state=NOT_JOURNALED,
-            explanation=(
-                f"{table.qualified_name} is not journaled: change capture is "
-                "impossible without an active journal on this physical file."
-            ),
-            cl_commands=commands,
+        explanation = (
+            f"{table.qualified_name} is not journaled: change capture is "
+            "impossible without an active journal on this physical file."
         )
+        if not (_valid_ibmi_name(table.library) and _valid_ibmi_name(table.system_name)):
+            return TableReadiness(
+                table=table,
+                state=NOT_JOURNALED,
+                explanation=explanation + " Its name cannot be used in a generated CL command; "
+                "start journaling manually.",
+                cl_commands=(),
+            )
+        if several_journals and existing_journal is None:
+            return TableReadiness(
+                table=table, state=NOT_JOURNALED,
+                explanation=explanation + " Other tables of this library use several journals; choose the journal "
+                "with the IBM i administrator and start journaling with STRJRNPF IMAGES(*BOTH).",
+                cl_commands=(),
+            )
+        commands = _journal_setup_commands(
+            table, has_journal_in_library=has_journal_in_library, existing_journal=existing_journal
+        )
+        return TableReadiness(table=table, state=NOT_JOURNALED, explanation=explanation, cl_commands=commands)
     if table.images != "*BOTH":
         images_label = table.images or "none"
         return TableReadiness(
@@ -269,30 +298,50 @@ def classify_table(table: DiscoveredTable, *, has_journal_in_library: bool = Tru
 
 
 def _journal_setup_commands(
-    table: DiscoveredTable, *, has_journal_in_library: bool
+    table: DiscoveredTable,
+    *,
+    has_journal_in_library: bool,
+    existing_journal: tuple[str, str] | None = None,
 ) -> tuple[ClCommand, ...]:
-    journal_library = table.library
-    journal_name = _DEFAULT_JOURNAL_NAME
     commands: list[ClCommand] = []
-    if not has_journal_in_library:
+    if existing_journal is not None and all(_valid_ibmi_name(part) for part in existing_journal):
+        journal_library, journal_name = existing_journal
+        journal_reason = f"Journal {journal_library}/{journal_name} already journals other tables of this library."
+    elif has_journal_in_library:
+        journal_library, journal_name = table.library, _DEFAULT_JOURNAL_NAME
+        journal_reason = (
+            f"Assumes the library journal is {journal_name} (the SQL schema default); "
+            "replace it with the journal that already exists in this library."
+        )
+    else:
+        journal_library, journal_name = table.library, _DEFAULT_JOURNAL_NAME
         receiver_name = _DEFAULT_RECEIVER_NAME
+        journal_reason = "Uses the journal created by the previous commands."
         commands.append(
             ClCommand(
                 command=(
                     f"CRTJRNRCV JRNRCV({journal_library}/{receiver_name}) "
-                    "THRESHOLD(*NONE) TEXT('Quadringent journal receiver')"
+                    "TEXT('Quadringent journal receiver')"
                 ),
-                reason="No usable journal in the library: create its receiver first.",
+                reason=(
+                    "No usable journal in the library: create its receiver first. THRESHOLD is "
+                    "omitted, so the IBM default of 1500000 KB applies; review it against your "
+                    "receiver retention plan before running."
+                ),
             )
         )
         commands.append(
             ClCommand(
                 command=(
                     f"CRTJRN JRN({journal_library}/{journal_name}) "
-                    f"JRNRCV({journal_library}/{receiver_name}) MNGRCV(*SYSTEM) "
-                    "TEXT('Journal Quadringent')"
+                    f"JRNRCV({journal_library}/{receiver_name}) MNGRCV(*SYSTEM) DLTRCV(*NO) "
+                    "TEXT('Quadringent journal')"
                 ),
-                reason="Create the journal with automatic system-managed receiver rotation.",
+                reason=(
+                    "Create the journal with system-managed receiver changes at the threshold. "
+                    "DLTRCV(*NO) keeps detached receivers until your own retention procedure "
+                    "removes them after Quadringent has read them; review before running."
+                ),
             )
         )
     commands.append(
@@ -304,7 +353,7 @@ def _journal_setup_commands(
             reason=(
                 "Start journaling this physical file with both images "
                 "(before/after); OMTJRNE(*OPNCLO) omits open/close entries, "
-                "which are not required for replication."
+                "which are not required for replication. " + journal_reason
             ),
         )
     )

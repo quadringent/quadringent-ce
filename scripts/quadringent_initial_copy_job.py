@@ -71,8 +71,9 @@ class InitialCopyConfig:
             if boundary.capture_binding != binding:
                 raise ValueError("copy boundary differs from its original capture binding")
             backend = (environ.get("QUADRINGENT_STORAGE_BACKEND") or "aws").strip().lower()
-            canonical_backend = {"aws": "s3", "s3": "s3", "gcs": "gcs"}.get(backend)
-            authority = f"{canonical_backend}://{_required(environ, 'AS400_RAW_BUCKET')}/receiver-authority-v1"
+            from quadringent.storage_backend import registry_authority
+
+            authority = registry_authority(backend, _required(environ, "AS400_RAW_BUCKET"))
             if binding.registry_authority != authority or binding.source_system != "ibmi":
                 raise ValueError("copy binding differs from its storage or event authority")
             expected = {
@@ -174,7 +175,11 @@ def publish_snapshot(config: InitialCopyConfig, *, base_environ: dict) -> list[d
         backend = backend_from_environment(os.environ)
         store = None
         client = None
-        if backend == "gcs":
+        if backend == "local":
+            from quadringent.storage_backend import StorageBackend
+
+            store = StorageBackend.from_environment(os.environ).object_store("")
+        elif backend == "gcs":
             from quadringent.gcs_backend import GcsObjectStore
 
             store = GcsObjectStore(config.raw_bucket)

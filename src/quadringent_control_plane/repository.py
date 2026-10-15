@@ -19,7 +19,7 @@ from quadringent.site_config import SiteConfig, current as _current_site
 from . import fleet_sidecar as _fleet_sidecar
 from .fleet_catalog_refresh import FLEET_CATALOG_FILE, FLEET_SIDECAR_FILE
 from .fleet_plan import parse_fleet_catalog
-from .fleet_progression import RUN_STATE_FORMAT
+from .fleet_progression import parse_run_state
 from .projection import FLEET_CAPABILITY_IDS
 from .fleet_sidecar import (
     SIDECAR_FORMAT_VERSION as FLEET_PLAN_FORMAT_VERSION,
@@ -224,12 +224,8 @@ def _project_source(document, source, now):
             # seraient jamais servis sur le chemin sidecar.
             if source.fleet_run_origin is not None:
                 run_document = dict(_read_document(source.fleet_run_origin))
-                fleet_document = run_document.get("fleet")
-                if (
-                    run_document.get("format_version") != RUN_STATE_FORMAT
-                    or not isinstance(fleet_document, Mapping)
-                ):
-                    raise ValueError("Incompatible fleet state")
+                parse_run_state(run_document)
+                fleet_document = run_document["fleet"]
                 document = dict(document)
                 document["fleet"] = fleet_document
             pipeline = project_console_document(document, source.descriptor, now=now)
@@ -248,12 +244,8 @@ def _project_source(document, source, now):
         # priment sur tout sidecar — un document hors contrat est refusé,
         # jamais contourné.
         run_document = dict(_read_document(source.fleet_run_origin))
-        fleet_document = run_document.get("fleet")
-        if (
-            run_document.get("format_version") != RUN_STATE_FORMAT
-            or not isinstance(fleet_document, Mapping)
-        ):
-            raise ValueError("Incompatible fleet state")
+        parse_run_state(run_document)
+        fleet_document = run_document["fleet"]
         document = dict(document)
         document["fleet"] = fleet_document
     origin=source.window_proof_origin

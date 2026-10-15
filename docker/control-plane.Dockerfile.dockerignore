@@ -21,6 +21,10 @@ src/quadringent/**
 !src/quadringent/qualification/
 !src/quadringent/qualification/__init__.py
 !src/quadringent/qualification/boundary.py
+!src/quadringent/diagnostics/
+!src/quadringent/diagnostics/__init__.py
+!src/quadringent/diagnostics/model.py
+!src/quadringent/diagnostics/export.py
 !src/quadringent/site_config.py
 !src/quadringent/infrastructure_costs.py
 !src/quadringent/slo.py

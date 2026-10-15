@@ -27,6 +27,7 @@ from ..http import AuditContext, envelope, idempotent_write
 from ..services.confirmations import ConfirmationNotFoundError, ConfirmationsService
 from ..services.logs import KNOWN_LEVELS, LogsService, NullLogSource
 from ..services.evidence import absent_evidence
+from ..services.logs import redact as redact_log_message
 from ..services.observation import NullObservationProvider, PipelineObservationProviderProtocol
 from ..services.pipelines import (
     ACTIONS,
@@ -42,7 +43,7 @@ router = APIRouter(prefix="/v2/pipelines", tags=["pipelines"])
 
 
 def _service(request: Request) -> PipelinesService:
-    return PipelinesService(request.app.state.engine)
+    return PipelinesService(request.app.state.engine, org_id=request.app.state.org_id)
 
 
 def _confirmations_service(request: Request) -> ConfirmationsService:
@@ -110,7 +111,12 @@ async def get_pipeline_evidence(
     result = reader(pipeline_id) if callable(reader) else absent_evidence(
         pipeline_id, reason="No delivery evidence provider configured for this table."
     )
-    return result.to_dict()
+    body = result.to_dict()
+    # Stage details may quote loader output: same redaction as the logs route.
+    for stage in ("reading", "delivery", "reconciliation"):
+        if isinstance(body.get(stage), dict) and isinstance(body[stage].get("detail"), str):
+            body[stage]["detail"] = redact_log_message(body[stage]["detail"])
+    return body
 
 
 @router.get("/{pipeline_id}/metrics")

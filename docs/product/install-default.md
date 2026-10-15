@@ -9,17 +9,25 @@ cluster. The [expert guide](install-client.md) covers sites managing their own
 Helm values. See [backup and restore](backup-restore.md) before upgrading or
 rebuilding a site.
 
+Start with a proof of concept on a non-production IBM i. We help with pilots
+([pilot guide](positioning-and-offer.md)). What we have measured, and on which
+version, is on the [evidence page](../evidence.md).
+
 Use the published **0.4.5 DEV/INT prerelease**, with original native receiver
-bindings and selected replay recovery. The [dated observed results](../../site/qualification-0.4.5.json)
-include a full one-million-row initial comparison on AWS VM and scoped reader
-recovery checks. Completed 24-hour endurance, GKE and general qualification
-remain incomplete; the 10 s observation target has not passed. Use only available,
-admitted release assets; these results do not qualify production.
-The published [0.3.5 scoped receipt](../../site/runtime-0.3.5.json) covers initial
+bindings and selected replay recovery. The [October 15 observed results](../../site/qualification-0.4.5.json)
+include a full one-million-row initial SOURCE/RAW/HISTORY/MIRROR comparison on
+AWS VM and scoped reader-recovery checks on AWS VM, EKS and GCP VM. At that
+dated snapshot, the 24-hour run was in progress; GKE and general qualification
+remained incomplete, and the 10 s observation target had not passed. Use only
+available, admitted release assets; these results do not qualify production.
+The new doctor and local-mode helpers in the source are Unreleased; the
+[local guide](try-it-local.md) requires its source CLI and compatible images.
+
+The historical [0.3.5 scoped receipt](../../site/runtime-0.3.5.json) covers initial
 copy and an EKS application cycle. The
 [0.3.4 recovery receipt](../../site/recovery-0.3.4.json) remains historical. A ready
-pod or accessible API does not prove IBM i → Snowflake delivery, CDC continuity,
-a maximum latency of 10 seconds, or production readiness.
+pod or accessible API proves the installation only; read delivery and
+reconciliation per table in the cockpit.
 
 Native capture now requires its original admitted receiver binding; legacy v1
 checkpoints cannot be adopted automatically. Keep the previous admitted version
@@ -38,7 +46,8 @@ and image-child selection was sometimes inferred from the sealed manifest.
 Download the wheel, sdist and release manifest from the **same admitted
 release**. The wheel installs the CLI; the extracted sdist supplies chart/
 and deploy/terraform/. The three OCI images are separate, immutable digest
-references. Verify all published hashes before installation. An absent page
+references. Verify them before installation as described in
+[Verify a release](verify-a-release.md). An absent page
 or a draft is not an available release.
 
 ```sh
@@ -74,7 +83,9 @@ journaling, authority and Snowflake requirements first.
 terraform, helm and kubectl must be on PATH. AWS VMs also require aws and
 session-manager-plugin; GCP requires gcloud. The installer checks credential
 presence without displaying values. `--check-ibmi <host>` optionally tests TCP
-reachability on 9471, 9476 and 9475; it does not perform a TLS handshake.
+reachability on 9471, 9476, 9475 and the 449 server mapper; it does not perform a
+TLS handshake or sign on. `quadringent doctor` gives the full diagnosis, see the
+[operator guide](operator-guide.md#2-preflight-and-diagnosis).
 
 Required target inputs are checked before terraform apply:
 

@@ -9,23 +9,29 @@ mesure à ``None`` : le domaine n'avance jamais sur un silence.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any, Mapping
 
 from quadringent.fleet_certify_probe import parse_certify_document
 
 from . import fleet as _fleet
-from .fleet import JournalCheckpoint, ProofWindow
+from .fleet import FleetError, JournalCheckpoint, ProofWindow
 from .fleet_history_runtime import PHASE_HISTORICAL
 from .fleet_pause_runtime import PHASE_PAUSED
 from .fleet_plan import FleetCatalog
 from .fleet_prepare_runtime import PHASE_PREPARED
 from .fleet_progression import (
     CertificationMeasure,
+    CREDIT_EVIDENCE_FORMAT,
+    CreditEvidence,
+    CreditWorkProof,
     FleetEvidence,
     TableMeasure,
     committed_tail,
     continuity_verdict,
     receiver_chain,
+    _measurement_matches_run,
 )
 
 
@@ -38,6 +44,7 @@ def collect_fleet_evidence(
     snapshot_document: Mapping[str, object] | None = None,
     proof_document: Mapping[str, object] | None = None,
     certify_documents: Mapping[str, object] | None = None,
+    financial_document: Mapping[str, object] | None = None,
 ) -> FleetEvidence | None:
     """Assemble le relevé courant ; ``None`` quand rien n'a encore été préparé.
 
@@ -89,6 +96,7 @@ def collect_fleet_evidence(
     if isinstance(proof_document, Mapping):
         measures = _table_measures(proof_document)
     certifications = _certifications(certify_documents)
+    budget, credits = _financial_measures(financial_document, intent.strip(), certify_documents)
 
     tables: dict[str, TableMeasure] = {}
     for name in _fleet.MANIFEST:
@@ -100,6 +108,8 @@ def collect_fleet_evidence(
             snapshot_published=measure.snapshot_published,
             loaded_rows=measure.loaded_rows,
             certification=certifications.get(name),
+            estimated_credits=credits.get(name, {}).get("estimate"),
+            measured_credits=credits.get(name, {}).get("measured"),
         )
 
     return FleetEvidence(
@@ -113,7 +123,50 @@ def collect_fleet_evidence(
         continuity_proven=proven,
         gap=gap,
         tables=tables,
+        credit_budget=budget,
     )
+
+
+def _financial_measures(
+    document: object, intent: str, proofs: Mapping[str, object] | None = None,
+) -> tuple[CreditEvidence | None, dict[str, dict[str, CreditEvidence]]]:
+    if (not isinstance(document, Mapping) or document.get("format_version") != CREDIT_EVIDENCE_FORMAT
+        or document.get("environment") != _fleet.ENVIRONMENT or document.get("prepare_intent_id") != intent):
+        return None, {}
+
+    def observation(value: object, kind: str) -> CreditEvidence | None:
+        try:
+            return CreditEvidence.from_dict(value, kind)
+        except (FleetError, TypeError, ValueError):
+            return None
+
+    budget = observation(document.get("budget"), "budget")
+    tables = document.get("tables")
+    result = {}
+    if isinstance(tables, Mapping):
+        for name, values in tables.items():
+            if name in _fleet.MANIFEST and isinstance(values, Mapping):
+                result[name] = {kind: item for kind in ("estimate", "measured")
+                                if (item := observation(values.get(kind), kind)) is not None}
+                measured = result[name].get("measured")
+                if measured is not None:
+                    expected = _credit_work_proof(proofs.get(name) if isinstance(proofs, Mapping) else None, intent, name)
+                    if (expected is None or measured.work_proof != expected
+                        or not _measurement_matches_run(measured, intent, name, expected.window.start_utc)):
+                        result[name].pop("measured")
+    return budget, result
+
+
+def _credit_work_proof(document: object, intent: str, table: str) -> CreditWorkProof | None:
+    cert = parse_certify_document(document)
+    if cert is None or cert.table != table:
+        return None
+    try:
+        canonical = json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()
+        return CreditWorkProof(intent, table, ProofWindow(cert.window_start_utc, cert.window_end_utc), cert.measured_at,
+                               hashlib.sha256(canonical).hexdigest())
+    except (FleetError, TypeError, ValueError):
+        return None
 
 
 def _checkpoint_of(value: object) -> JournalCheckpoint | None:

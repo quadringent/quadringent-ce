@@ -16,8 +16,11 @@ résultat — jamais absorbée en silence.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import math
+import re
 from typing import Any
 
 from . import fleet as _fleet
@@ -40,14 +43,9 @@ from .fleet_plan import (
 )
 
 
-RUN_STATE_FORMAT = "quadringent-fleet-run-state-v1"
+RUN_STATE_FORMAT = "quadringent-fleet-run-state-v2"
 RUN_STATE_FILE = "fleet-run.json"
-
-# Marge du budget de crédits : l'estimation catalogue est un ordre de
-# grandeur — le réel mesuré peut dériver avec le flux live pendant le
-# rattrapage. Au-delà de ce facteur le domaine bloque (cost_overrun), ce qui
-# est précisément le garde-fou voulu.
-CREDIT_BUDGET_HEADROOM = 4.0
+CREDIT_EVIDENCE_FORMAT = "quadringent-fleet-credit-evidence-v1"
 # Passes bornées par cycle : une table peut franchir HISTORICAL→CATCHING_UP
 # →LIVE dans le même relevé quand toutes les mesures sont déjà là — trois
 # suffisent, une quatrième ne servirait qu'à masquer une boucle.
@@ -104,6 +102,114 @@ class CertificationMeasure:
 
 
 @dataclass(frozen=True)
+class CreditWorkProof:
+    """Canonical table proof binding, separate from the original metering hash."""
+
+    prepare_intent_id: str
+    table_name: str
+    window: ProofWindow
+    measured_at: str
+    canonical_sha256: str
+
+    def __post_init__(self) -> None:
+        measured = _parse_utc_instant(self.measured_at)
+        if (type(self.prepare_intent_id) is not str or not self.prepare_intent_id.strip()
+            or self.table_name not in _fleet.MANIFEST or type(self.window) is not ProofWindow
+            or measured is None or measured > datetime.now(timezone.utc)
+            or _parse_utc_instant(self.window.end_utc) > measured
+            or type(self.canonical_sha256) is not str or re.fullmatch(r"[a-f0-9]{64}", self.canonical_sha256) is None):
+            raise FleetError("invalid_credit_evidence", "Current table work proof is required")
+        object.__setattr__(self, "window", ProofWindow(
+            _parse_utc_instant(self.window.start_utc).isoformat(), _parse_utc_instant(self.window.end_utc).isoformat()))
+        object.__setattr__(self, "measured_at", measured.isoformat())
+
+    def to_dict(self) -> dict[str, object]:
+        return {"prepare_intent_id": self.prepare_intent_id, "table_name": self.table_name,
+                "window": self.window.to_dict(), "measured_at": self.measured_at,
+                "canonical_sha256": self.canonical_sha256}
+
+    @classmethod
+    def from_dict(cls, value: object) -> CreditWorkProof:
+        keys = {"prepare_intent_id", "table_name", "window", "measured_at", "canonical_sha256"}
+        if (not isinstance(value, Mapping) or set(value) != keys or not isinstance(value["window"], Mapping)
+            or set(value["window"]) != {"start_utc", "end_utc"}):
+            raise FleetError("invalid_credit_evidence", "Missing canonical table work proof")
+        return cls(value["prepare_intent_id"], value["table_name"], ProofWindow(**value["window"]),
+                   value["measured_at"], value["canonical_sha256"])
+
+
+@dataclass(frozen=True)
+class CreditEvidence:
+    """Explicit credit units and their evidence reference, never row counts."""
+
+    credits: float
+    kind: str
+    source: str
+    evidence_sha256: str
+    observed_at: str
+    window: ProofWindow | None = None
+    work_proof: CreditWorkProof | None = None
+
+    def __post_init__(self) -> None:
+        sources = {"budget": "operator_budget", "estimate": "declared_estimate", "measured": "attributed_metering"}
+        observed = _parse_utc_instant(self.observed_at)
+        try:
+            number = float(self.credits) if type(self.credits) in (int, float) else float("nan")
+        except OverflowError:
+            number = float("nan")
+        if (type(self.kind) is not str or self.kind not in sources or self.source != sources[self.kind]
+            or not math.isfinite(number) or number < 0 or (self.kind == "estimate" and number == 0)
+            or type(self.evidence_sha256) is not str or re.fullmatch(r"[a-f0-9]{64}", self.evidence_sha256) is None
+            or observed is None or observed > datetime.now(timezone.utc)):
+            raise FleetError("invalid_credit_evidence", "Explicit finite credits and provenance are required")
+        if self.kind == "measured":
+            if type(self.window) is not ProofWindow or _parse_utc_instant(self.window.end_utc) > observed:
+                raise FleetError("invalid_credit_evidence", "Measured credits require a completed evidence window")
+            if self.work_proof is not None and type(self.work_proof) is not CreditWorkProof:
+                raise FleetError("invalid_credit_evidence", "Invalid table work proof")
+        elif self.window is not None:
+            raise FleetError("invalid_credit_evidence", "Only measured credits carry a metering window")
+        if self.kind != "measured" and self.work_proof is not None:
+            raise FleetError("invalid_credit_evidence", "Declarations are distinct from measured table work")
+        object.__setattr__(self, "credits", number)
+
+    def to_dict(self) -> dict[str, object]:
+        result = {"credits": self.credits, "kind": self.kind, "source": self.source,
+                  "evidence_sha256": self.evidence_sha256, "observed_at": self.observed_at,
+                  "window": None if self.window is None else self.window.to_dict()}
+        if self.kind == "measured":
+            result["work_proof"] = None if self.work_proof is None else self.work_proof.to_dict()
+        return result
+
+    @classmethod
+    def from_dict(cls, value: object, kind: str) -> CreditEvidence:
+        keys = {"credits", "kind", "source", "evidence_sha256", "observed_at", "window"}
+        if isinstance(value, Mapping) and kind == "measured" and "work_proof" in value:
+            keys.add("work_proof")
+        if not isinstance(value, Mapping) or set(value) != keys or value["kind"] != kind:
+            raise FleetError("invalid_credit_evidence", "Credit evidence differs from its declared purpose")
+        window = value["window"]
+        if window is not None:
+            if not isinstance(window, Mapping) or set(window) != {"start_utc", "end_utc"}:
+                raise FleetError("invalid_credit_evidence", "Invalid credit observation window")
+            window = ProofWindow(window["start_utc"], window["end_utc"])
+        work = value.get("work_proof")
+        return cls(value["credits"], value["kind"], value["source"], value["evidence_sha256"], value["observed_at"], window,
+                   None if work is None else CreditWorkProof.from_dict(work))
+
+
+def _measurement_matches_run(observation: CreditEvidence, intent: str, table: str, created_at: str) -> bool:
+    proof = observation.work_proof
+    created = _parse_utc_instant(created_at)
+    if proof is None or created is None or proof.prepare_intent_id != intent or proof.table_name != table:
+        return False
+    start, end = (_parse_utc_instant(value) for value in (observation.window.start_utc, observation.window.end_utc))
+    proof_start, proof_end = (_parse_utc_instant(value) for value in (proof.window.start_utc, proof.window.end_utc))
+    return (start <= created <= proof_start < proof_end <= end
+            and created <= _parse_utc_instant(proof.measured_at) <= _parse_utc_instant(observation.observed_at))
+
+
+@dataclass(frozen=True)
 class TableMeasure:
     """Relevé mesuré d'une voie — ``None`` = non observé, jamais estimé."""
 
@@ -112,6 +218,13 @@ class TableMeasure:
     snapshot_published: int | None = None
     loaded_rows: int | None = None
     certification: CertificationMeasure | None = None
+    estimated_credits: CreditEvidence | None = None
+    measured_credits: CreditEvidence | None = None
+
+    def __post_init__(self) -> None:
+        for observation, kind in ((self.estimated_credits, "estimate"), (self.measured_credits, "measured")):
+            if observation is not None and (type(observation) is not CreditEvidence or observation.kind != kind):
+                raise FleetError("invalid_credit_evidence", "Credit estimate and measurement must remain distinct")
 
 
 @dataclass(frozen=True)
@@ -128,6 +241,11 @@ class FleetEvidence:
     continuity_proven: bool | None = None
     gap: bool | None = None
     tables: Mapping[str, TableMeasure] = field(default_factory=dict)
+    credit_budget: CreditEvidence | None = None
+
+    def __post_init__(self) -> None:
+        if self.credit_budget is not None and (type(self.credit_budget) is not CreditEvidence or self.credit_budget.kind != "budget"):
+            raise FleetError("invalid_credit_evidence", "An explicit financial budget is required")
 
 
 @dataclass(frozen=True)
@@ -238,7 +356,8 @@ def public_table_states(run: FleetRun) -> dict[str, dict[str, object]]:
 
 
 def run_state_document(
-    run: FleetRun, *, prepare_intent_id: str, created_at: str | None = None
+    run: FleetRun, *, prepare_intent_id: str, created_at: str | None = None,
+    credit_evidence: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Document persisté : le run sérialisé, rattaché à sa génération prepare.
 
@@ -247,13 +366,16 @@ def run_state_document(
     jamais une preuve d'une génération antérieure.
     """
 
+    created = created_at or datetime.now(timezone.utc).isoformat()
+    _validate_credit_state(run, credit_evidence, prepare_intent_id, created)
     return {
         "format_version": RUN_STATE_FORMAT,
         "environment": _fleet.ENVIRONMENT,
         "prepare_intent_id": prepare_intent_id,
-        "created_at": created_at or datetime.now(timezone.utc).isoformat(),
+        "created_at": created,
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "fleet": _fleet.serialize_fleet(run),
+        "credit_evidence": deepcopy(credit_evidence),
     }
 
 
@@ -267,8 +389,12 @@ def parse_run_state(document: object) -> tuple[str, FleetRun, str]:
 
     if not isinstance(document, Mapping):
         raise FleetError("invalid_run_state", "Unreadable fleet state")
+    if document.get("format_version") == "quadringent-fleet-run-state-v1":
+        raise FleetError("unverified_credit_state", "Legacy fleet credit units require independent review")
     if document.get("format_version") != RUN_STATE_FORMAT:
         raise FleetError("invalid_run_state", "Unsupported fleet state version")
+    if document.get("environment") != _fleet.ENVIRONMENT:
+        raise FleetError("invalid_run_state", "Fleet credit evidence belongs to another environment")
     intent = document.get("prepare_intent_id")
     if type(intent) is not str or not intent.strip():
         raise FleetError("invalid_run_state", "Fleet state without generation")
@@ -277,7 +403,34 @@ def parse_run_state(document: object) -> tuple[str, FleetRun, str]:
         created = document.get("updated_at")
     if type(created) is not str or not created.strip():
         raise FleetError("invalid_run_state", "Fleet state without timestamp")
-    return intent, _fleet.deserialize_fleet(document.get("fleet")), created.strip()
+    run = _fleet.deserialize_fleet(document.get("fleet"))
+    _validate_credit_state(run, document.get("credit_evidence"), intent, created)
+    return intent, run, created.strip()
+
+
+def _validate_credit_state(run: FleetRun, value: object, intent: str, created_at: str) -> None:
+    if not isinstance(value, Mapping) or set(value) != {"budget", "tables"} or not isinstance(value["tables"], Mapping):
+        raise FleetError("invalid_credit_evidence", "Persisted fleet costs require financial evidence")
+    budget = CreditEvidence.from_dict(value["budget"], "budget")
+    if budget.credits != run.credit_budget:
+        raise FleetError("invalid_credit_evidence", "Budget differs from its financial evidence")
+    expected = {table.name for table in run.tables if table.estimated_credits is not None or table.actual_credits is not None}
+    if set(value["tables"]) != expected:
+        raise FleetError("invalid_credit_evidence", "Financial evidence must match admitted tables")
+    for table in run.tables:
+        if table.name not in expected:
+            continue
+        entry = value["tables"][table.name]
+        fields = {key for key, number in (("estimate", table.estimated_credits), ("measured", table.actual_credits)) if number is not None}
+        if not isinstance(entry, Mapping) or set(entry) != fields:
+            raise FleetError("invalid_credit_evidence", "Missing table credit provenance")
+        for key, number in (("estimate", table.estimated_credits), ("measured", table.actual_credits)):
+            if number is not None:
+                observation = CreditEvidence.from_dict(entry[key], key)
+                if observation.credits != number:
+                    raise FleetError("invalid_credit_evidence", "Table credits differ from their evidence")
+                if key == "measured" and not _measurement_matches_run(observation, intent, table.name, created_at):
+                    raise FleetError("invalid_credit_evidence", "Metering does not cover current run/table work")
 
 
 class FleetProgression:
@@ -302,13 +455,19 @@ class FleetProgression:
         self._evidence_provider = evidence_provider
         self._emit = emit
         self._created_at: str | None = None
+        self._credit_evidence: dict[str, object] | None = None
 
     def tick(self) -> ProgressionOutcome:
         evidence = self._evidence_provider()
         if evidence is None:
             return self._outcome("idle", "evidence_unavailable", None)
         job_phase = "HISTORICAL" if evidence.history_active else "PREPARED"
-        stored = self._load()
+        try:
+            stored = self._load()
+        except FleetError as error:
+            if error.code == "unverified_credit_state":
+                return self._outcome("halted", error.code, None)
+            raise
         if stored is not None and stored[0] != evidence.prepare_intent_id:
             # Un prepare plus récent a produit un autre point de départ : le
             # run persisté appartient à une génération morte. On refuse de
@@ -317,11 +476,15 @@ class FleetProgression:
         run = stored[1] if stored is not None else None
         if stored is not None:
             self._created_at = stored[2]
+            if evidence.credit_budget is not None and evidence.credit_budget.credits != run.credit_budget:
+                return self._outcome("halted", "credit_budget_changed", None)
         if run is None:
             if not evidence.history_active:
                 return self._outcome("idle", "history_not_started", None)
             if evidence.start_checkpoint is None:
                 return self._outcome("idle", "missing_start_checkpoint", None)
+            if evidence.credit_budget is None:
+                return self._outcome("idle", "unknown_credit_budget", None)
             run = self._create(evidence)
         if evidence.paused:
             self._save(run, evidence)
@@ -356,19 +519,16 @@ class FleetProgression:
         )
 
     def _create(self, evidence: FleetEvidence) -> FleetRun:
-        estimates = [
-            float(measure.estimated_rows or 1)
-            for name in _fleet.MANIFEST
-            for measure in (evidence.tables.get(name) or TableMeasure(),)
-        ]
-        budget = max(sum(estimates), 1.0) * CREDIT_BUDGET_HEADROOM
+        if evidence.credit_budget is None:
+            raise FleetError("unknown_cost", "Missing explicit fleet credit budget")
         run = _fleet.create_fleet(
             max_concurrency=self._plan.max_concurrency,
-            credit_budget=budget,
+            credit_budget=evidence.credit_budget.credits,
         )
         for name in _fleet.MANIFEST:
             run = _fleet.prepare_table(run, name, evidence.start_checkpoint)
         self._created_at = datetime.now(timezone.utc).isoformat()
+        self._credit_evidence = {"budget": evidence.credit_budget.to_dict(), "tables": {}}
         return run
 
     def _admit(self, run: FleetRun, evidence: FleetEvidence) -> tuple[FleetRun, str | None]:
@@ -379,11 +539,12 @@ class FleetProgression:
             if not candidates:
                 return run, None
             measure = evidence.tables.get(candidates[0])
-            estimate = measure.estimated_rows if measure is not None else None
-            if estimate is None or estimate < 1:
+            estimate = measure.estimated_credits if measure is not None else None
+            if estimate is None:
                 return run, f"{candidates[0]}:unknown_cost"
             try:
-                run = _fleet.admit_next(run, estimated_credits=float(estimate))
+                run = _fleet.admit_next(run, estimated_credits=estimate.credits)
+                self._credit_evidence["tables"][candidates[0]] = {"estimate": estimate.to_dict()}
             except FleetError as error:
                 return run, f"{candidates[0]}:{error.code}"
         return run, None
@@ -428,22 +589,37 @@ class FleetProgression:
             return run, None
         if table.phase is Phase.CATCHING_UP:
             measure = evidence.tables.get(table.name)
-            if (
-                table.actual_credits is None
-                and measure is not None
-                and measure.loaded_rows is not None
-            ):
-                run = _fleet.record_actual_cost(run, table.name, float(measure.loaded_rows))
-            run = _fleet.record_journal_evidence(
-                run,
-                table.name,
-                current_checkpoint=evidence.current_checkpoint,
-                journal_tail=evidence.committed_tail,
-                receiver_chain=evidence.receiver_chain,
-                continuity_proven=evidence.continuity_proven,
-                gap=evidence.gap,
-            )
-            return run, None
+            observation = measure.measured_credits if measure is not None else None
+            if observation is None or not _measurement_matches_run(observation, evidence.prepare_intent_id, table.name, self._created_at):
+                return run, "unknown_cost"
+            entry = self._credit_evidence["tables"][table.name]
+            if "measured" in entry:
+                previous = CreditEvidence.from_dict(entry["measured"], "measured")
+                if (_parse_utc_instant(observation.window.start_utc) != _parse_utc_instant(previous.window.start_utc)
+                    or _parse_utc_instant(observation.window.end_utc) < _parse_utc_instant(previous.window.end_utc)
+                    or _parse_utc_instant(observation.observed_at) < _parse_utc_instant(previous.observed_at)
+                    or _parse_utc_instant(observation.work_proof.measured_at) < _parse_utc_instant(previous.work_proof.measured_at)
+                    or _parse_utc_instant(observation.work_proof.window.end_utc) < _parse_utc_instant(previous.work_proof.window.end_utc)):
+                    return run, "contradictory_cost_window"
+            if observation.credits != table.actual_credits:
+                run = _fleet.record_actual_cost(run, table.name, observation.credits)
+                if _fleet.get_table(run, table.name).phase is Phase.BLOCKED:
+                    entry["measured"] = observation.to_dict()
+                    return run, _fleet.get_table(run, table.name).blocked_reason
+            entry["measured"] = observation.to_dict()
+            try:
+                run = _fleet.record_journal_evidence(
+                    run,
+                    table.name,
+                    current_checkpoint=evidence.current_checkpoint,
+                    journal_tail=evidence.committed_tail,
+                    receiver_chain=evidence.receiver_chain,
+                    continuity_proven=evidence.continuity_proven,
+                    gap=evidence.gap,
+                )
+            except FleetError as error:
+                return run, error.code
+            return run, "unknown_cost" if _fleet.get_table(run, table.name).actual_credits is None else None
         if table.phase in {Phase.LIVE, Phase.RECONCILING}:
             return self._certify(run, table, evidence)
         return run, None
@@ -504,7 +680,9 @@ class FleetProgression:
         document = self._run_store.load()
         if document is None:
             return None
-        return parse_run_state(document)
+        result = parse_run_state(document)
+        self._credit_evidence = deepcopy(document["credit_evidence"])
+        return result
 
     def _save(self, run: FleetRun, evidence: FleetEvidence) -> None:
         if evidence.prepare_intent_id is None:
@@ -514,6 +692,7 @@ class FleetProgression:
                 run,
                 prepare_intent_id=evidence.prepare_intent_id,
                 created_at=self._created_at,
+                credit_evidence=self._credit_evidence,
             )
         )
 

@@ -1,12 +1,19 @@
-import { useReducer, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  controlsPanelReducer,
   INITIAL_CONTROLS_PANEL_STATE,
   requiresConfirmation,
   type ControlActionKind,
   type ControlLevel,
+  type ControlsPanelState,
 } from '../domain/controlsPanel.ts';
 import { controlActionAnnouncement, controlActionCopy, controlLevelTitle, CONTROLS_PANEL_COPY } from '../domain/operator.ts';
+import {
+  createControlsFlow,
+  DEFAULT_ACTION_TIMEOUT_MS,
+  type ControlsFlow,
+  type FlowDeps,
+  type VerifyContext,
+} from '../data/controlsPanelFlow.ts';
 
 /** Actions sensibles (confirmation obligatoire, `domain/controlsPanel.ts` ::
  *  `requiresConfirmation`) affichées avec un style visuellement distinct —
@@ -30,79 +37,83 @@ const DESTRUCTIVE_ACTIONS: ReadonlySet<ControlActionKind> = new Set(['remove', '
  */
 export interface ControlsPanelProps {
   readonly level: ControlLevel;
+  /** Identity of the target (pipeline, source or destination id). Two targets can
+   *  share a label, never an id: the panel resets when this changes. */
+  readonly targetId: string;
   readonly targetLabel: string;
   /** Actions proposées à ce niveau — le service ne déclare jamais toutes les
    *  actions partout (ex. `remove`/`replay` n'existent qu'au niveau table). */
   readonly availableActions: readonly ControlActionKind[];
-  readonly dryRun: (action: ControlActionKind) => Promise<unknown>;
-  readonly execute: (action: ControlActionKind, confirmationToken?: string) => Promise<{ readonly pendingConfirmationId: string | null }>;
-  readonly verify: () => Promise<void>;
+  readonly dryRun: (action: ControlActionKind, signal?: AbortSignal) => Promise<unknown>;
+  /** `accepted` is what the service answered; it is handed back to `verify`. */
+  readonly execute: (
+    action: ControlActionKind,
+    confirmationToken?: string,
+    signal?: AbortSignal,
+  ) => Promise<{ readonly pendingConfirmationId: string | null; readonly accepted?: unknown }>;
+  /** Reads the state again and throws when the effect is not confirmed. */
+  readonly verify: (context: VerifyContext) => Promise<string | void>;
   readonly approveConfirmation?: (confirmationId: string) => Promise<void>;
   readonly rejectConfirmation?: (confirmationId: string) => Promise<void>;
+  /** Time allowed to each round trip before the result is declared unknown. */
+  readonly timeoutMs?: number;
 }
 
-export function ControlsPanel({
-  level,
-  targetLabel,
-  availableActions,
-  dryRun,
-  execute,
-  verify,
-  approveConfirmation,
-  rejectConfirmation,
-}: ControlsPanelProps) {
+/**
+ * The panel is keyed by level and target id: when the selection changes
+ * (another table, another connection, even one with the same display name) the
+ * previous confirmation dialog and its pending action are discarded instead of
+ * being executed against the new target.
+ */
+export function ControlsPanel(props: ControlsPanelProps) {
+  return <ControlsPanelBody key={`${props.level}|${props.targetId}`} {...props} />;
+}
+
+function ControlsPanelBody(props: ControlsPanelProps) {
+  const { level, targetLabel, availableActions } = props;
+  const propsRef = useRef(props);
+  propsRef.current = props;
   const moreMenu = useRef<HTMLDetailsElement>(null);
-  const [state, dispatch] = useReducer(controlsPanelReducer, INITIAL_CONTROLS_PANEL_STATE);
+  const [state, setState] = useState<ControlsPanelState>(INITIAL_CONTROLS_PANEL_STATE);
+  const flowRef = useRef<ControlsFlow | null>(null);
+  if (flowRef.current === null) {
+    flowRef.current = createControlsFlow((): FlowDeps => {
+      const current = propsRef.current;
+      return {
+        timeoutMs: current.timeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS,
+        dryRun: (action, signal) => current.dryRun(action, signal),
+        execute: (action, token, signal) => current.execute(action, token, signal),
+        verify: (context) => current.verify(context),
+        approveConfirmation: current.approveConfirmation,
+        rejectConfirmation: current.rejectConfirmation,
+      };
+    }, setState);
+  }
+  const flow = flowRef.current;
+
+  useEffect(() => {
+    flow.attach();
+    return () => flow.detach();
+  }, [flow]);
+
   const busy = state.phase === 'previewing' || state.phase === 'running' || state.phase === 'verifying';
 
   const request = (action: ControlActionKind) => {
-    if (busy) return;
     if (moreMenu.current) moreMenu.current.open = false;
-    dispatch({ type: 'request', action });
-    dryRun(action)
-      .then((preview) => dispatch({ type: 'preview_ready', preview }))
-      .catch((error: unknown) => dispatch({ type: 'preview_failed', error: errorMessage(error) }));
-  };
-
-  const runNow = (confirmationToken?: string) => {
-    if (!state.action) return;
-    dispatch({ type: 'confirm' });
-    execute(state.action, confirmationToken)
-      .then((result) => {
-        if (result.pendingConfirmationId) {
-          dispatch({ type: 'run_requires_confirmation', confirmationId: result.pendingConfirmationId });
-          return;
-        }
-        dispatch({ type: 'run_succeeded' });
-        verify()
-          .then(() => dispatch({ type: 'verified' }))
-          .catch((error: unknown) => dispatch({ type: 'verify_failed', error: errorMessage(error) }));
-      })
-      .catch((error: unknown) => dispatch({ type: 'run_failed', error: errorMessage(error) }));
-  };
-
-  const approve = () => {
-    if (!state.confirmationId || !approveConfirmation) return;
-    approveConfirmation(state.confirmationId)
-      .then(() => dispatch({ type: 'confirmation_approved' }))
-      .catch((error: unknown) => dispatch({ type: 'run_failed', error: errorMessage(error) }));
-  };
-
-  const reject = () => {
-    if (!state.confirmationId || !rejectConfirmation) return;
-    rejectConfirmation(state.confirmationId)
-      .then(() => dispatch({ type: 'confirmation_rejected' }))
-      .catch((error: unknown) => dispatch({ type: 'run_failed', error: errorMessage(error) }));
+    flow.request(action);
   };
 
   const quietActions = availableActions.filter((action) => !DESTRUCTIVE_ACTIONS.has(action));
   const destructiveActions = availableActions.filter((action) => DESTRUCTIVE_ACTIONS.has(action));
+  const unconfirmed = state.failure === 'not_confirmed' || state.failure === 'unknown_result';
 
   return (
     <section className="controls-panel" aria-label={`Controls — ${targetLabel}`}>
       <div className="controls-panel__bar">
         <p className="controls-panel__scope">
-          <span className="controls-panel__scope-level">{controlLevelTitle(level)}</span>
+          {controlLevelTitle(level) === targetLabel ? null : (
+            <span className="controls-panel__scope-level">{controlLevelTitle(level)}</span>
+          )}
           <span className="controls-panel__scope-target">{targetLabel}</span>
         </p>
 
@@ -139,7 +150,9 @@ export function ControlsPanel({
               </details>
             ) : null}
           </div>
-        ) : null}
+        ) : (
+          <p className="controls-panel__none">{CONTROLS_PANEL_COPY.noActionsAvailable}</p>
+        )}
       </div>
 
       {state.phase === 'previewing' ? <p role="status">{CONTROLS_PANEL_COPY.previewing}</p> : null}
@@ -148,8 +161,8 @@ export function ControlsPanel({
         <div className="controls-panel__confirm" role="alertdialog" aria-label={CONTROLS_PANEL_COPY.confirmTitle}>
           <p>{controlActionAnnouncement(state.action, level)}</p>
           <div className="controls-panel__confirm-actions">
-            <button type="button" className="controls-panel__cancel" onClick={() => dispatch({ type: 'cancel' })}>{CONTROLS_PANEL_COPY.cancel}</button>
-            <button type="button" className="controls-panel__action controls-panel__action--primary" onClick={() => runNow()}>
+            <button type="button" className="controls-panel__cancel" onClick={() => flow.cancel()}>{CONTROLS_PANEL_COPY.cancel}</button>
+            <button type="button" className="controls-panel__action controls-panel__action--primary" onClick={() => flow.confirm()}>
               {CONTROLS_PANEL_COPY.confirm}
             </button>
           </div>
@@ -161,39 +174,43 @@ export function ControlsPanel({
       {state.phase === 'awaiting_confirmation' ? (
         <div className="controls-panel__pending" role="status">
           <p>{CONTROLS_PANEL_COPY.awaitingConfirmation}</p>
+          {state.error ? <p className="controls-panel__outcome controls-panel__outcome--failed" role="alert">{state.error}</p> : null}
           {state.confirmationState === 'pending' ? (
             <div className="controls-panel__confirm-actions">
-              {approveConfirmation ? <button type="button" className="controls-panel__action controls-panel__action--primary" onClick={approve}>{CONTROLS_PANEL_COPY.approve}</button> : null}
-              {rejectConfirmation ? <button type="button" className="controls-panel__cancel" onClick={reject}>{CONTROLS_PANEL_COPY.reject}</button> : null}
+              {props.approveConfirmation ? <button type="button" className="controls-panel__action controls-panel__action--primary" onClick={() => flow.approve()}>{CONTROLS_PANEL_COPY.approve}</button> : null}
+              {props.rejectConfirmation ? <button type="button" className="controls-panel__cancel" onClick={() => flow.reject()}>{CONTROLS_PANEL_COPY.reject}</button> : null}
             </div>
           ) : null}
           {state.confirmationState === 'approved' ? (
-            <button type="button" className="controls-panel__action controls-panel__action--primary" onClick={() => runNow(state.confirmationId ?? undefined)}>
+            <button type="button" className="controls-panel__action controls-panel__action--primary" onClick={() => flow.confirm(state.confirmationId ?? undefined)}>
               {CONTROLS_PANEL_COPY.rerun}
             </button>
           ) : null}
         </div>
       ) : null}
 
-      {state.phase === 'verifying' ? <p role="status">{CONTROLS_PANEL_COPY.verifying}</p> : null}
+      {state.phase === 'verifying' ? (
+        <p role="status">{CONTROLS_PANEL_COPY.accepted} {CONTROLS_PANEL_COPY.verifying}</p>
+      ) : null}
 
       {state.phase === 'succeeded' ? (
         <p className="controls-panel__outcome controls-panel__outcome--succeeded" role="status">
-          {CONTROLS_PANEL_COPY.succeeded}
+          {CONTROLS_PANEL_COPY.succeeded(state.confirmed)}
         </p>
       ) : null}
 
       {state.phase === 'failed' ? (
-        <p className="controls-panel__outcome controls-panel__outcome--failed" role="status">
-          {state.error ?? CONTROLS_PANEL_COPY.failedGeneric}
-        </p>
+        <div className={`controls-panel__outcome controls-panel__outcome--${unconfirmed ? 'unconfirmed' : 'failed'}`} role="alert">
+          <p>{state.error ?? CONTROLS_PANEL_COPY.failedGeneric}</p>
+          {state.failure === 'unknown_result' ? (
+            <button type="button" className="controls-panel__action" onClick={() => flow.checkState()}>
+              {CONTROLS_PANEL_COPY.checkState}
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : CONTROLS_PANEL_COPY.failedGeneric;
 }
 
 export { requiresConfirmation };

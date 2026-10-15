@@ -330,7 +330,7 @@
   min-width: 0;
   padding: clamp(30px, 3.4vw, 46px);
   background: var(--surface-panel);
-  border-radius: 5px;
+  border-radius: 0;
 }
 
 .proof-object__focus h2 {
@@ -387,8 +387,7 @@
 .proof-object__destination span {
   color: var(--text-subtle);
   font-family: var(--font-mono);
-  font-size: 10px;
-  text-transform: uppercase;
+  font-size: 12px;
 }
 
 .operator-register {
@@ -483,13 +482,11 @@
 .incident-context__active {
   color: var(--signal-incident);
   font: 11px var(--font-mono);
-  text-transform: uppercase;
 }
 
 .incident-context__recovery {
   color: var(--text-muted);
   font: 11px var(--font-mono);
-  text-transform: uppercase;
 }
 
 .incident-context__facts {
@@ -500,8 +497,7 @@
 
 .incident-context__facts dt {
   color: var(--text-subtle);
-  font: 10px var(--font-mono);
-  text-transform: uppercase;
+  font: 12px var(--font-mono);
 }
 
 .incident-context__facts dd {
@@ -876,7 +872,7 @@
   min-width: 0;
   overflow: hidden;
   background: var(--surface-panel);
-  border-radius: 6px;
+  border-radius: 0;
 }
 
 .lag-table {
@@ -955,7 +951,7 @@
   padding: 30px;
   overflow-y: auto;
   background: var(--surface-panel);
-  border-radius: 8px;
+  border-radius: 0;
   box-shadow: none;
 }
 
@@ -979,7 +975,7 @@
   padding: 0 13px;
   color: var(--text-strong);
   background: var(--surface-quiet);
-  border-radius: 6px;
+  border-radius: 0;
   font-size: 12px;
 }
 
@@ -987,7 +983,6 @@
   width: fit-content;
   color: var(--text-main);
   font: 11px var(--font-mono);
-  text-transform: uppercase;
 }
 
 .stage-drawer__facts {
@@ -997,8 +992,7 @@
 
 .stage-drawer__facts dt {
   color: var(--text-subtle);
-  font: 10px var(--font-mono);
-  text-transform: uppercase;
+  font: 12px var(--font-mono);
 }
 
 .stage-drawer__facts dd {
@@ -1251,7 +1245,7 @@
     bottom: 0;
     border-radius: 0;
     box-shadow: none;
-    border-left: 1px solid var(--line-subtle);
+    border: 1px solid var(--line-subtle);
   }
 
     .product-view.pipeline-detail-view .proof-object__focus-action { margin-top: 12px; }
@@ -1563,8 +1557,8 @@
     width: 100%;
     max-height: calc(100dvh - 96px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
     padding: 24px 20px;
-    border-radius: 12px 12px 0 0;
-    box-shadow: 0 -18px 62px rgba(21, 22, 21, .2);
+    border-radius: 0;
+    border: 1px solid var(--line-strong);
   }
 }
 

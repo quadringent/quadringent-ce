@@ -27,8 +27,83 @@ regexes = [
   '''ENV_EVIDENCE_KEY\s*=\s*"AS400_EVIDENCE_KEY"''',
 ]
 
+[[allowlists]]
+description = "Reviewed local directory-layout documentation, not credential material"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = [
+  '''(?:^|/)(?:src/)?quadringent/local/config\.py$''',
+]
+regexTarget = "match"
+regexes = [
+  '''^ibmi_password, snowflake_key\.p8 $''',
+]
+
+[[allowlists]]
+description = "Reviewed synthetic laboratory redaction canary CANARY_SECRET"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = [
+  '''(?:^|/)src/quadringent_lab/fixtures\.py$''',
+]
+regexTarget = "match"
+regexes = [
+  '''^CANARY_SECRET = "CANARY-SECRET-4f9a2c"$''',
+]
+
+[[allowlists]]
+description = "Reviewed synthetic laboratory redaction canary CANARY_EVIDENCE_SECRET"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = [
+  '''(?:^|/)src/quadringent_lab/fixtures\.py$''',
+]
+regexTarget = "match"
+regexes = [
+  '''^CANARY_EVIDENCE_SECRET = "CANARY-EVIDENCE-SECRET-9024"$''',
+]
+
+[[allowlists]]
+description = "Reviewed nonfunctional PEM fixture returned by the offline Docker stub"
+condition = "AND"
+targetRules = ["private-key"]
+paths = [
+  '''(?:^|/)tests/local_cli_support\.py$''',
+]
+regexTarget = "match"
+regexes = [
+  '''^-----BEGIN PRIVATE KEY-----\\nQUtFRS1LRVk=\\n-----END PRIVATE KEY-----\\n"\)
+            answer = result\(argv\)
+        elif argv\[:2\] == \("openssl", "pkey"\):
+            answer = result\(argv, "-----BEGIN PUBLIC KEY-----$''',
+]
+
+[[allowlists]]
+description = "Reviewed nonfunctional JWT canary exercising diagnostic redaction"
+condition = "AND"
+targetRules = ["jwt"]
+paths = [
+  '''(?:^|/)tests/test_diagnostics_export\.py$''',
+]
+regexTarget = "match"
+regexes = [
+  '''^eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiJjYW5hcnkifQ\.c2lnbmF0dXJlY2FuYXJ5"$''',
+]
+
+[[allowlists]]
+description = "Reviewed browser laboratory redaction canary sequence"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = [
+  '''(?:^|/)ui/scripts/lab-browser-scenarios\.mjs$''',
+]
+regexTarget = "match"
+regexes = [
+  '''^CANARY-LOG-SECRET-5512', 'CANARY-EVIDENCE-SECRET-9024'$''',
+]
+
 [[rules]]
 id = "quadringent-license"
-description = "Licence commerciale Quadringent en clair"
+description = "Plaintext Quadringent commercial license"
 regex = '''quadringent1[.][A-Za-z0-9_-]{40,}[.][A-Za-z0-9_-]{60,}'''
 keywords = ["quadringent1"]

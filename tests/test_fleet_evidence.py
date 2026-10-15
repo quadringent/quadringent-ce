@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import unittest
+from copy import deepcopy
+
+import pytest
 
 import site_fixture
 
@@ -147,6 +150,62 @@ def _certify(table: str = "SALE", **overrides) -> dict:
     return document
 
 
+def financial_document():
+    from dataclasses import replace
+    from quadringent_control_plane.fleet_evidence import _credit_work_proof
+    from test_fleet_progression import credit
+
+    measured = replace(credit("measured", 0.15, table="SALE", intent="intent-1"),
+                       work_proof=_credit_work_proof(_certify(), "intent-1", "SALE"))
+    return {"format_version": "quadringent-fleet-credit-evidence-v1", "environment": ENVIRONMENT,
+            "prepare_intent_id": "intent-1", "budget": credit("budget", 10).to_dict(),
+            "tables": {"SALE": {"estimate": credit("estimate", 0.2).to_dict(),
+                                 "measured": measured.to_dict()}}}
+
+
+def test_explicit_financial_evidence_keeps_counts_and_credit_provenance_separate():
+    finance = financial_document()
+    result = collect_fleet_evidence(prepare_document=_prepare(), history_document={"phase": "HISTORICAL"},
+        pause_document=None, catalog=parse_fleet_catalog(CATALOG_DOCUMENT), proof_document=_proof(),
+        financial_document=finance, certify_documents={"SALE": _certify()})
+    assert result.credit_budget.credits == 10
+    assert result.tables["SALE"].estimated_credits.credits == 0.2
+    assert result.tables["SALE"].measured_credits.credits == 0.15
+    assert result.tables["SALE"].measured_credits.source == "attributed_metering"
+    assert result.tables["SALE"].loaded_rows == 55 and result.tables["SALE"].estimated_rows == 1007
+
+
+def test_catalog_and_raw_counts_never_create_financial_evidence():
+    result = collect_fleet_evidence(prepare_document=_prepare(), history_document={"phase": "HISTORICAL"},
+        pause_document=None, catalog=parse_fleet_catalog(CATALOG_DOCUMENT), proof_document=_proof())
+    assert result.credit_budget is None
+    assert all(m.estimated_credits is None and m.measured_credits is None for m in result.tables.values())
+
+
+@pytest.mark.parametrize("change", ["other_intent", "other_environment", "no_provenance", "nan", "negative", "wrong_kind", "no_window"])
+def test_unbound_or_invalid_financial_document_stays_unknown(change):
+    finance = deepcopy(financial_document())
+    if change == "other_intent":
+        finance["prepare_intent_id"] = "another-intent"
+    elif change == "other_environment":
+        finance["environment"] = "other"
+    else:
+        measurement = finance["tables"]["SALE"]["measured"]
+        if change == "no_provenance":
+            measurement["evidence_sha256"] = None
+        elif change == "nan":
+            measurement["credits"] = float("nan")
+        elif change == "negative":
+            measurement["credits"] = -1
+        elif change == "wrong_kind":
+            measurement["kind"] = "estimate"
+        elif change == "no_window":
+            measurement["window"] = None
+    result = collect_fleet_evidence(prepare_document=_prepare(), history_document={"phase": "HISTORICAL"},
+        pause_document=None, catalog=None, financial_document=finance)
+    assert result.tables["SALE"].measured_credits is None
+
+
 class CollectEvidenceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.catalog = parse_fleet_catalog(CATALOG_DOCUMENT)
@@ -273,3 +332,45 @@ class CollectEvidenceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.mark.parametrize("change", ["no_proof", "changed_proof", "wrong_intent", "wrong_table", "missing_binding", "old_window", "observed_before_proof"])
+def test_financial_measurement_requires_original_current_table_proof(change):
+    from copy import deepcopy
+
+    finance = deepcopy(financial_document())
+    proofs = {"SALE": _certify()}
+    measured = finance["tables"]["SALE"]["measured"]
+    if change == "no_proof":
+        proofs = None
+    elif change == "changed_proof":
+        proofs["SALE"]["source_hash"] = "another-source"
+    elif change == "wrong_intent":
+        measured["work_proof"]["prepare_intent_id"] = "previous-intent"
+    elif change == "wrong_table":
+        measured["work_proof"]["table_name"] = "ORDER"
+    elif change == "missing_binding":
+        measured.pop("work_proof")
+    elif change == "old_window":
+        measured["window"] = {"start_utc": "2000-01-01T00:00:00Z", "end_utc": "2000-01-02T00:00:00Z"}
+    elif change == "observed_before_proof":
+        measured["window"] = {"start_utc": "2000-01-01T00:00:00Z", "end_utc": "2000-01-02T00:00:00Z"}
+        measured["observed_at"] = "2000-01-03T00:00:00Z"
+    result = collect_fleet_evidence(prepare_document=_prepare(), history_document={"phase": "HISTORICAL"},
+        pause_document=None, catalog=None, financial_document=finance, certify_documents=proofs)
+    assert result.credit_budget.credits == 10
+    assert result.tables["SALE"].estimated_credits.credits == 0.2
+    assert result.tables["SALE"].measured_credits is None
+
+
+def test_canonical_work_proof_hash_is_distinct_from_original_metering_hash():
+    import hashlib
+    import json
+
+    finance = financial_document()
+    result = collect_fleet_evidence(prepare_document=_prepare(), history_document={"phase": "HISTORICAL"},
+        pause_document=None, catalog=None, financial_document=finance, certify_documents={"SALE": _certify()})
+    measured = result.tables["SALE"].measured_credits
+    expected = hashlib.sha256(json.dumps(_certify(), sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode()).hexdigest()
+    assert measured.evidence_sha256 == "a" * 64
+    assert measured.work_proof.canonical_sha256 == expected and expected != measured.evidence_sha256

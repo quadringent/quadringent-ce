@@ -19,6 +19,7 @@ from quadringent_control_plane.fleet import (
     ENVIRONMENT,
     MANIFEST,
     create_fleet,
+    deserialize_fleet,
     serialize_fleet,
 )
 from quadringent_control_plane.fleet_sidecar import generate_fleet_ui_sidecar
@@ -346,15 +347,13 @@ class ControlPlaneFleetRepositoryTests(unittest.TestCase):
         self.assertNotIn("fleet", snapshot.pipelines[0].to_dict())
 
     def test_fleet_run_binding_projects_the_domain_run(self) -> None:
+        from quadringent_control_plane.fleet_progression import run_state_document
+        from test_fleet_progression import financial_state
+
         run_path = self.root / "fleet-run.json"
+        run = deserialize_fleet(fleet_payload())
         run_path.write_text(
-            json.dumps(
-                {
-                    "format_version": "quadringent-fleet-run-state-v1",
-                    "generation": 3,
-                    "fleet": fleet_payload(),
-                }
-            ),
+            json.dumps(run_state_document(run, prepare_intent_id="intent-test", created_at="2026-09-20T10:00:00Z", credit_evidence=financial_state(run, intent="intent-test"))),
             encoding="utf-8",
         )
         bound = bind_fleet_runs(
@@ -366,16 +365,13 @@ class ControlPlaneFleetRepositoryTests(unittest.TestCase):
         self.assertEqual(len(fleet["tables"]), 13)
 
     def test_fleet_run_binding_overrides_the_sidecar(self) -> None:
+        from quadringent_control_plane.fleet_progression import run_state_document
+        from test_fleet_progression import financial_state
+
         run_path = self.root / "fleet-run.json"
         run = create_fleet(max_concurrency=2, credit_budget=10.0)
         run_path.write_text(
-            json.dumps(
-                {
-                    "format_version": "quadringent-fleet-run-state-v1",
-                    "generation": 1,
-                    "fleet": serialize_fleet(run),
-                }
-            ),
+            json.dumps(run_state_document(run, prepare_intent_id="intent-test", created_at="2026-09-20T10:00:00Z", credit_evidence=financial_state(run, intent="intent-test"))),
             encoding="utf-8",
         )
         source = bind_fleet_proofs(
@@ -401,6 +397,16 @@ class ControlPlaneFleetRepositoryTests(unittest.TestCase):
                 snapshot = ProjectionRepository(bound).refresh()
                 self.assertEqual(snapshot.sources[0].status, "unavailable")
                 self.assertEqual(snapshot.pipelines, ())
+
+    def test_legacy_row_based_credit_state_is_not_projected_as_measured(self) -> None:
+        run_path = self.root / "fleet-run.json"
+        original = json.dumps({"format_version": "quadringent-fleet-run-state-v1", "fleet": fleet_payload()})
+        run_path.write_text(original, encoding="utf-8")
+        bound = bind_fleet_runs([self._source()], [f"{SITE.site_id}={run_path.as_uri()}"])
+        snapshot = ProjectionRepository(bound).refresh()
+        self.assertEqual(snapshot.sources[0].status, "unavailable")
+        self.assertEqual(snapshot.pipelines, ())
+        self.assertEqual(run_path.read_text(encoding="utf-8"), original)
 
     def test_fleet_run_bindings_reject_unknown_nondev_and_network_origins(self) -> None:
         source = self._source()

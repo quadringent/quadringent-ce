@@ -1,19 +1,16 @@
 # Compatibility and prerequisites
 
-Use this page to check whether your IBM i (formerly AS/400 and iSeries) and
-Snowflake setup matches what Quadringent has been tested with, before you
-install anything. Each row has a status:
-
-- **Tested**: exercised in a published or recorded DEV/INT qualification, with
-  the scope given in the row.
-- **Required**: the code or the installer needs it; this is a prerequisite, not
-  a test result.
-- **Not tested**: no qualification covers it. It may work; nothing here says so.
+Check here whether your IBM i (formerly AS/400 and iSeries) and Snowflake setup
+matches what Quadringent has been tested with, before you install anything. Each
+row has one status. Tested means a published or recorded qualification run
+exercised it, with the scope given in the row. Required means the code or the
+installer needs it: a prerequisite, not a test result. Not tested means no
+qualification covers it; it may work, and nothing here says so.
 
 Sources are the public code at the commit you read, the
 [dated qualification summary](../../site/qualification-0.3.4.json) and the
-IBM and Snowflake documentation linked below. Nothing on this page is a
-production qualification.
+IBM and Snowflake documentation linked below. The measurements behind the
+Tested rows are on the [evidence page](../evidence.md).
 
 ## IBM i source
 
@@ -30,11 +27,11 @@ production qualification.
 | Other types: SMALLINT, BIGINT, TIME, GRAPHIC, BINARY, LOB, DECFLOAT, XML | Not tested | Mapped or rejected by the loader (`docs/product/snowflake-destination.md`); an unmapped type stops with `UnsupportedColumnTypeError`. |
 | CCSID 65535 columns | Required | Must be reclassified as binary at discovery, otherwise the column is rejected. Other CCSIDs than the test server's: Not tested. |
 | Writes under commitment control | Not tested | Measurements used isolated writes without commitment control. Rollback entries stop the window without advancing the checkpoint (`JournalSession.java`); uncommitted changes are not filtered by commit cycle. |
-| `RGZPFM`, `CLRPFM` | Not tested | Plan a manual resynchronization of the table after either command. The backlog reader stops on file-level journal entries, but the tail reader only reads row entries (`JOURNAL_CODES => 'R'` in `JournalSession.java`), so detection is not guaranteed. |
+| `RGZPFM`, `CLRPFM` | Not tested | Plan a manual resynchronization of the table after either command. The backlog reader stops on file-level journal entries, but the tail reader only reads row entries (`JOURNAL_CODES => 'R'` in `JournalSession.java`), so detection is Not tested. |
 | `CHGPF`, `ALTER TABLE`, `DROP TABLE` | Not tested | No specific handling is documented; plan a resynchronization. |
 | Receiver rotation (`CHGJRN`) | Not tested | The reader follows receivers in attach order and stops on a sequence gap. Rotation was not qualified (`rotation_qualified=false` in the native qualification). |
-| TLS host servers 9471, 9475, 9476 | Required | Database, remote command and sign-on servers over TLS; plaintext is refused. The site supplies its CA. `quadringent install --check-ibmi <host>` tests TCP reachability of these ports. |
-| Server mapper port 449 | Not tested | JTOpen normally looks up service ports on 449 ([IBM](https://www.ibm.com/support/pages/how-prevent-port-lookup-ibm-toolbox-java)); the preflight does not check it. Allow it from the reader network unless your own test shows it is not used. |
+| TLS host servers 9471, 9475, 9476 | Required | Database, remote command and sign-on servers over TLS; the chart and installer refuse plaintext (the engine-level opt-out is described in [IBM i footprint](ibm-i-footprint.md#ports-and-tls)). The site supplies its CA. `quadringent doctor --check-ibmi <host>` tests TCP reachability, and `--tls` a verified handshake. |
+| Server mapper port 449 | Required (unless every service port is set) | JTOpen looks up service ports on 449 unless the database, sign-on and command ports are all configured ([IBM](https://www.ibm.com/support/pages/how-prevent-port-lookup-ibm-toolbox-java)). `quadringent doctor --check-ibmi <host>` tests it over TCP in that case. |
 | `QTIMZON` declared to the site | Required | The source time zone is read, never assumed to be UTC (`docs/product/install-client.md`). |
 
 ## IBM i authorities
@@ -43,7 +40,7 @@ Quadringent only reads on IBM i: the product path runs no INSERT, UPDATE,
 DELETE, DDL or CL command (CL commands are suggested for an administrator,
 never executed). The list below derives from the operations in the public code
 and from IBM's documented authority for each one. It has **not been tested at
-runtime with a minimal profile**; validate it on a DEV/INT system.
+runtime with a minimal profile**; validate it on a non-production IBM i first.
 
 | Operation (code) | Documented authority | IBM source |
 |---|---|---|
@@ -54,9 +51,9 @@ runtime with a minimal profile**; validate it on a DEV/INT system.
 | `QDBRTVFD` (file description) | `*OBJOPR` on the file, `*EXECUTE` on its library | [QDBRTVFD](https://www.ibm.com/docs/en/i/7.5?topic=ssw_ibm_i_75/apis/qdbrtvfd.htm) |
 | `QSYS2.JOURNAL_RECEIVER_INFO` (`ReadOnlyReceiverCatalog.java`) | `*OBJOPR` plus a data authority on the receiver and `*EXECUTE` on its library; `*OBJOPR` on the journal and `*EXECUTE` on its library | [JOURNAL_RECEIVER_INFO](https://www.ibm.com/docs/en/i/7.5?topic=services-journal-receiver-info-view) |
 | `QSYS2.JOURNALED_OBJECTS` (`TableDiscovery.java`) | `*OBJOPR` plus a data authority on the journal, `*EXECUTE` on its library | [JOURNALED_OBJECTS](https://www.ibm.com/docs/en/i/7.5?topic=services-journaled-objects-view) |
-| `SELECT` on each table for the initial copy (`ReadOnlyTableSnapshot.java`) | Read access to the table and `*EXECUTE` on its library (`*USE` covers both) | Not verified on an IBM page in this review |
-| Catalog views (`QSYS2.SYSTABLES`, `SYSCOLUMNS`, `SYSCST`, `SYSKEYCST`, `SYSTABLESTAT`, `SYSINDEXES`, `SYSKEYS`) and `SYSIBMADM.ENV_SYS_INFO` (`TableDiscovery.java`, `FleetCatalogProbe.java`, `SourceInfo.java`) | No specific authority found in IBM documentation | Not verified |
-| `QSYS.QADBKATR` and `QSYS2.SYSTABLES`, read by the journal parsing library to decode row images | No authority found in IBM documentation | Not verified |
+| `SELECT` on each table for the initial copy (`ReadOnlyTableSnapshot.java`) | Read access to the table and `*EXECUTE` on its library (`*USE` covers both) | Not tested: no IBM page checked in this review |
+| Catalog views (`QSYS2.SYSTABLES`, `SYSCOLUMNS`, `SYSCST`, `SYSKEYCST`, `SYSTABLESTAT`, `SYSINDEXES`, `SYSKEYS`) and `SYSIBMADM.ENV_SYS_INFO` (`TableDiscovery.java`, `FleetCatalogProbe.java`, `SourceInfo.java`) | No specific authority found in IBM documentation | Not tested |
+| `QSYS.QADBKATR` and `QSYS2.SYSTABLES`, read by the journal parsing library to decode row images | No authority found in IBM documentation | Not tested |
 | `QSYS2.SYSTEM_VALUE_INFO` for `QTIMZON` | No special authority; only audit system values need `*ALLOBJ` or `*AUDIT` | [SYSTEM_VALUE_INFO](https://www.ibm.com/docs/en/i/7.5?topic=services-system-value-info-view) |
 
 From these pages, *ALLOBJ is not required for the documented operations, and
@@ -105,12 +102,12 @@ Statement privileges: [CREATE ROLE](https://docs.snowflake.com/en/sql-reference/
 [GRANT](https://docs.snowflake.com/en/sql-reference/sql/grant-privilege) and
 [key-pair authentication](https://docs.snowflake.com/en/user-guide/key-pair-auth).
 
-Under verification: with the default schemas, the generated script grants
+Not tested: with the default schemas, the generated script grants
 `CREATE TABLE` on the history schema only, while the loader also creates the
 mirror table. If **Verify access** fails on the mirror schema, grant
 `CREATE TABLE` on it to the service role. The classic Snowpipe path with an
 external stage, storage integration and S3 notifications belongs to the v1 AWS
-DEV path in the [Helm guide](install-client.md), not to the default installer.
+DEV path in the [Helm guide](install-client.md), not to the default installer. The reader role gets SELECT on all current and future tables of the mirror schema; when you declare one output schema, history shares it, so use a schema dedicated to Quadringent.
 
 ## Default resources and cost
 

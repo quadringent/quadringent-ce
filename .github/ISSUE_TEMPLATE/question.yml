@@ -1,0 +1,43 @@
+name: Question
+description: Ask how Quadringent behaves or what it supports. This issue is publicly visible.
+title: "Question: "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This issue is publicly visible**, together with your GitHub account name.
+        Please read the [FAQ](https://github.com/quadringent/quadringent-ce/blob/main/docs/product/faq.md) and the [compatibility page](https://github.com/quadringent/quadringent-ce/blob/main/docs/product/compatibility.md) first; many first questions are answered there.
+
+        Do not include credentials, hostnames, account identifiers, customer names, row values or vulnerability details. Report vulnerabilities as described in [SECURITY.md](https://github.com/quadringent/quadringent-ce/blob/main/SECURITY.md).
+        Questions are answered on a best-effort basis, with no response-time commitment.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Topic
+      options: [Compatibility, Installation, Evidence and reconciliation, Security and data handling, Costs, Documentation, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Your question
+      description: "Describe the situation with generic examples. Say what you already read and what was unclear."
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Quadringent version (optional)
+      placeholder: "0.4.1"
+    validations:
+      required: false
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Before submitting
+      options:
+        - label: "I looked for the answer in the FAQ and the compatibility page."
+          required: true
+        - label: "This question contains no secrets, credentials, hostnames, account identifiers or customer data."
+          required: true

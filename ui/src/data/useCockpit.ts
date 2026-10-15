@@ -1,7 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { createCockpitClient, createCockpitResolvers } from './cockpitClient.ts';
-import type { ControlPlaneV2Client, CostSnapshot, LogEntry, LogLevel, MetricsSeries, PipelineRecordV2 } from './controlPlaneV2Client.ts';
-import { aggregateConnectionMetrics, buildConnections, groupTablesBySource, type CockpitConnection } from '../domain/cockpit.ts';
+import type { ControlPlaneV2Client } from './controlPlaneV2Client.ts';
+import type { CockpitConnection } from '../domain/cockpit.ts';
+import { runCancellable } from './cancellableLoad.ts';
+import {
+  loadConnections,
+  loadHomeRows,
+  loadTableData,
+  tableDataMatches,
+  type CockpitTableData,
+  type CockpitTableLogFilters,
+  type ConnectionHomeRow,
+} from './cockpitLoaders.ts';
+
+export type { CockpitTableData, CockpitTableLogFilters, ConnectionHomeRow } from './cockpitLoaders.ts';
 
 /** Mémorise le client (démo ou réel) : un seul import dynamique par session,
  *  jamais de course entre deux appels concurrents qui créeraient chacun un
@@ -18,52 +30,43 @@ export function getCockpitClient(): Promise<ControlPlaneV2Client> {
  * de `createCockpitClient()` (démo en dev sans backend, sinon `/v2`) — voir
  * ce fichier pour pourquoi l'import est asynchrone.
  *
- * La résolution pipeline→source utilise les identifiants publiés par la
- * liste des pipelines ; les noms viennent du catalogue de chaque source.
+ * Chaque effet possède son propre drapeau et son `AbortController`
+ * (`cancellableLoad.ts`) : la réponse d'une sélection précédente ne peut
+ * jamais s'afficher après celle de la sélection suivante.
  */
 export type CockpitConnectionsState =
   | { readonly status: 'loading' }
   | { readonly status: 'ready'; readonly connections: readonly CockpitConnection[] }
   | { readonly status: 'failed'; readonly message: string };
 
-export function useCockpitConnections(): { readonly state: CockpitConnectionsState; readonly reload: () => void } {
-  const [state, setState] = useState<CockpitConnectionsState>({ status: 'loading' });
-  const [nonce, setNonce] = useState(0);
-  const alive = useRef(true);
-
-  useEffect(() => {
-    alive.current = true;
-    setState({ status: 'loading' });
-    (async () => {
-      const client = await getCockpitClient();
-      const [sources, destinations, pipelines] = await Promise.all([
-        client.listSources(),
-        client.listDestinations(),
-        client.listPipelines(),
-      ]);
-      const resolvers = await createCockpitResolvers(client, pipelines);
-      const grouped = groupTablesBySource(pipelines, resolvers.sourceIdForPipeline, resolvers.nameForPipeline);
-      return buildConnections(sources, destinations, grouped);
-    })()
-      .then((connections) => {
-        if (alive.current) setState({ status: 'ready', connections });
-      })
-      .catch((error: unknown) => {
-        if (alive.current) setState({ status: 'failed', message: error instanceof Error ? error.message : String(error) });
-      });
-    return () => {
-      alive.current = false;
-    };
-  }, [nonce]);
-
-  return { state, reload: () => setNonce((n) => n + 1) };
+/** `reload` shows the loading state; `refresh` re-reads while the current
+ *  data stays on screen, so a controls panel keeps its outcome message. */
+export interface Reloadable {
+  readonly reload: () => void;
+  readonly refresh: () => void;
 }
 
-export interface ConnectionHomeRow {
-  readonly connection: CockpitConnection;
-  readonly lagSeconds: number | null;
-  readonly throughputRowsPerSecond: number | null;
-  readonly costToday: CostSnapshot | null;
+export function useCockpitConnections(): { readonly state: CockpitConnectionsState } & Reloadable {
+  const [state, setState] = useState<CockpitConnectionsState>({ status: 'loading' });
+  const [nonce, setNonce] = useState(0);
+  const quiet = useRef(false);
+
+  useEffect(() => {
+    if (!quiet.current) setState({ status: 'loading' });
+    quiet.current = false;
+    return runCancellable(
+      async (signal) => loadConnections(await getCockpitClient(), createCockpitResolvers, signal),
+      (outcome) => setState(outcome.status === 'ready'
+        ? { status: 'ready', connections: outcome.value }
+        : { status: 'failed', message: outcome.message }),
+    );
+  }, [nonce]);
+
+  return {
+    state,
+    reload: () => setNonce((n) => n + 1),
+    refresh: () => { quiet.current = true; setNonce((n) => n + 1); },
+  };
 }
 
 export type CockpitHomeState =
@@ -78,70 +81,34 @@ export type CockpitHomeState =
  * par table que `useCockpitConnections` seul ; acceptable pour le nombre de
  * connexions/tables attendu (dizaines, pas milliers).
  */
-export function useCockpitHome(): { readonly state: CockpitHomeState; readonly reload: () => void } {
-  const { state: connectionsState, reload } = useCockpitConnections();
+export function useCockpitHome(): { readonly state: CockpitHomeState } & Reloadable {
+  const { state: connectionsState, reload, refresh } = useCockpitConnections();
   const [state, setState] = useState<CockpitHomeState>({ status: 'loading' });
-  const alive = useRef(true);
 
   useEffect(() => {
-    alive.current = true;
     if (connectionsState.status === 'loading') {
       setState({ status: 'loading' });
-      return () => { alive.current = false; };
+      return undefined;
     }
     if (connectionsState.status === 'failed') {
       setState({ status: 'failed', message: connectionsState.message });
-      return () => { alive.current = false; };
+      return undefined;
     }
-    (async () => {
-      const client = await getCockpitClient();
-      const rows = await Promise.all(connectionsState.connections.map(async (connection): Promise<ConnectionHomeRow> => {
-        const [points, costToday] = await Promise.all([
-          Promise.all(connection.tables.map(async (table) => {
-            const series = await client.getMetrics(table.pipelineId, '1h');
-            return series.points.at(-1) ?? null;
-          })),
-          client.getCosts('connection', connection.id, '24h').catch(() => null),
-        ]);
-        const aggregate = aggregateConnectionMetrics(points);
-        return { connection, lagSeconds: aggregate.lagSeconds, throughputRowsPerSecond: aggregate.throughputRowsPerSecond, costToday };
-      }));
-      return rows;
-    })()
-      .then((rows) => {
-        if (alive.current) setState({ status: 'ready', rows });
-      })
-      .catch((error: unknown) => {
-        if (alive.current) setState({ status: 'failed', message: error instanceof Error ? error.message : String(error) });
-      });
-    return () => { alive.current = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- connectionsState is the sole real dependency; recomputed identity each render otherwise.
+    return runCancellable(
+      async (signal) => loadHomeRows(await getCockpitClient(), connectionsState.connections, signal),
+      (outcome) => setState(outcome.status === 'ready'
+        ? { status: 'ready', rows: outcome.value }
+        : { status: 'failed', message: outcome.message }),
+    );
   }, [connectionsState]);
 
-  return { state, reload };
-}
-
-export interface CockpitTableData {
-  readonly pipeline: PipelineRecordV2;
-  readonly metrics: MetricsSeries;
-  readonly logs: readonly LogEntry[];
-  readonly costToday: CostSnapshot | null;
-  readonly evidence?: import('./controlPlaneV2Client.ts').PipelineEvidence | null;
-  readonly evidenceError?: string;
-  /** Nom affichable (bibliothèque/table) ; l'écran retombe sur l'identifiant
-   *  de table si le catalogue est momentanément indisponible. */
-  readonly name?: string;
+  return { state, reload, refresh };
 }
 
 export type CockpitTableState =
   | { readonly status: 'loading' }
   | { readonly status: 'ready'; readonly data: CockpitTableData }
   | { readonly status: 'failed'; readonly message: string };
-
-export interface CockpitTableLogFilters {
-  readonly level?: LogLevel;
-  readonly correlateIncident?: boolean;
-}
 
 /**
  * Charge le détail d'une table du cockpit : pipeline (`declared_state`),
@@ -153,37 +120,34 @@ export function useCockpitTable(
   pipelineId: string,
   window: '1h' | '24h',
   logFilters: CockpitTableLogFilters,
-): { readonly state: CockpitTableState; readonly reload: () => void } {
+): { readonly state: CockpitTableState } & Reloadable {
   const [state, setState] = useState<CockpitTableState>({ status: 'loading' });
   const [nonce, setNonce] = useState(0);
-  const alive = useRef(true);
+  const quiet = useRef(false);
+  const loadedFor = useRef(pipelineId);
 
   useEffect(() => {
-    alive.current = true;
-    setState({ status: 'loading' });
-    (async () => {
-      const client = await getCockpitClient();
-      const [pipeline, metrics, logs, costToday, pipelines, evidenceResult] = await Promise.all([
-        client.getPipeline(pipelineId),
-        client.getMetrics(pipelineId, window),
-        client.getLogs(pipelineId, logFilters),
-        client.getCosts('table', pipelineId, window).catch(() => null),
-        client.listPipelines().catch(() => []),
-        client.getEvidence(pipelineId).then((evidence) => ({ evidence, evidenceError: undefined }))
-          .catch((error: unknown) => ({ evidence: null, evidenceError: error instanceof Error ? error.message : 'Evidence unavailable.' })),
-      ]);
-      const resolvers = await createCockpitResolvers(client, pipelines);
-      const name = resolvers.nameForPipeline(pipelineId);
-      return { pipeline, metrics, logs, costToday, ...evidenceResult, name: name === pipelineId ? undefined : name };
-    })()
-      .then((data) => {
-        if (alive.current) setState({ status: 'ready', data });
-      })
-      .catch((error: unknown) => {
-        if (alive.current) setState({ status: 'failed', message: error instanceof Error ? error.message : String(error) });
-      });
-    return () => { alive.current = false; };
+    // A quiet refresh keeps the screen only for the same table: a new
+    // selection always starts from the loading state.
+    const keep = quiet.current && loadedFor.current === pipelineId;
+    quiet.current = false;
+    loadedFor.current = pipelineId;
+    if (!keep) setState({ status: 'loading' });
+    return runCancellable(
+      async (signal) => loadTableData(await getCockpitClient(), createCockpitResolvers, pipelineId, window, logFilters, signal),
+      (outcome) => setState(outcome.status === 'ready'
+        ? { status: 'ready', data: outcome.value }
+        : { status: 'failed', message: outcome.message }),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the filter object is rebuilt each render; its two fields are the real dependencies.
   }, [pipelineId, window, logFilters.level, logFilters.correlateIncident, nonce]);
 
-  return { state, reload: () => setNonce((n) => n + 1) };
+  const visible: CockpitTableState = state.status === 'ready' && !tableDataMatches(state.data, pipelineId)
+    ? { status: 'loading' }
+    : state;
+  return {
+    state: visible,
+    reload: () => setNonce((n) => n + 1),
+    refresh: () => { quiet.current = true; setNonce((n) => n + 1); },
+  };
 }

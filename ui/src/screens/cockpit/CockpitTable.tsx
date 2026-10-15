@@ -19,10 +19,11 @@ import { ControlsPanel } from '../../components/ControlsPanel.tsx';
 import { declaredStateToStatusWord } from '../../domain/cockpit.ts';
 import { getCockpitClient, useCockpitTable, type CockpitTableState } from '../../data/useCockpit.ts';
 import { href, type CockpitTableTab } from '../../router.ts';
-import type { ControlActionKind } from '../../domain/controlsPanel.ts';
-import { ControlPlaneV2Error, pendingConfirmationId, type LogLevel } from '../../data/controlPlaneV2Client.ts';
+import { availableTableActions } from '../../domain/controlsPanel.ts';
+import type { LogLevel } from '../../data/controlPlaneV2Client.ts';
+import { tableControls } from './cockpitActions.ts';
 import { focusPrimaryControls, navigateBack } from './cockpitFunctionKeys.ts';
-import { EVIDENCE_COPY } from '../../domain/operator.ts';
+import { DIAGNOSTICS_COPY, EVIDENCE_COPY } from '../../domain/operator.ts';
 import { evidenceKindView, evidenceStageView } from '../../domain/evidencePresentation.ts';
 
 const TABS: readonly { readonly id: CockpitTableTab; readonly label: string }[] = [
@@ -37,7 +38,7 @@ export function CockpitTableScreen({ pipelineId, tab }: { readonly pipelineId: s
   const [window, setWindow] = useState<'1h' | '24h'>('1h');
   const [level, setLevel] = useState<LogLevel | undefined>(undefined);
   const [correlateIncident, setCorrelateIncident] = useState(false);
-  const { state, reload } = useCockpitTable(pipelineId, window, { level, correlateIncident });
+  const { state, reload, refresh } = useCockpitTable(pipelineId, window, { level, correlateIncident });
 
   return (
     <CockpitTableView
@@ -51,6 +52,7 @@ export function CockpitTableScreen({ pipelineId, tab }: { readonly pipelineId: s
       correlateIncident={correlateIncident}
       onCorrelateIncidentChange={setCorrelateIncident}
       onRefresh={reload}
+      onSettled={refresh}
     />
   );
 }
@@ -66,6 +68,7 @@ export function CockpitTableView({
   correlateIncident,
   onCorrelateIncidentChange,
   onRefresh,
+  onSettled,
 }: {
   readonly pipelineId: string;
   readonly tab: CockpitTableTab;
@@ -77,6 +80,8 @@ export function CockpitTableView({
   readonly correlateIncident: boolean;
   readonly onCorrelateIncidentChange: (value: boolean) => void;
   readonly onRefresh: () => void;
+  /** Re-reads quietly after an action, keeping the panel's outcome on screen. */
+  readonly onSettled?: () => void;
 }) {
   const activeTab = tab ?? 'metrics';
   const [focusedTab, setFocusedTab] = useState(activeTab);
@@ -137,34 +142,10 @@ export function CockpitTableView({
         <div id="cockpit-primary-controls">
           <ControlsPanel
             level="table"
+            targetId={pipelineId}
             targetLabel={pipelineId}
-            availableActions={['pause', 'resume', 'restart_initial_copy', 'remove', 'replay'] as readonly ControlActionKind[]}
-            dryRun={async (action) => {
-              const client = await getCockpitClient();
-              return client.runPipelineAction(pipelineId, action, { dryRun: true });
-            }}
-            execute={async (action, confirmationToken) => {
-              const client = await getCockpitClient();
-              try {
-                await client.runPipelineAction(pipelineId, action, { confirmationToken });
-                return { pendingConfirmationId: null };
-              } catch (error) {
-                if (error instanceof ControlPlaneV2Error) {
-                  const confirmationId = pendingConfirmationId(error);
-                  if (confirmationId) return { pendingConfirmationId: confirmationId };
-                }
-                throw error;
-              }
-            }}
-            approveConfirmation={async (confirmationId) => {
-              const client = await getCockpitClient();
-              await client.approveConfirmation(confirmationId);
-            }}
-            rejectConfirmation={async (confirmationId) => {
-              const client = await getCockpitClient();
-              await client.rejectConfirmation(confirmationId);
-            }}
-            verify={async () => { onRefresh(); }}
+            availableActions={availableTableActions(state.data.pipeline.declaredState)}
+            {...tableControls(pipelineId, { getClient: getCockpitClient, onSettled: onSettled ?? onRefresh })}
           />
         </div>
       ) : null}
@@ -308,8 +289,13 @@ function CostsTab({ data }: { readonly data: import('../../data/useCockpit.ts').
 
 function ProofsTab({ data }: { readonly data: import('../../data/useCockpit.ts').CockpitTableData }) {
   const evidence = data.evidence;
+  const diagnosticsLink = (
+    <p className="cockpit-table__note">
+      <a href={href({ name: 'cockpit-diagnostics', pipelineId: data.pipeline.id })}>{DIAGNOSTICS_COPY.tableLink}</a>
+    </p>
+  );
   if (!evidence) {
-    return <section className="cockpit-table__tab" aria-label="Evidence"><p>{data.evidenceError ?? EVIDENCE_COPY.unavailable}</p></section>;
+    return <section className="cockpit-table__tab" aria-label="Evidence"><p>{data.evidenceError ?? EVIDENCE_COPY.unavailable}</p>{diagnosticsLink}</section>;
   }
   const kind = evidenceKindView(evidence.evidenceKind);
   const stages = [
@@ -319,6 +305,7 @@ function ProofsTab({ data }: { readonly data: import('../../data/useCockpit.ts')
   ] as const;
   return (
     <section className="cockpit-table__tab" aria-label="Evidence">
+      {diagnosticsLink}
       <div className="cockpit-table__evidence-summary">
         <p><span className={`evidence-state evidence-state--${kind.tone}`}>{kind.label}</span></p>
         {kind.caveat ? <p className="cockpit-table__note">{kind.caveat}</p> : null}

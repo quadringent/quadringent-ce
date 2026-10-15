@@ -8,7 +8,7 @@ from .receiver_identity import BoundCheckpoint, ReceiverIdentity, _strict_record
 
 
 CAPTURE_BINDING_FORMAT_VERSION = "quadringent-capture-binding-v1"
-_AUTHORITY = re.compile(r"(?:s3|gcs)://[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]/receiver-authority-v1")
+_AUTHORITY = re.compile(r"(?:s3|gcs|local)://[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]/receiver-authority-v1")
 
 
 @dataclass(frozen=True)

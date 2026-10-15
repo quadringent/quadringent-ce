@@ -135,8 +135,10 @@ def test_setup_script_defaults_to_copy_merge_without_streaming_grants(destinatio
     script = destinations_service.setup_script(created.id)
     assert "Snowpipe Streaming" not in script
     assert "EXECUTE TASK" not in script
-    assert "GRANT USAGE ON SCHEMA QUADRINGENT.CURATED" in script
-    assert "GRANT CREATE TABLE ON SCHEMA QUADRINGENT.CURATED" not in script
+    # The loader creates the mirror table in CURATED in every mode, so the
+    # default copy_merge script must allow it (privilege contract:
+    # tests/test_v2_destination_provisioning_contract.py).
+    assert f"GRANT USAGE, CREATE TABLE ON SCHEMA QUADRINGENT.CURATED TO ROLE {created.service_role};" in script
 
 
 def test_setup_script_streaming_mode_grants_curated_create_table(destinations_service) -> None:
@@ -144,7 +146,7 @@ def test_setup_script_streaming_mode_grants_curated_create_table(destinations_se
         snowflake_account="acme-sf", destination_mode="streaming"
     )
     script = destinations_service.setup_script(created.id)
-    assert "GRANT CREATE TABLE ON SCHEMA QUADRINGENT.CURATED TO ROLE" in script
+    assert f"CREATE TABLE ON SCHEMA QUADRINGENT.CURATED TO ROLE {created.service_role};" in script
     assert "EXECUTE TASK" not in script
 
 

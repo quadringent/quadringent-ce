@@ -6,6 +6,8 @@ test('cockpit and wizard routes stay available in the synthetic demo', () => {
   for (const route of [
     { name: 'cockpit' },
     { name: 'cockpit-confirmations' },
+    { name: 'cockpit-diagnostics' },
+    { name: 'cockpit-diagnostics', pipelineId: 'pl_sales_orders' },
     { name: 'cockpit-connection', id: 'src_demo_sales' },
     { name: 'cockpit-table', id: 'pl_sales_order_lines', tab: 'proofs' },
     { name: 'wizard', step: 'source' },

@@ -54,6 +54,21 @@ amount. Historical, simulated or stale evidence cannot establish current costs.
 Without a price, credits remain visible with **Price not declared**. Without a
 measurement, show **Not measured**. Past campaign spending is not substituted.
 
+## Fleet credit evidence
+
+Fleet row counts never supply credit estimates, budgets or measured consumption.
+Financial admission requires an explicit budget and per-table credit estimate;
+LIVE also requires attributed measured credits, with an evidence reference and
+completed cumulative metering window covering run creation and the current table
+proof. Keep the original metering SHA separate from the canonical table proof
+binding (prepare intent, table, window and observation time). Billing buckets may
+be wider and delayed; a pre-run or unrelated proof cannot supply current costs.
+Before LIVE, the cumulative window start stays fixed and costs cannot decrease.
+This guards backfill admission; it does not account for further LIVE consumption.
+The CLI collector does not provide this financial evidence, so missing costs stay
+unknown. Persisted v1 states and v2 measurements without the causal proof binding
+are refused without rewriting state, RAW data or source checkpoints.
+
 ## S3 and shared clusters
 
 The standalone `quadringent-cost-collect` command reads infrastructure

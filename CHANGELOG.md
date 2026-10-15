@@ -4,6 +4,7 @@
 
 Changes not yet in a published release.
 
+- Add bounded native reconciliation helpers: typed row streams, disk-backed comparisons, and read-only IBM i and Snowflake exports. Native provenance, a stable collection boundary and cockpit integration remain required; these helpers do not establish transaction consistency or runtime qualification.
 - Add `quadringent local` (init, snowflake-script, check, start, stop, status, reset) to run one table on a single machine with Docker, without a cloud account or Kubernetes, using a local storage backend (`QUADRINGENT_STORAGE_BACKEND=local`, `local://` registry authority). It needs images from a release that includes it and has not been validated end to end against an IBM i and Snowflake. See [Try it locally](docs/product/try-it-local.md).
 - Add `quadringent doctor`, which builds one versioned diagnostic report (`quadringent.diagnostic.v1`) as text or JSON. Local checks always run; network calls (`--check-ibmi`, `--tls`, `--control-plane`) run only on request. Exit codes: 0 ready, 1 blocked, 2 usage error, 3 incomplete. `--from-report` and `--save` read and write a report offline.
 - Add a shareable export (`quadringent doctor --export FILE.tar.gz`, `--preview` to list it without writing). It is built from allowed fields only, pseudonymizes hosts, accounts and object names, lists every omission with its reason, and sends nothing. The scrubbing is pattern-based: read the archive before you post it.

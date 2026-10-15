@@ -740,7 +740,7 @@ test('detail uses an asymmetric proof object instead of a responsive stepper', (
   assert.doesNotMatch(chain, /topology-track|spine|runway|linear-gradient/);
   assert.match(chain, /\.proof-chain__stations\s*\{[^}]*display:\s*grid/);
   assert.doesNotMatch(chain, /repeat\(5,\s*minmax\(0,\s*1fr\)\)/);
-  assert.match(chain, /\.proof-chain__station--focus\s*\{[^}]*border-left:\s*3px solid/);
+  assert.doesNotMatch(chain, /border-left|border-inline-start/, 'no coloured vertical rail on a station');
   assert.match(chain, /\.proof-chain__station\.proof-object__focus,[\s\S]*?grid-column:\s*auto/);
   assert.match(css, /@media\s*\(max-width:\s*760px\)[\s\S]*?\.proof-object\s*\{[^}]*display:\s*flex[^}]*flex-direction:\s*column/);
   assert.doesNotMatch(css, /\.proof-object(?:__[^\s{]+)?\s*\{[^}]*border-(?:top|bottom):/);

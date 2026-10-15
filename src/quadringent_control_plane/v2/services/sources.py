@@ -143,7 +143,8 @@ class SourcesService:
     def get(self, source_id: str) -> SourceRecord:
         with self._engine.connect() as connection:
             row = (
-                connection.execute(select(v2_schema.sources).where(v2_schema.sources.c.id == source_id))
+                connection.execute(select(v2_schema.sources).where(
+                    v2_schema.sources.c.id == source_id, v2_schema.sources.c.org_id == self._org_id))
                 .mappings()
                 .first()
             )
@@ -155,7 +156,7 @@ class SourcesService:
         with self._engine.connect() as connection:
             rows = (
                 connection.execute(
-                    select(v2_schema.sources).order_by(
+                    select(v2_schema.sources).where(v2_schema.sources.c.org_id == self._org_id).order_by(
                         v2_schema.sources.c.created_at, v2_schema.sources.c.id
                     )
                 )

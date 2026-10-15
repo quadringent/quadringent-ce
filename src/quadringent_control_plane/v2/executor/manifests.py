@@ -375,6 +375,8 @@ def build_reader_deployment(spec: ReaderDesiredSpec) -> dict[str, object]:
     changer ``replicas`` et l'environnement du même Deployment.
     """
 
+    if spec.storage_backend.strip().lower() == "local":
+        raise ManifestError("the local storage backend is only for quadringent local; Kubernetes readers need aws or gcs")
     name = reader_deployment_name(spec.source_id, spec.journal_library, spec.journal_name)
     j_key = journal_key(spec.journal_library, spec.journal_name)
     table_ids = ",".join(sorted(t.table_id for t in spec.tables))

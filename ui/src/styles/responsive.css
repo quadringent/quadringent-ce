@@ -61,7 +61,7 @@
     min-height: 40px;
     padding-inline: 8px;
     color: var(--text-main);
-    border-radius: 6px;
+    border-radius: 0;
     font-size: 10px;
     font-weight: 540;
     cursor: pointer;
@@ -141,8 +141,8 @@
     width: 172px;
     padding: 7px;
     background: var(--surface-panel);
-    border-radius: 9px;
-    box-shadow: 0 18px 54px rgba(21, 22, 21, .15);
+    border-radius: 0;
+    border: 1px solid var(--line-strong);
   }
 
   .product-more__menu a {
@@ -150,7 +150,7 @@
     justify-content: flex-start;
     padding-inline: 12px;
     color: var(--text-main);
-    border-radius: 6px;
+    border-radius: 0;
   }
 
   .product-workspace {
@@ -271,7 +271,7 @@
   .proof-focus {
     min-height: 154px;
     padding: 20px 22px 19px;
-    border-radius: 3px;
+    border-radius: 0;
   }
 
   .proof-focus h2 {

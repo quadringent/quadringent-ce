@@ -551,6 +551,8 @@ def _proof_window_options(window_id, duration_seconds):
 
 
 def _object_store(backend: str, prefix: str):
+    if backend == "local":
+        return _local_storage().object_store(prefix)
     if backend == "gcs":
         from quadringent.gcs_backend import GcsObjectStore
 
@@ -559,6 +561,8 @@ def _object_store(backend: str, prefix: str):
 
 
 def _checkpoint_store(backend: str, stream_key: str):
+    if backend == "local":
+        return _local_storage().checkpoint_store(stream_key)
     if backend == "gcs":
         from quadringent.gcs_backend import GcsCheckpointStore
 
@@ -567,12 +571,20 @@ def _checkpoint_store(backend: str, stream_key: str):
 
 
 def _source_gate(backend: str, gate_key: str):
+    if backend == "local":
+        return _local_storage().source_gate(gate_key, policy=_source_gate_policy())
     if backend == "gcs":
         from quadringent.gcs_backend import GcsSourceGate
 
         return GcsSourceGate(_required("AS400_CHECKPOINT_BUCKET"), gate_key,
                              policy=_source_gate_policy(), client=_gcs_client())
     return DynamoDbSourceGate(_required("AS400_CHECKPOINT_TABLE"), gate_key, policy=_source_gate_policy())
+
+
+def _local_storage():
+    from quadringent.storage_backend import StorageBackend
+
+    return StorageBackend.from_environment(os.environ)
 
 
 _GCS_CLIENT = None
@@ -670,7 +682,9 @@ def _installed_capture_binding(environ) -> CaptureBinding:
     binding = CaptureBinding.from_dict(_decode_checkpoint_json(raw))
     backend = backend_from_environment(environ)
     bucket = environ.get('AS400_RAW_BUCKET') or environ.get('AS400_GCS_RAW_BUCKET')
-    authority = f"{'gcs' if backend == 'gcs' else 's3'}://{bucket}/receiver-authority-v1"
+    from quadringent.storage_backend import registry_authority
+
+    authority = registry_authority(backend, bucket)
     identity = binding.bootstrap.receiver_identity
     if (environ.get('AS400_STREAM_KEY') != binding.scope_id
             or environ.get('AS400_JOURNAL_LIBRARY') != identity.journal_library

@@ -16,7 +16,7 @@ from typing import Protocol
 
 import uuid
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import insert, select, update, true
 from sqlalchemy.engine import Engine
 
 from .. import schema as v2_schema
@@ -135,8 +135,24 @@ class PipelineListRecord:
 
 
 class PipelinesService:
-    def __init__(self, engine: Engine) -> None:
+    def __init__(self, engine: Engine, *, org_id: str | None = None) -> None:
+        """``org_id`` scopes every read and mutation to one organization
+        (through the table's source); ``None`` keeps the global view used by
+        system processes such as the reconciler."""
         self._engine = engine
+        self._org_id = org_id
+
+    def _org_tables(self):
+        return (
+            select(v2_schema.tables.c.id)
+            .select_from(v2_schema.tables.join(v2_schema.sources, v2_schema.tables.c.source_id == v2_schema.sources.c.id))
+            .where(v2_schema.sources.c.org_id == self._org_id)
+        )
+
+    def _scoped(self, statement):
+        if self._org_id is None:
+            return statement
+        return statement.where(v2_schema.pipelines.c.table_id.in_(self._org_tables()))
 
     def list(
         self,
@@ -182,6 +198,7 @@ class PipelinesService:
             statement = statement.where(pipelines.c.destination_id == destination_id)
         if cursor is not None:
             statement = statement.where(pipelines.c.id > cursor)
+        statement = self._scoped(statement)
 
         with self._engine.connect() as connection:
             rows = connection.execute(statement).mappings().all()
@@ -208,7 +225,7 @@ class PipelinesService:
         with self._engine.connect() as connection:
             row = (
                 connection.execute(
-                    select(v2_schema.pipelines).where(v2_schema.pipelines.c.id == pipeline_id)
+                    self._scoped(select(v2_schema.pipelines).where(v2_schema.pipelines.c.id == pipeline_id))
                 )
                 .mappings()
                 .first()
@@ -235,14 +252,17 @@ class PipelinesService:
 
     def _resolve_destination_id(self, destination_id: str | None) -> str:
         with self._engine.connect() as connection:
+            destinations = select(v2_schema.destinations.c.id)
+            if self._org_id is not None:
+                destinations = destinations.where(v2_schema.destinations.c.org_id == self._org_id)
             if destination_id is not None:
                 row = connection.execute(
-                    select(v2_schema.destinations.c.id).where(v2_schema.destinations.c.id == destination_id)
+                    destinations.where(v2_schema.destinations.c.id == destination_id)
                 ).first()
                 if row is None:
                     raise DestinationNotFoundError(destination_id)
                 return destination_id
-            rows = connection.execute(select(v2_schema.destinations.c.id)).all()
+            rows = connection.execute(destinations).all()
         if not rows:
             raise DestinationNotFoundError("no destination configured")
         if len(rows) > 1:
@@ -253,9 +273,10 @@ class PipelinesService:
 
     def _require_table(self, table_id: str) -> None:
         with self._engine.connect() as connection:
-            row = connection.execute(
-                select(v2_schema.tables.c.id).where(v2_schema.tables.c.id == table_id)
-            ).first()
+            query = select(v2_schema.tables.c.id).where(v2_schema.tables.c.id == table_id)
+            if self._org_id is not None:
+                query = query.where(v2_schema.tables.c.id.in_(self._org_tables()))
+            row = connection.execute(query).first()
         if row is None:
             raise TableNotFoundError(table_id)
 
@@ -408,21 +429,22 @@ class PipelinesService:
                     )
                 )
                 .where(v2_schema.tables.c.source_id == source_id)
+                .where(v2_schema.pipelines.c.table_id.in_(self._org_tables()) if self._org_id is not None else true())
             ).all()
         return tuple(row[0] for row in rows)
 
     def list_pipeline_ids_for_destination(self, destination_id: str) -> tuple[str, ...]:
         with self._engine.connect() as connection:
             rows = connection.execute(
-                select(v2_schema.pipelines.c.id).where(
+                self._scoped(select(v2_schema.pipelines.c.id).where(
                     v2_schema.pipelines.c.destination_id == destination_id
-                )
+                ))
             ).all()
         return tuple(row[0] for row in rows)
 
     def list_all_pipeline_ids(self) -> tuple[str, ...]:
         with self._engine.connect() as connection:
-            rows = connection.execute(select(v2_schema.pipelines.c.id)).all()
+            rows = connection.execute(self._scoped(select(v2_schema.pipelines.c.id))).all()
         return tuple(row[0] for row in rows)
 
     def _is_scope_paused(self, pipeline_id: str) -> bool:

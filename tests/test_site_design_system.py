@@ -166,3 +166,58 @@ def test_fonts_come_from_locked_packages_with_their_license():
     for family in ("Sans", "Mono"):
         license_text = (SITE / "assets" / "fonts" / f"OFL-IBM-Plex-{family}.txt").read_text()
         assert "SIL Open Font License" in license_text and "IBM Corp." in license_text
+
+
+def test_green_on_black_is_limited_to_command_blocks():
+    """The 5250-like look styles commands only: no global green theme, no gradients, no CRT effects."""
+    css = (SITE / "style.css").read_text()
+    uses = [m.start() for m in re.finditer(r"var\(--site-screen-(?:fg|dim|bg)\)", css)]
+    assert uses
+    for position in uses:
+        selector = css[css.rfind("}", 0, position) + 1:css.index("{", css.rfind("}", 0, position))]
+        assert ".screen" in selector or ".code .screen__dim" in selector, selector.strip()
+    assert "--site-screen-fg" in declarations(css, SCOPES["light"])
+    for dark in ("dark-preference", "dark-explicit"):
+        assert "--site-screen-fg" not in declarations(css, SCOPES[dark]), "the screen block is the same in both themes"
+    assert not re.search(r"text-shadow|@keyframes|animation:", css)
+    page_html = (SITE / "index.html").read_text()
+    assert page_html.count('<pre class="screen') == 3, "only the three command examples"
+
+
+def rules(css: str) -> list[tuple[str, str]]:
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    return [(selector.strip(), body) for selector, body in re.findall(r"([^{}@]+)\{([^{}]*)\}", css)]
+
+
+def test_status_words_are_words_never_squares_on_the_site():
+    html = (SITE / "index.html").read_text()
+    assert "status-word__mark" not in html and "status-word__label" not in html
+    css = (SITE / "style.css").read_text()
+    assert "status-word__mark" not in css
+    for use in re.findall(r'<span class="status-word[^"]*">(.*?)</span>', html):
+        assert re.fullmatch(r"[A-Za-z][^<]*", use), use
+
+
+def test_site_has_no_coloured_rail_eyebrow_card_or_callout():
+    """The anti-slop rules of docs/design-system.md, enforced on the stylesheet and the page."""
+    css = (SITE / "style.css").read_text()
+    for selector, body in rules(css):
+        assert not re.search(r"border-(left|right|inline-start|inline-end)\s*:\s*[2-9]", body), selector
+        for side in ("left", "inline-start"):
+            colour = re.search(rf"border-{side}\s*:\s*1px solid ([^;]+)", body)
+            if colour:
+                assert re.search(r"--text-(strong|subtle)|--line-", colour[1]), (selector, colour[1])
+        assert not re.search(r"box-shadow\s*:[^;]*inset\s+-?\d+px\s+0\s+0", body), selector
+        assert not re.search(r"box-shadow\s*:\s*(?!none)[^;]*rgba", body), selector
+        for radius in re.findall(r"border-radius\s*:\s*([^;]+)", body):
+            assert re.fullmatch(r"0|var\(--(radius-panel|r-sm|r-md)\)", radius.strip()), (selector, radius)
+        if "text-transform: uppercase" in body:
+            assert selector.endswith("th"), f"uppercase only on table column headers: {selector}"
+        assert not re.search(r"var\(--signal-[a-z]+-soft\)", body), f"no tinted callout background: {selector}"
+    assert ".eyebrow" not in css and "provenance-note" not in css and "metric-tile" not in css
+    html = (SITE / "index.html").read_text()
+    for class_name in ("eyebrow", "card", "callout", "badge", "pill", "tile"):
+        assert not re.search(rf'class="[^"]*\b{class_name}\b', html), class_name
+    labels = re.sub(r"<[^>]+>", " ", html).replace("Cockpit · ", "")
+    assert labels.count(" · ") == 1 and re.search(r"Version \d+\.\d+ · Apache-2\.0", labels), (
+        "no dot separators in labels, except the single status line Version X.Y · Apache-2.0")

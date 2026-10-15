@@ -13,7 +13,7 @@ open-source software. IBM i, cloud and Snowflake costs are borne by the operator
 The first proposed service is a fixed-scope pilot: installation and validation
 on the customer's infrastructure. Scope, acceptance criteria and deliverables
 would be agreed before engagement. Later support could be offered separately.
-No price, reference customer or SLA is announced. See the
+No price, reference customer or service commitment is announced. See the
 [pilot preparation guide](product/positioning-and-offer.md).
 
 Support and operations services may be sold. A future advanced console or

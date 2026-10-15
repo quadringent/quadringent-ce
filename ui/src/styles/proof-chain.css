@@ -86,7 +86,6 @@
   margin: 2px 0 0;
   color: var(--text-subtle);
   font: 500 11px/1 var(--font-mono);
-  letter-spacing: .02em;
 }
 
 .proof-chain__kicker {
@@ -183,16 +182,14 @@
 
 .proof-chain__station--destination:not(.proof-chain__station--focus) {
   padding: 10px 0 12px 0;
-  border-left: 0;
 }
 
 .proof-chain__station--focus {
   z-index: 1;
-  padding: 8px 14px 12px 10px;
+  padding: 8px 14px 12px 0;
   background: transparent;
   border-radius: 0;
   box-shadow: none;
-  border-left: 3px solid var(--text-strong);
   border-top-color: var(--text-strong);
 }
 
@@ -220,21 +217,10 @@
   color: var(--text-muted);
 }
 
-.proof-chain--live-break .proof-chain__station--focus {
-  border-left-color: var(--signal-incident);
-  border-top-color: var(--signal-incident);
-}
-
 .proof-chain--live-break .proof-chain__station--focus .proof-chain__index,
 .proof-chain--live-break .proof-focus--break .proof-chain__kicker,
 .proof-chain--live-break .proof-focus--break .proof-object__kicker {
   color: var(--signal-incident);
-}
-
-.proof-chain--retained .proof-chain__station--focus,
-.proof-chain--historical .proof-chain__station--focus {
-  border-left-color: var(--signal-attention);
-  border-top-color: var(--signal-attention);
 }
 
 .proof-chain--retained .proof-focus--break .proof-chain__kicker,
@@ -425,10 +411,8 @@
 }
 
 .proof-waybill-index__station.is-focus {
-  padding-left: 10px;
   background: transparent;
   border-top-color: var(--text-strong);
-  border-left: 3px solid var(--signal-attention);
 }
 
 .proof-waybill-index__station.is-after {
@@ -465,11 +449,6 @@
   color: var(--signal-attention);
 }
 
-.proof-waybill-index--confirmable .proof-waybill-index__station.is-focus,
-.proof-waybill-index[data-confirmable='true'] .proof-waybill-index__station.is-focus {
-  border-left-color: var(--signal-incident);
-}
-
 .proof-waybill-index--confirmable .proof-waybill-index__station.is-focus small,
 .proof-waybill-index[data-confirmable='true'] .proof-waybill-index__station.is-focus small {
   color: var(--signal-incident);
@@ -502,7 +481,6 @@
   .proof-chain__station--focus,
   .proof-chain__station--destination:not(.proof-chain__station--focus) {
     padding: 10px 0;
-    border-left: 0;
   }
 
   .proof-chain__link,

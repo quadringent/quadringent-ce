@@ -222,7 +222,7 @@ test('the shared chain stylesheet is a five-case bordereau, not a 248px poster',
   assert.doesNotMatch(css, /min-height:\s*248px/);
   assert.doesNotMatch(css, /repeat\(5,\s*minmax\(0,\s*1fr\)\)/);
   assert.match(css, /\.proof-chain__stations\s*\{[^}]*display:\s*grid/);
-  assert.match(css, /\.proof-chain__station--focus\s*\{[^}]*border-left:\s*3px solid/);
+  assert.doesNotMatch(css, /border-left|border-inline-start/, 'no coloured vertical rail on a station');
   assert.match(css, /\.proof-chain__stations\[data-focus-stage='load'\]\s*\{[^}]*minmax\(0,\s*1\.28fr\)/);
   assert.match(css, /\.proof-chain__index\s*\{/);
 });
@@ -240,8 +240,8 @@ test('the waybill is one continuous five-stage rail, not five equal cards', () =
   assert.doesNotMatch(css, /\.proof-chain__station--destination:not\([^)]+\)\s*\{[^}]*border-left:\s*1px solid/);
   assert.match(css, /\.proof-chain__link/);
   assert.match(css, /\.proof-waybill-index__station\s*\{[^}]*background:\s*transparent/);
-  assert.match(css, /\.proof-waybill-index__station\.is-focus\s*\{[^}]*border-left:\s*3px solid var\(--signal-attention\)/);
-  assert.match(css, /\.proof-waybill-index--confirmable \.proof-waybill-index__station\.is-focus,[\s\S]*?border-left-color:\s*var\(--signal-incident\)/);
+  assert.doesNotMatch(css, /\.proof-waybill-index__station\.is-focus\s*\{[^}]*border-left/);
+  assert.doesNotMatch(css, /border-left-color/);
   assert.match(css, /\.proof-chain--historical \.proof-chain__name,[\s\S]*?color:\s*var\(--text-muted\)/);
 });
 

@@ -1,9 +1,8 @@
 import { useState, type KeyboardEvent, type ReactNode } from 'react';
 
 /**
- * BandedTable — liste de type « papier listing » : bandes alternées vert très
- * pâle (papier continu d'imprimante), chiffres en mono alignés à droite,
- * filets discrets. Chaque ligne est focalisable au clavier (flèches haut/bas)
+ * BandedTable — liste sobre : sans zébrage ni teinte, chiffres en mono alignés
+ * à droite, filets discrets, défilement horizontal dans son cadre. Chaque ligne est focalisable au clavier (flèches haut/bas)
  * pour naviguer sans souris, avec un emplacement d'actions par ligne.
  */
 export interface BandedTableColumn<Row> {
@@ -39,40 +38,42 @@ export function BandedTable<Row>({ caption, columns, rows, rowKey, rowActions }:
   };
 
   return (
-    <table className="banded-table">
-      <caption className="sr-only">{caption}</caption>
-      <thead>
-        <tr>
-          {columns.map((column) => (
-            <th key={column.key} scope="col" className={column.numeric ? 'banded-table__col--numeric' : undefined}>
-              {column.header}
-            </th>
-          ))}
-          {rowActions ? <th scope="col" className="sr-only">Actions</th> : null}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, index) => (
-          <tr
-            key={rowKey(row)}
-            className="banded-table__row"
-            tabIndex={index === focusedIndex ? 0 : -1}
-            onFocus={() => setFocusedIndex(index)}
-            onKeyDown={(event) => onRowKeyDown(event, index)}
-          >
+    <div className="banded-table__scroll">
+      <table className="banded-table">
+        <caption className="sr-only">{caption}</caption>
+        <thead>
+          <tr>
             {columns.map((column) => (
-              <td
-                key={column.key}
-                className={column.numeric ? 'banded-table__col--numeric mono' : undefined}
-              >
-                {column.render(row)}
-              </td>
+              <th key={column.key} scope="col" className={column.numeric ? 'banded-table__col--numeric' : undefined}>
+                {column.header}
+              </th>
             ))}
-            {rowActions ? <td className="banded-table__col--actions">{rowActions(row)}</td> : null}
+            {rowActions ? <th scope="col" className="sr-only">Actions</th> : null}
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr
+              key={rowKey(row)}
+              className="banded-table__row"
+              tabIndex={index === focusedIndex ? 0 : -1}
+              onFocus={() => setFocusedIndex(index)}
+              onKeyDown={(event) => onRowKeyDown(event, index)}
+            >
+              {columns.map((column) => (
+                <td
+                  key={column.key}
+                  className={column.numeric ? 'banded-table__col--numeric mono' : undefined}
+                >
+                  {column.render(row)}
+                </td>
+              ))}
+              {rowActions ? <td className="banded-table__col--actions">{rowActions(row)}</td> : null}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

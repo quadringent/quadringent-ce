@@ -10,6 +10,7 @@ from urllib.parse import urlparse, urlsplit
 
 DOC_PAGES = {
     "README.md": ("getting-started", "Getting started with IBM i CDC to Snowflake"),
+    "docs/evidence.md": ("evidence", "What Quadringent has measured, and what it has not"),
     "docs/product/synthetic-demo.md": ("demo", "Try the cockpit with synthetic data"),
     "docs/product/compatibility.md": ("compatibility", "Compatibility and prerequisites for IBM i and Snowflake"),
     "docs/product/install-default.md": ("installation", "Install Quadringent on AWS or GCP"),
@@ -23,16 +24,28 @@ DOC_PAGES = {
     "SECURITY.md": ("security", "Security and access boundaries"),
     "docs/licensing.md": ("community", "Community Edition and Apache-2.0"),
     "docs/product/positioning-and-offer.md": ("pilot", "Prepare an IBM i to Snowflake pilot"),
+    "docs/product/ibm-i-footprint.md": ("ibm-i-footprint", "What Quadringent installs and does on your IBM i"),
+    "docs/product/your-data.md": ("your-data", "Where your IBM i data goes and how to stop"),
+    "docs/product/verify-a-release.md": ("verify-a-release", "Verify a Quadringent release against the public code"),
+    "docs/governance.md": ("governance", "Governance and continuity of an open-source IBM i CDC project"),
+    "SUPPORT.md": ("support", "Support for Quadringent Community"),
+    "docs/product/faq.md": ("faq", "Questions for a first call about IBM i to Snowflake CDC"),
+    "docs/product/try-it-local.md": ("try-it-local", "Try IBM i to Snowflake CDC on one machine with Docker"),
+    "docs/product/comparison.md": ("comparison", "How Quadringent compares with other IBM i to Snowflake options"),
+    "docs/articles/ibm-i-journals-for-cdc.md": ("ibm-i-journals-for-cdc", "How IBM i journals work for change data capture"),
+    "docs/articles/capture-delivery-reconciliation.md": ("capture-delivery-reconciliation", "Capture is not delivery: proving IBM i data reached Snowflake"),
+    "docs/articles/as400-to-snowflake-options.md": ("as400-to-snowflake-options", "Options to replicate AS/400 (IBM i) data to Snowflake"),
 }
 
 # Search snippets: what each page lets a reader do, not a shared template.
 DOC_DESCRIPTIONS = {
-    "README.md": "Start with Quadringent Community: what it replicates from IBM i to Snowflake, its preview status and how to try it.",
+    "README.md": "Start with Quadringent Community: what it replicates from IBM i to Snowflake, what has been measured and how to try it.",
+    "docs/evidence.md": "Measured and not measured: results by version, target and date, the 10 s latency bar, the 0.2.x history and the limits that remain.",
     "docs/product/synthetic-demo.md": "Run the Quadringent cockpit locally with synthetic data, without IBM i, Snowflake, cloud access or credentials.",
     "docs/product/compatibility.md": "Check IBM i releases, journaling, keys, authorities, receiver retention, Snowflake roles and default resources before installing Quadringent.",
     "docs/product/install-default.md": "Install Quadringent on AWS or GCP, on a dedicated VM or an existing cluster, with a reviewed Terraform plan.",
     "docs/product/install-client.md": "Install Quadringent with Helm: secrets, values, table readiness, journaling and commissioning steps.",
-    "docs/product/operator-guide.md": "Operate a DEV/INT installation: preflight, first copy, reading evidence, outages, recovery, backup and stop.",
+    "docs/product/operator-guide.md": "Operate an installation: preflight, first copy, reading evidence, outages, recovery, backup and stop.",
     "docs/architecture.md": "How Quadringent reads IBM i journals over TLS, keeps raw data and checkpoints, and loads Snowflake history and mirror tables.",
     "docs/product/quadringent-destination-proof-contract.md": "How Quadringent separates journal reading, Snowflake delivery and reconciliation evidence, and what each proves.",
     "docs/operations.md": "Operate and recover Quadringent readers: parked readers, journal freshness, checkpoints and audit.",
@@ -40,13 +53,24 @@ DOC_DESCRIPTIONS = {
     "docs/api-v2.md": "Quadringent control plane API v2: sources, destinations, pipelines, evidence, confirmations and audit.",
     "SECURITY.md": "Quadringent security boundaries: authentication, network flows, TLS, identities, data retention and vulnerability reporting.",
     "docs/licensing.md": "Quadringent Community Edition under Apache-2.0: what is free, what may be offered later and what stays granted.",
-    "docs/product/positioning-and-offer.md": "Prepare and request a DEV/INT pilot of IBM i to Snowflake replication, privately or on GitHub.",
+    "docs/product/positioning-and-offer.md": "Prepare and request a pilot or proof of concept of IBM i to Snowflake replication, privately or on GitHub.",
+    "docs/product/ibm-i-footprint.md": "Check what Quadringent installs and runs on your IBM i, which authorities each part needs, what it changes and what it never does, before you approve access.",
+    "docs/product/your-data.md": "Follow your IBM i data from the journal to Snowflake, see what leaves your accounts, and follow the steps to stop, uninstall and keep your data.",
+    "docs/product/verify-a-release.md": "Verify image signatures, SBOMs and pinned digests of a published Quadringent release on your own machine, and learn what a passing check does not prove.",
+    "docs/governance.md": "How the pseudonymous Quadringent project is run, how decisions are made and what remains available if the maintainers stop.",
+    "SUPPORT.md": "Find out what support exists for Quadringent Community, where to ask for help and what is not offered.",
+    "docs/product/try-it-local.md": "Run one IBM i table into Snowflake on a single machine with Docker, without a cloud account or Kubernetes, and see what each step does.",
+    "docs/product/faq.md": "Answers to the questions a data or IBM i team asks on a first call: scope, IBM i impact, data location, status, cost and support.",
+    "docs/product/comparison.md": "Compare Quadringent with other ways to move IBM i data to Snowflake, with sourced vendor facts and the trade-offs on both sides.",
+    "docs/articles/ibm-i-journals-for-cdc.md": "How IBM i journals and journal receivers record changes, and what a change data capture reader must handle: retention, keys and recovery.",
+    "docs/articles/capture-delivery-reconciliation.md": "Why reading a journal does not prove Snowflake is current, and how to separate capture, delivery and reconciliation evidence.",
+    "docs/articles/as400-to-snowflake-options.md": "Compare the main ways to replicate AS/400 (IBM i) data to Snowflake: batch extracts, commercial CDC, Kafka-based CDC and Quadringent.",
 }
 
 # Python-Markdown passes unknown inline tags through; placeholders such as
 # <owner> or <host> would then vanish in the browser. Escape only those.
 KNOWN_HTML_TAGS = frozenset("""a abbr b blockquote br caption code dd del details div dl dt em figcaption figure
-h1 h2 h3 h4 h5 h6 hr i img kbd li ol p pre s small span strong sub summary sup table tbody td th thead
+h1 h2 h3 h4 h5 h6 hr i img kbd li ol p picture pre s small source span strong sub summary sup table tbody td th thead
 time tr ul""".split())
 
 
@@ -86,7 +110,7 @@ def seo_head(url: str, title: str, description: str, base: str, repository: str,
         f'<meta property="og:description" content="{escape(description, quote=True)}">\n'
         f'<meta property="og:url" content="{escape(url, quote=True)}">\n'
         '<meta property="og:type" content="website">\n'
-        f'<meta property="og:image" content="{escape(base + "assets/cockpit-connection.png", quote=True)}">\n'
+        f'<meta property="og:image" content="{escape(base + "assets/cockpit-evidence-light.png", quote=True)}">\n'
         '<meta name="twitter:card" content="summary_large_image">\n'
         f'<script type="application/ld+json">{structured}</script>\n'
     )
@@ -96,6 +120,8 @@ def publish_guides(root: Path, output: Path, base: str, repository: str) -> list
     import markdown
     available = {name: details for name, details in DOC_PAGES.items() if (root / name).is_file()}
     urls = [base]
+    version = re.search(r'^version\s*=\s*"(\d+\.\d+)\.', (root / "pyproject.toml").read_text(), re.M) if (root / "pyproject.toml").is_file() else None
+    scope = "Community Edition" + (f" · Version {version[1]}" if version else "") + " · Apache-2.0"
     navigation = '<a href="../../">Quadringent</a> · <a href="../">Documentation</a> · ' + f'<a href="{repository}">GitHub</a>'
     index_links = []
     for source, (slug, title) in available.items():
@@ -111,9 +137,9 @@ def publish_guides(root: Path, output: Path, base: str, repository: str) -> list
             resolved = posixpath.normpath(posixpath.join(posixpath.dirname(source), parsed.path))
             if attr == "href" and resolved in available:
                 target = "../" + available[resolved][0] + "/"
-            elif attr == "src" and resolved.startswith("site/assets/"):
+            elif attr in ("src", "srcset") and resolved.startswith("site/assets/"):
                 target = "../../" + resolved.removeprefix("site/")
-            elif attr == "src":
+            elif attr in ("src", "srcset"):
                 target = repository.replace("https://github.com/", "https://raw.githubusercontent.com/") + "/main/" + resolved
             else:
                 target = repository + "/blob/main/" + resolved
@@ -121,7 +147,7 @@ def publish_guides(root: Path, output: Path, base: str, repository: str) -> list
                 target += "#" + parsed.fragment
             return f'{attr}="{escape(target, quote=True)}"'
 
-        body = re.sub(r'(href|src)="([^"]+)"', link, body)
+        body = re.sub(r'(href|srcset|src)="([^"]+)"', link, body)
         url = base + f"docs/{slug}/"
         head = seo_head(url, title, description, base, repository, home=False)
         page = f'''<!doctype html>
@@ -129,7 +155,7 @@ def publish_guides(root: Path, output: Path, base: str, repository: str) -> list
 <title>{escape(title)} · Quadringent</title><meta name="description" content="{escape(description, quote=True)}">
 {head}<link rel="stylesheet" href="../../style.css"></head>
 <body><main class="guide"><nav aria-label="Documentation">{navigation}</nav>
-<p class="guide__scope">Community Edition · DEV/INT preview</p>
+<p class="guide__scope">{scope}</p>
 <article>{body}</article><footer><a href="{repository}/blob/main/{source}">View source on GitHub</a></footer>
 </main></body></html>'''
         folder = output / "docs" / slug
@@ -221,7 +247,7 @@ def build(repository_url: str, output: Path, *, source_root: Path | None = None,
         title_match = re.search(r"<title>(.*?)</title>", text, re.S)
         description_match = re.search(r'<meta name="description" content="([^"]+)"', text)
         title = unescape(title_match[1]) if title_match else "Quadringent — IBM i CDC to Snowflake"
-        description = unescape(description_match[1]) if description_match else "IBM i journals to Snowflake. Community Edition DEV/INT preview."
+        description = unescape(description_match[1]) if description_match else "IBM i journals to Snowflake. Community Edition, Apache-2.0."
         text = text.replace("</head>", seo_head(site_base, title, description, site_base, base, home=True) + "</head>")
         for source, (slug, _) in DOC_PAGES.items():
             if (root / source).is_file():

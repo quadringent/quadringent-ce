@@ -133,3 +133,12 @@ test('the login route carries a prefilled email (post-activation, auto-login fai
   const route = { name: 'login', email: 'admin@example.com' } as const;
   assert.deepEqual(parseRoute(href(route)), route);
 });
+
+test('the diagnostics route round-trips with and without a pipeline filter', () => {
+  assert.equal(href({ name: 'cockpit-diagnostics' }), '#/cockpit/diagnostics');
+  assert.deepEqual(parseRoute('#/cockpit/diagnostics'), { name: 'cockpit-diagnostics' });
+  const filtered = { name: 'cockpit-diagnostics', pipelineId: 'pl sales/1' } as const;
+  assert.equal(href(filtered), '#/cockpit/diagnostics?pipeline=pl%20sales%2F1');
+  assert.deepEqual(parseRoute(href(filtered)), filtered);
+  assert.deepEqual(parseRoute('#/cockpit/diagnostics?pipeline='), { name: 'cockpit-diagnostics' });
+});

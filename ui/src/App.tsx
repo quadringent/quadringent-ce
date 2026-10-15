@@ -67,7 +67,7 @@ export default function App() {
     // fois le nom humain résolu (voir CockpitConnection.tsx/CockpitTable.tsx) —
     // cet effet ne doit pas l'écraser avec l'id technique à chaque relecture
     // du fleet v1, sans rapport avec cet état-là.
-    if (route.name === 'cockpit-connection' || route.name === 'cockpit-table' || route.name === 'cockpit-confirmations') return;
+    if (route.name === 'cockpit-connection' || route.name === 'cockpit-table' || route.name === 'cockpit-confirmations' || route.name === 'cockpit-diagnostics') return;
     document.title = pageTitle(route, state);
   }, [route, state]);
 
@@ -125,7 +125,7 @@ export default function App() {
     return <WizardOnboarding step={route.step} activationToken={activationTokenRef.current} />;
   }
 
-  if (route.name === 'cockpit' || route.name === 'cockpit-connection' || route.name === 'cockpit-table' || route.name === 'cockpit-confirmations') {
+  if (route.name === 'cockpit' || route.name === 'cockpit-connection' || route.name === 'cockpit-table' || route.name === 'cockpit-confirmations' || route.name === 'cockpit-diagnostics') {
     // Cockpit v2 : backend `/v2` distinct (déclaré/pipelines) du fleet v1 —
     // coquille autonome dédiée (`CockpitApp`), même principe que l'assistant
     // ci-dessus. `AppShell`/`ControlPlaneState` restent v1 et ne sont jamais
@@ -174,6 +174,7 @@ function renderRoute(
       return <PipelineDetailScreen state={state} pipeline={pipeline} route={detailRoute ?? { name: 'pipeline', id: route.id }} onRefresh={refresh} onBusinessAction={runAction} />;
     case 'cockpit':
     case 'cockpit-confirmations':
+    case 'cockpit-diagnostics':
     case 'cockpit-connection':
     case 'cockpit-table':
       // Interceptée plus haut dans App() : le cockpit v2 n'utilise pas AppShell.
@@ -211,6 +212,8 @@ function pageTitle(route: Route, state: ControlPlaneState): string {
       return 'Quadringent · Cockpit';
     case 'cockpit-confirmations':
       return 'Quadringent · Confirmations';
+    case 'cockpit-diagnostics':
+      return 'Quadringent · Diagnostics';
     case 'cockpit-connection':
       return `Quadringent · Cockpit · ${route.id}`;
     case 'cockpit-table':

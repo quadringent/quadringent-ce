@@ -1,0 +1,112 @@
+name: Compatibility report
+description: Tell us what worked or failed on your IBM i and Snowflake setup. This issue is publicly visible.
+title: "Compatibility: "
+labels: ["compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This issue is publicly visible**, together with your GitHub account name.
+        To report privately, see [SECURITY.md](https://github.com/quadringent/quadringent-ce/blob/main/SECURITY.md) for security issues, or the project contact in the [README](https://github.com/quadringent/quadringent-ce/blob/main/README.md).
+
+        Use generic descriptions. Do not include credentials, hostnames, account identifiers, customer names, table or library names, row values, logs or attachments you have not read.
+        Check the [compatibility page](https://github.com/quadringent/quadringent-ce/blob/main/docs/product/compatibility.md) first: a report on a row marked "Not tested" is the most useful kind.
+        Only the version, the IBM i release and what worked are required; a short report is welcome. Add the other details if you can.
+        A report creates no service commitment and has no response-time commitment.
+  - type: input
+    id: version
+    attributes:
+      label: Quadringent version and installation target
+      placeholder: "0.4.1 on AWS VM"
+    validations:
+      required: true
+  - type: dropdown
+    id: ibmi_release
+    attributes:
+      label: IBM i release
+      options: ["7.3 or earlier", "7.4", "7.5", "7.6", "Later than 7.6", "Prefer not to say"]
+    validations:
+      required: true
+  - type: input
+    id: tr_level
+    attributes:
+      label: Technology Refresh level and DB2 group PTF levels (optional)
+      description: "For example the TR number and the level of the Db2 for i group PTF, if you know them."
+    validations:
+      required: false
+  - type: textarea
+    id: journal_setup
+    attributes:
+      label: Journal setup
+      description: "Number of journals involved, journaling image (*BOTH or *AFTER), receiver management (system or user), receiver size or threshold, and how long receivers are kept. Do not name libraries or journals."
+    validations:
+      required: false
+  - type: textarea
+    id: tables
+    attributes:
+      label: Tables
+      description: "Number of tables, approximate row counts and sizes, primary key or unique constraint present or not, and column types in use. Do not name tables."
+    validations:
+      required: false
+  - type: textarea
+    id: ccsids
+    attributes:
+      label: CCSIDs
+      description: "System and job CCSID, CCSIDs of character columns, and whether any column uses CCSID 65535."
+    validations:
+      required: false
+  - type: dropdown
+    id: commitment_control
+    attributes:
+      label: Writes under commitment control
+      options: ["Yes", "No", "Some tables", "Not sure"]
+    validations:
+      required: false
+  - type: dropdown
+    id: cloud
+    attributes:
+      label: Cloud and target
+      options: [AWS VM, EKS, GCP VM, GKE, Other, Prefer not to say]
+    validations:
+      required: false
+  - type: dropdown
+    id: snowflake_edition
+    attributes:
+      label: Snowflake edition
+      options: [Standard, Enterprise, Business Critical, Virtual Private Snowflake, Not sure, Prefer not to say]
+    validations:
+      required: false
+  - type: textarea
+    id: worked
+    attributes:
+      label: What worked
+      description: "Which stages you observed working: for example discovery, initial copy, inserts, updates, deletes, delivery to Snowflake. Say what you checked and how."
+    validations:
+      required: true
+  - type: textarea
+    id: failed
+    attributes:
+      label: What failed or was not tested
+      description: "Error messages with identifiers removed, the stage where it stopped, and what you did not try. Write 'nothing failed' if that is the case."
+    validations:
+      required: false
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Diagnostic export (optional)
+      description: |
+        Run `quadringent doctor --export diagnostic.tar.gz --preview` to see what would be archived, then `quadringent doctor --export diagnostic.tar.gz` to write it.
+        The export is built from allowed fields and pseudonymizes hosts, accounts and object names, but its scrubbing is pattern-based. Open the archive and read every file before attaching it. If you cannot attach it, paste the relevant parts of the preview. Do not use `--keep-identifiers` for a public issue.
+    validations:
+      required: false
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Before submitting
+      options:
+        - label: "This report contains no secrets, credentials, hostnames, account identifiers, customer data or row values."
+          required: true
+        - label: "If I attached a diagnostic export, I read its contents first."
+          required: false
+        - label: "I understand this issue is public and that the maintainers answer on a best-effort basis."
+          required: true

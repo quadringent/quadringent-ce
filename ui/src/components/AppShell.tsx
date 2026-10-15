@@ -201,7 +201,7 @@ function selectedDestination(route: Route): NavSelection {
   // Le cockpit v2 est intercepté dans App() avant d'atteindre AppShell
   // (coquille dédiée) : cette branche n'est jamais réellement empruntée,
   // seulement nécessaire à l'exhaustivité du type Route.
-  if (route.name === 'cockpit' || route.name === 'cockpit-connection' || route.name === 'cockpit-table' || route.name === 'cockpit-confirmations') return 'overview';
+  if (route.name === 'cockpit' || route.name === 'cockpit-connection' || route.name === 'cockpit-table' || route.name === 'cockpit-confirmations' || route.name === 'cockpit-diagnostics') return 'overview';
   // Tâche « auth-login » : la connexion est elle aussi interceptée dans
   // App() avant d'atteindre AppShell (écran autonome) — même remarque.
   if (route.name === 'login') return 'overview';

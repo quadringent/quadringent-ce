@@ -4,10 +4,9 @@ The synthetic demo opens the real Quadringent cockpit with generated data, so
 you can see connections, tables, an initial copy, an incident and per-table
 evidence before you have IBM i or Snowflake access.
 
-**Synthetic demo: no IBM i, Snowflake or cloud connection.** Every value is
-generated in your browser. Evidence and costs are explicitly marked synthetic.
-This demo is not a release qualification and proves nothing about a real
-installation.
+It makes no IBM i, Snowflake or cloud connection. Every value is generated in
+your browser, and evidence and costs are marked synthetic. The demo is not a
+release qualification and proves nothing about a real installation.
 
 ## Run it from a clone
 
@@ -38,7 +37,7 @@ node quadringent-demo-<version>/serve-demo.mjs
 |---|---|
 | Cockpit home | Two fictional connections, one needing verification |
 | Connection | Tables in capture, initial copy, pause and attention states |
-| Table → Evidence | Journal capture, Snowflake delivery and reconciliation as separate stages, including missing and stale evidence |
+| Table → Evidence | Journal capture, Snowflake delivery and reconciliation as separate stages, including missing and stale evidence. On the CUSTOMERS table, capture shows 120 events and delivery 118, both marked Synthetic, and reconciliation is Not measured. |
 | Table → Logs | A synthetic incident correlated across log entries |
 | Confirmations | Sensitive actions that require approval before they run |
 
@@ -55,7 +54,7 @@ or the v1 views, show a notice instead.
   request, and the demo also replaces `fetch`, `EventSource`, `WebSocket` and
   `XMLHttpRequest` with functions that refuse to run.
 - The local server listens on loopback only and serves files read-only.
-- A banner on every screen states **Synthetic demo**, the source version, the
+- A banner on every screen states Synthetic demo, the source version, the
   commit and the UTC build time. `PROVENANCE.json` records the same facts.
 
 The demo records the source version and commit of the clone. A clone of `main`

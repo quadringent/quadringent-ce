@@ -60,7 +60,7 @@ def publish_snapshot_batches(*, root: Path, bucket: str, prefix: str, table: str
             key = snapshot_object_key(prefix, table, path.name)
             body = path.read_bytes()
             digest = hashlib.sha256(body).hexdigest()
-            if backend == "gcs":
+            if backend in ("gcs", "local"):
                 store.put_once(key, body)
             else:
                 client.put_object(Bucket=bucket, Key=key, Body=body, Metadata={"sha256": digest})
@@ -80,7 +80,11 @@ def main() -> int:
     backend = backend_from_environment(os.environ)
     store = None
     client = None
-    if backend == "gcs":
+    if backend == "local":
+        from quadringent.storage_backend import StorageBackend
+
+        store = StorageBackend.from_environment(os.environ).object_store("")
+    elif backend == "gcs":
         from quadringent.gcs_backend import GcsObjectStore
 
         store = GcsObjectStore(bucket)

@@ -545,3 +545,16 @@ def test_operator_guide_covers_the_operating_path_and_is_published(site):
     page = (site / "docs/operator-guide/index.html").read_text()
     assert "--check-ibmi &lt;host&gt;" in page
     assert "Not measured" in page and "Synthetic or Historical" in page
+
+
+def test_current_installation_and_operator_guides_match_published_preview():
+    version = scoped_summary("qualification-0.4.5")["version"]
+    installation = read("docs/product/install-default.md")
+    assert f"quadringent-{version}-py3-none-any.whl" in installation
+    assert f"quadringent-{version}.tar.gz" in installation
+    assert f"--assets-dir /private/path/quadringent-{version}" in installation
+    assert f"**{version} DEV/INT prerelease**" in installation
+    assert "qualification-0.4.5.json" in installation
+    assert "do not qualify production" in flat(installation)
+    operator = flat(read("docs/product/operator-guide.md"))
+    assert f"published v{version} prerelease" in operator

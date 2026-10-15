@@ -2,8 +2,9 @@
 
 Aucune valeur d'identifiant n'est jamais affichée : seule sa présence est
 vérifiée (variable d'environnement non vide, ou fichier de configuration
-présent). La sonde IBM i (TLS 9471/9476/9475) est optionnelle et injectable
-(``socket_factory``) pour rester testable hors ligne.
+présent). The optional IBM i probe tests TCP reachability only (database,
+sign-on, command and, on the default JTOpen path, the server mapper); TLS
+and sign-on are tested by ``quadringent doctor --tls`` and the wizard.
 """
 
 from __future__ import annotations
@@ -12,13 +13,14 @@ from dataclasses import dataclass
 import os
 import socket
 
+from ..diagnostics.network import ibmi_ports, probe_tcp
 from .plan import REQUIRED_TOOLS, InstallInputs
 from .runner import CommandRunner
 
 AWS_CREDENTIAL_ENV_VARS = ("AWS_ACCESS_KEY_ID", "AWS_PROFILE", "AWS_ROLE_ARN")
 GCP_CREDENTIAL_ENV_VARS = ("GOOGLE_APPLICATION_CREDENTIALS", "CLOUDSDK_CORE_ACCOUNT")
 
-IBMI_PORTS = {"base": 9471, "signon": 9476, "command": 9475}
+IBMI_PORTS = ibmi_ports()
 
 
 @dataclass(frozen=True)
@@ -57,17 +59,16 @@ def check_ibmi_reachability(
     timeout_seconds: float = 3.0,
     socket_factory=socket.create_connection,
 ) -> list[CheckResult]:
-    """Sonde TCP+TLS des ports IBM i déclarés. Optionnelle (flag --check-ibmi)."""
+    """TCP reachability of the IBM i ports on the JTOpen path; never TLS or sign-on."""
 
-    ports = ports or IBMI_PORTS
     results = []
-    for label, port in ports.items():
-        try:
-            connection = socket_factory((host, port), timeout=timeout_seconds)
-            connection.close()
-            results.append(CheckResult(f"IBM i {label} ({port}/tcp)", True, "reachable"))
-        except OSError as error:
-            results.append(CheckResult(f"IBM i {label} ({port}/tcp)", False, str(error)))
+    for label, port in (ports or IBMI_PORTS).items():
+        probe = probe_tcp(host, port, label, timeout_seconds=timeout_seconds, connector=socket_factory)
+        detail = (
+            "TCP reachable; TLS and sign-on not tested (quadringent doctor --tls)"
+            if probe.status == "passed" else f"TCP {probe.evidence['error']}; {probe.next_action}"
+        )
+        results.append(CheckResult(f"IBM i {label} ({port}/tcp)", probe.status == "passed", detail))
     return results
 
 

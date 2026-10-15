@@ -308,3 +308,66 @@ def test_db2_for_i_eight_character_type_abbreviations() -> None:
     from quadringent.table_discovery import ibmi_catalog_type_to_kind
 
     assert [ibmi_catalog_type_to_kind(t) for t in ("TIMESTMP", "VARG", "VARBIN")] == ["timestamp", "vargraphic", "varbinary"]
+
+
+# CL suggestions follow the IBM i 7.5 CL reference: CRTJRN MNGRCV(*SYSTEM)
+# requires a receiver threshold other than *NONE (CRTJRNRCV THRESHOLD default
+# 1500000 KB). The suggestions stay commands for an administrator to review.
+
+def _all_commands(result) -> str:
+    return "\n".join(command.command for command in result.cl_commands)
+
+
+def test_new_journal_suggestion_never_combines_no_threshold_with_system_managed_receivers() -> None:
+    table = _table(journaled=False, journal_library=None, journal_name=None, images=None)
+    commands = _all_commands(classify_table(table, has_journal_in_library=False))
+    assert "MNGRCV(*SYSTEM)" in commands
+    assert "THRESHOLD(*NONE)" not in commands
+    assert "DLTRCV(*NO)" in commands
+
+
+def test_new_journal_suggestion_explains_that_threshold_and_retention_are_site_decisions() -> None:
+    table = _table(journaled=False, journal_library=None, journal_name=None, images=None)
+    reasons = " ".join(command.reason for command in classify_table(table, has_journal_in_library=False).cl_commands)
+    assert "1500000 KB" in reasons
+    assert "review" in reasons.lower() and "retention" in reasons.lower()
+
+
+def test_existing_journal_suggestion_reuses_the_journal_found_in_the_library() -> None:
+    table = _table(journaled=False, journal_library=None, journal_name=None, images=None)
+    result = classify_table(table, has_journal_in_library=True, existing_journal=("SALES", "ORDJRN"))
+    assert [command.command.split()[0] for command in result.cl_commands] == ["STRJRNPF"]
+    assert "JRN(SALES/ORDJRN)" in result.cl_commands[0].command
+
+
+def test_existing_journal_of_unknown_name_states_the_assumption() -> None:
+    table = _table(journaled=False, journal_library=None, journal_name=None, images=None)
+    result = classify_table(table, has_journal_in_library=True)
+    assert "JRN(SALES/QSQJRN)" in result.cl_commands[0].command
+    assert "QSQJRN" in result.cl_commands[0].reason and "replace" in result.cl_commands[0].reason.lower()
+
+
+@pytest.mark.parametrize("library,name", [("SALES LIB", "ORDHDR"), ("SALES", "ORD)HDR"), ("SALES", "ORDHDR;X"), ("TOOLONGLIBRARY", "ORDHDR")])
+def test_invalid_ibm_i_names_produce_no_command(library, name) -> None:
+    table = _table(library=library, system_name=name, journaled=False, journal_library=None, journal_name=None, images=None)
+    result = classify_table(table, has_journal_in_library=False)
+    assert result.cl_commands == ()
+    assert "manually" in result.explanation
+
+
+def test_service_passes_the_library_journal_to_the_suggestion() -> None:
+    from quadringent_control_plane.v2.services.tables import library_journals
+    tables = (
+        _table(system_name="ORDHDR", journaled=True, journal_library="SALES", journal_name="ORDJRN"),
+        _table(system_name="ORDLIN", journaled=False, journal_library=None, journal_name=None, images=None),
+        _table(library="STOCK", system_name="ITEMS", journaled=True, journal_library="STOCK", journal_name="J1"),
+        _table(library="STOCK", system_name="MOVES", journaled=True, journal_library="STOCK", journal_name="J2"),
+    )
+    assert library_journals(tables) == {"SALES": ("SALES", "ORDJRN"), "STOCK": None}
+
+
+def test_a_library_with_several_journals_gets_an_explanation_and_no_command() -> None:
+    table = _table(journaled=False, journal_library=None, journal_name=None, images=None)
+    result = classify_table(table, has_journal_in_library=True, existing_journal=None, several_journals=True)
+    assert result.cl_commands == ()
+    assert "several journals" in result.explanation

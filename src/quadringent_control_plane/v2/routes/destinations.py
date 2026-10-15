@@ -157,7 +157,7 @@ async def run_destination_action(
     if action not in ("pause", "resume"):
         raise not_found("unknown destination action in this scope")
     service = _service(request)
-    pipelines_service = PipelinesService(request.app.state.engine)
+    pipelines_service = PipelinesService(request.app.state.engine, org_id=request.app.state.org_id)
     events = EventsService(request.app.state.engine, org_id=request.app.state.org_id)
     path = f"/v2/destinations/{destination_id}/actions/{action}"
 

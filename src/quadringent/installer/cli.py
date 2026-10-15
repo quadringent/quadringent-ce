@@ -18,7 +18,9 @@ import tempfile
 import time
 from typing import Sequence, TextIO
 
+from ..local.cli import add_local_subcommand, run_local_command
 from .apply import execute_install
+from .doctor import add_doctor_subcommand, run_doctor
 from .manifest import InvalidReleaseManifest, ReleaseManifest
 from .mcp_bridge import add_mcp_subcommand, run_mcp_command
 from .plan import (
@@ -84,7 +86,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Root of the extracted release sdist (contains chart/ and deploy/terraform/; default: current directory)",
     )
     install.add_argument("--image-repository", default=None, help="Override the image repository in the release manifest")
-    install.add_argument("--check-ibmi", default=None, metavar="HOST", help="Test IBM i TCP reachability (9471/9476/9475); does not verify TLS")
+    install.add_argument("--check-ibmi", default=None, metavar="HOST", help="Test IBM i TCP reachability (9471/9476/9475 and the 449 server mapper) before installation; TLS and sign-on are not tested")
     install.add_argument(
         "--existing-bucket", default=None, metavar="NAME",
         help="Reuse an existing S3/GCS bucket (deploy/terraform/<cloud>/base, existing_bucket_name)",
@@ -145,6 +147,11 @@ def _build_parser() -> argparse.ArgumentParser:
     agent.add_argument("--days", type=int, default=30, help="Validity period (1 to 90 days)")
     agent.add_argument("--url", default="http://localhost:8844", help="Control plane URL (after tunnel)")
     agent.add_argument("--write-config", required=True, help="CLI/agent configuration file (created with 0600 permissions)")
+
+    add_doctor_subcommand(subparsers)
+
+    # One IBM i table to Snowflake on one machine with Docker (local.cli).
+    add_local_subcommand(subparsers)
 
     status = subparsers.add_parser("status", help="Display the state of the latest known plan for this site.")
     status.add_argument("--name", required=True)
@@ -445,6 +452,10 @@ def run(argv: Sequence[str], *, runner: CommandRunner | None = None, stdout: Tex
         return _run_agent_token(args, runner, stdout)
     if args.command == "status":
         return _run_status(args, stdout)
+    if args.command == "doctor":
+        return run_doctor(args, runner, stdout)
+    if args.command == "local":
+        return run_local_command(args, runner, stdout)
     if args.command == "vm-tunnel":
         return _run_vm_tunnel(args, runner, stdout)
     if args.command == "mcp":

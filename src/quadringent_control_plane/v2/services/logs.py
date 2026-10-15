@@ -32,7 +32,12 @@ from typing import Protocol
 
 _SECRET_KEY_VALUE = re.compile(
     r"(?i)\b(password|secret|token|api[_-]?key|authorization|credential)s?"
-    r"\s*[:=]\s*\"?([^\s,;\"]+)\"?"
+    r"(?P<key_quote>[\"']?)(?P<separator>\s*[:=]\s*)"
+    r'''(?:"(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$)|Bearer\s+[^\s,;{}]+|[^\s,;{}]+)'''
+)
+_AUTHORIZATION_VALUE = re.compile(
+    r"(?i)\b(authorization)s?(?P<key_quote>[\"'])?(?P<separator>[ \t]*[:=][ \t]*)"
+    r'''(?(key_quote)(?:"(?:\\.|[^"\\])*(?:"|$)|'(?:\\.|[^'\\])*(?:'|$)|[^\r\n]+)|[^\r\n]+)'''
 )
 _JSON_LIKE_BLOCK = re.compile(r"\{[^{}]*\}")
 
@@ -41,7 +46,15 @@ def redact(message: str) -> str:
     """Masque secrets et blocs ressemblant à de la donnée de ligne — voir
     l'en-tête du module pour la règle exacte."""
 
-    redacted = _SECRET_KEY_VALUE.sub(lambda match: f"{match.group(1)}=[SECRET_MASQUE]", message)
+    def _mask_secret_value(match: re.Match[str]) -> str:
+        quote = match.group("key_quote")
+        if quote:
+            # Keep JSON separators so row masking still sees every field.
+            return f'{match.group(1)}{quote}{match.group("separator")}{quote}[SECRET_MASQUE]{quote}'
+        return f"{match.group(1)}=[SECRET_MASQUE]"
+
+    redacted = _AUTHORIZATION_VALUE.sub(_mask_secret_value, message)
+    redacted = _SECRET_KEY_VALUE.sub(_mask_secret_value, redacted)
 
     def _mask_row_like_block(match: re.Match[str]) -> str:
         block = match.group(0)

@@ -2,7 +2,7 @@ import type { Route } from '../router.ts';
 
 /** Routes that the synthetic demo can render without any service. */
 export type DemoRoute = Extract<Route, {
-  name: 'cockpit' | 'cockpit-connection' | 'cockpit-table' | 'cockpit-confirmations' | 'wizard';
+  name: 'cockpit' | 'cockpit-connection' | 'cockpit-table' | 'cockpit-confirmations' | 'cockpit-diagnostics' | 'wizard';
 }>;
 
 export const DEMO_HOME: DemoRoute = { name: 'cockpit' };
@@ -23,6 +23,7 @@ export function demoRoute(route: Route): { readonly route: DemoRoute; readonly u
     case 'cockpit-connection':
     case 'cockpit-table':
     case 'cockpit-confirmations':
+    case 'cockpit-diagnostics':
     case 'wizard':
       return { route, unavailable: false };
     default:

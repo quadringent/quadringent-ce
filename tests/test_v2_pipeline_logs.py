@@ -7,6 +7,8 @@ depuis, corrélation d'incident) et l'échec fermé sans source injectée.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -56,6 +58,63 @@ def test_redact_leaves_single_field_braces_untouched() -> None:
 def test_redact_leaves_ordinary_messages_untouched() -> None:
     message = "reprise du curseur à la séquence 42 après redémarrage"
     assert redact(message) == message
+
+
+@pytest.mark.parametrize("message", [
+    '{"password": "SYNTHETIC_DIAGNOSTIC_CANARY"}',
+    "{'token': 'SYNTHETIC_DIAGNOSTIC_CANARY'}",
+    'password="SYNTHETIC_DIAGNOSTIC_CANARY with spaces"',
+    'password="SYNTHETIC_DIAGNOSTIC_CANARY with \\"quote\\" and spaces"',
+    "Authorization: Bearer SYNTHETIC_DIAGNOSTIC_CANARY",
+    "authorization=Bearer SYNTHETIC_DIAGNOSTIC_CANARY",
+    'authorization="Bearer SYNTHETIC_DIAGNOSTIC_CANARY"',
+    '{"Authorization": "Bearer SYNTHETIC_DIAGNOSTIC_CANARY"}',
+])
+def test_redact_masks_complete_quoted_and_bearer_credentials(message) -> None:
+    redacted = redact(message)
+    assert "SYNTHETIC_DIAGNOSTIC_CANARY" not in redacted
+    assert "with spaces" not in redacted and "and spaces" not in redacted
+    assert "[SECRET_MASQUE]" in redacted
+
+
+def test_redact_preserves_single_field_json_and_masks_secret_rows() -> None:
+    assert json.loads(redact('{"password": "SYNTHETIC_DIAGNOSTIC_CANARY"}')) == {"password": "[SECRET_MASQUE]"}
+    row = redact('{"password": "SYNTHETIC_DIAGNOSTIC_CANARY", "customer": "SYNTHETIC_ROW_CANARY"}')
+    assert row == '{"redacted": "donnee_de_ligne_masquee"}'
+
+
+def test_redact_preserves_legitimate_network_context_before_credentials() -> None:
+    context = "HTTP 401 from https://service.example.invalid/status at 192.0.2.25"
+    assert redact(context) == context
+    assert redact(context + " Authorization: Bearer SYNTHETIC_DIAGNOSTIC_CANARY retrying") == (
+        context + " Authorization=[SECRET_MASQUE]")
+
+
+@pytest.mark.parametrize("scheme", ["Bearer", "Basic", "Negotiate", "NTLM", "Digest"])
+@pytest.mark.parametrize("quoted_json", [False, True])
+def test_redact_masks_the_complete_authorization_value(scheme, quoted_json) -> None:
+    value = (scheme + ' username="SYNTHETIC_ROOT_USER", realm="SYNTHETIC_ROOT_REALM", response="SYNTHETIC_ROOT_CANARY"'
+             if scheme == "Digest" else scheme + " SYNTHETIC_ROOT_CANARY")
+    message = json.dumps({"Authorization": value}) if quoted_json else "Authorization: " + value
+    redacted = redact(message)
+    assert "SYNTHETIC_ROOT" not in redacted
+    assert "[SECRET_MASQUE]" in redacted
+    if quoted_json:
+        assert json.loads(redacted) == {"Authorization": "[SECRET_MASQUE]"}
+    else:
+        assert redacted == "Authorization=[SECRET_MASQUE]"
+
+
+def test_redact_authorization_stops_at_the_line_boundary() -> None:
+    context = "HTTP401 at https://service.example.invalid/status from 192.0.2.25 "
+    message = context + 'Authorization: Digest response="SYNTHETIC_ROOT_CANARY", nonce="SYNTHETIC_ROOT_NONCE"\nnext line'
+    assert redact(message) == context + "Authorization=[SECRET_MASQUE]\nnext line"
+
+
+@pytest.mark.parametrize("quote", ['"', "'"])
+def test_free_text_authorization_masks_arguments_after_a_quoted_value(quote) -> None:
+    message = f'Authorization: {quote}Basic SYNTHETIC_ROOT_CANARY{quote}, argument="SYNTHETIC_ROOT_ARGUMENT"'
+    assert redact(message) == "Authorization=[SECRET_MASQUE]"
 
 
 # --- LogsService -----------------------------------------------------------
@@ -175,6 +234,32 @@ def test_route_returns_redacted_logs(client_with_logs) -> None:
     assert "hunter2" not in error_entry["message"]
     assert '"name": "x"' not in error_entry["message"]
     assert error_entry["incident_id"] == "inc1"
+
+
+@pytest.mark.parametrize("message", [
+    '{"password": "SYNTHETIC_DIAGNOSTIC_CANARY"}',
+    "Authorization: Bearer SYNTHETIC_DIAGNOSTIC_CANARY",
+])
+def test_route_redacts_quoted_and_bearer_credentials(client_with_logs, message) -> None:
+    client_with_logs.app.state.log_source = _FakeLogSource((
+        RawLogEntry(at="2026-09-23T10:00:05Z", level="error", message=message),))
+    response = client_with_logs.get("/v2/pipelines/ppl1/logs")
+    assert response.status_code == 200
+    assert "SYNTHETIC_DIAGNOSTIC_CANARY" not in response.text
+    assert "[SECRET_MASQUE]" in response.text
+
+
+@pytest.mark.parametrize("scheme", ["Bearer", "Basic", "Negotiate", "NTLM", "Digest"])
+@pytest.mark.parametrize("quoted_json", [False, True])
+def test_route_masks_all_authorization_schemes(client_with_logs, scheme, quoted_json) -> None:
+    value = (scheme + ' username="SYNTHETIC_ROOT_USER", response="SYNTHETIC_ROOT_CANARY", nonce="SYNTHETIC_ROOT_NONCE"'
+             if scheme == "Digest" else scheme + " SYNTHETIC_ROOT_CANARY")
+    message = json.dumps({"Authorization": value}) if quoted_json else "Authorization: " + value
+    client_with_logs.app.state.log_source = _FakeLogSource((
+        RawLogEntry(at="2026-09-23T10:00:05Z", level="error", message=message),))
+    response = client_with_logs.get("/v2/pipelines/ppl1/logs")
+    assert response.status_code == 200
+    assert "SYNTHETIC_ROOT" not in response.text and "[SECRET_MASQUE]" in response.text
 
 
 def test_route_filters_by_level_query_param(client_with_logs) -> None:

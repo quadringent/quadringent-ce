@@ -46,7 +46,7 @@ from quadringent.snowflake_streaming_loader import (
     account_url_host,
 )
 from quadringent.snowflake_sql_loader import HistorySqlLoader
-from quadringent.storage_backend import StorageBackend
+from quadringent.storage_backend import StorageBackend, registry_authority
 from quadringent.storage_layout import journal_prefix, snapshot_prefix
 
 # Ce script tourne dans l'image du control plane (voir docker/control-plane.
@@ -636,8 +636,11 @@ def _bound_evidence(table, storage):
 
 def _bound_registry(table, storage):
     binding = table.capture_binding
-    kind = {'aws': 's3', 'gcs': 'gcs'}.get(getattr(storage, 'kind', None))
-    if kind is None or binding.registry_authority != f'{kind}://{storage.raw_bucket}/receiver-authority-v1':
+    try:
+        authority = registry_authority(getattr(storage, 'kind', None), storage.raw_bucket)
+    except ValueError:
+        authority = None
+    if authority is None or binding.registry_authority != authority:
         raise DestinationLoaderError('capture registry authority differs from the configured storage')
     return ReceiverNameRegistry(storage.object_store('receiver-authority-v1'), authority=binding.registry_authority,
                                 source_system=binding.source_system, journal=binding.journal)

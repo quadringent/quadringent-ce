@@ -50,5 +50,5 @@ declared site, bucket, region and namespace. A cost failure does not alter
 capture state; failure of one cost source does not hide the other.
 See [FinOps](finops.md).
 
-For a first DEV/INT evaluation, review the [installation prerequisites](product/install-default.md)
+For a first evaluation, review the [installation prerequisites](product/install-default.md)
 and [pilot preparation](product/positioning-and-offer.md). A running reader alone does not prove delivery.

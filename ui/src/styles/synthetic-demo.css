@@ -4,7 +4,7 @@
   gap: 2px;
   padding: 10px 24px;
   border-bottom: 1px solid var(--line-strong);
-  background: var(--signal-attention-soft);
+  background: var(--surface-canvas);
   color: var(--text-strong);
   font-size: var(--t-small);
 }
@@ -12,8 +12,7 @@
 .synthetic-demo-banner p { margin: 0; }
 
 .synthetic-demo-banner__title strong {
-  color: var(--signal-attention);
-  letter-spacing: 0.02em;
+  color: var(--text-strong);
 }
 
 .synthetic-demo-banner__provenance { color: var(--text-muted); }

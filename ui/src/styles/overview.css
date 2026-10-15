@@ -153,7 +153,6 @@
 .source-section__env {
   color: var(--text-muted);
   font: 500 11px/1.3 var(--font-mono);
-  letter-spacing: 0.04em;
 }
 
 .source-badge,
@@ -163,11 +162,9 @@
   min-height: 18px;
   padding-inline: 6px;
   border: 1px solid var(--line-strong);
-  border-radius: 3px;
+  border-radius: 0;
   color: var(--text-muted);
-  font: 500 10px/1.2 var(--font-mono);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font: 500 12px/1.2 var(--font-mono);
   white-space: nowrap;
 }
 
@@ -284,7 +281,6 @@
   margin-top: 10px;
   color: var(--text-muted);
   font: 500 10px/1.3 var(--font-mono);
-  letter-spacing: 0.04em;
   white-space: nowrap;
 }
 
@@ -468,9 +464,7 @@
 .flow-flag .source-alert {
   width: min(330px, 72vw);
   margin-top: 7px;
-  background: var(--signal-attention-soft);
-  border: 1px solid var(--line-subtle);
-  border-left: 2px solid var(--signal-attention);
+  border-top: 1px solid var(--line-strong);
 }
 
 /* ------------------------------------------------------------------ */
@@ -531,7 +525,6 @@
   padding-block: 10px;
   color: var(--text-muted);
   font: 500 11px/1.4 var(--font-mono);
-  letter-spacing: 0.03em;
   cursor: pointer;
   list-style: none;
 }
@@ -550,10 +543,6 @@
 
 .source-tech > summary:hover .source-tech__label {
   color: var(--text-strong);
-}
-
-.source-tech__label {
-  text-transform: uppercase;
 }
 
 .source-tech__age {
@@ -579,7 +568,6 @@
   margin: 0;
   color: var(--text-main);
   font: 500 12px/1.4 var(--font-mono);
-  letter-spacing: 0.01em;
 }
 
 .source-heartbeat__pulse {
@@ -626,9 +614,8 @@
   display: grid;
   gap: 4px;
   margin: 0;
-  padding: 10px 14px 11px;
-  border-left: 2px solid var(--signal-attention);
-  background: var(--signal-attention-soft);
+  padding: 10px 0 11px;
+  border-top: 1px solid var(--line-strong);
 }
 
 .source-alert__head {
@@ -647,9 +634,7 @@
 .source-alert__severity {
   flex: none;
   color: var(--signal-attention);
-  font: 600 10px/1.3 var(--font-mono);
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+  font: 600 12px/1.3 var(--font-mono);
 }
 
 .source-alert__since {
@@ -715,9 +700,7 @@
 .source-safety__label {
   flex: none;
   color: var(--text-subtle);
-  font: 600 10px/1.3 var(--font-mono);
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+  font: 600 12px/1.3 var(--font-mono);
 }
 
 .source-safety--active .source-safety__label { color: var(--signal-ok); }
@@ -803,14 +786,11 @@
   margin-top: 3px;
   color: var(--text-subtle);
   font: 500 10px/1.4 var(--font-mono);
-  letter-spacing: 0.04em;
 }
 
 .source-spark__label {
   margin-right: 6px;
-  font: 500 10px/1.4 var(--font-mono);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font: 500 12px/1.4 var(--font-mono);
 }
 
 .source-spark--empty {
@@ -831,9 +811,7 @@
 .source-journal__title {
   margin: 0 0 6px;
   color: var(--text-muted);
-  font: 500 10px/1.4 var(--font-sans);
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font: 500 12px/1.4 var(--font-sans);
 }
 
 .source-journal__list {
@@ -866,10 +844,8 @@
 .source-journal__row em {
   margin-left: auto;
   color: var(--text-subtle);
-  font: 500 10px/1.4 var(--font-mono);
+  font: 500 12px/1.4 var(--font-mono);
   font-style: normal;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
 }
 
 /* ------------------------------------------------------------------ */

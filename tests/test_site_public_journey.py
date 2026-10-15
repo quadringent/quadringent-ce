@@ -10,7 +10,8 @@ from build_site import DOC_PAGES, build
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTACT = "quadringent@proton.me"
-CTA = "Discuss a DEV/INT pilot"
+CTA = "Talk to us about a pilot"  # the heading of the pilot guide
+CTAS = (CTA, "Talk to us about a pilot")  # the pilot call to action on the README and the site
 PILOT_GUIDE = "docs/product/positioning-and-offer.md"
 PILOT_TEMPLATE = ".github/ISSUE_TEMPLATE/pilot_interest.yml"
 ENTRY_POINTS = ["site/index.html", PILOT_GUIDE, "README.md"]
@@ -56,9 +57,15 @@ def site(tmp_path_factory) -> Path:
 @pytest.mark.parametrize("path", ENTRY_POINTS)
 def test_each_entry_point_offers_the_same_cta_and_a_private_contact(path):
     text = read(path)
-    assert CTA in text
+    assert any(cta in text for cta in CTAS)
     assert f"mailto:{CONTACT}" in text
     assert "without a GitHub account" in flat(text)
+
+
+def test_home_offers_the_pilot_call_to_action_in_the_charter_words():
+    html = read("site/index.html")
+    assert "Talk to us about a pilot" in html and "Run a POC on your DEV IBM i" in html
+    assert "Discuss a DEV/INT pilot" not in html and "DEV%2FINT" not in html
 
 
 @pytest.mark.parametrize("page", ["index.html", "docs/pilot/index.html", "docs/getting-started/index.html"])
@@ -173,9 +180,15 @@ def historical_summary() -> dict:
 
 
 def release_version() -> str:
-    """The published release named in the hero; its qualification may not be published yet."""
-    facts = re.search(r'<dl class="release-facts".*?</dl>', read("site/index.html"), re.S)[0]
-    return re.search(r'<dt>Version</dt><dd><span class="mono">([0-9.]+)</span>', facts)[1]
+    """The source version named in the hero status line."""
+    status = re.search(r'<p class="status-line">.*?</p>', read("site/index.html"), re.S)[0]
+    return re.search(r'<span class="mono" data-source-version>([0-9.]+)</span>', status)[1]
+
+
+def published_version() -> str:
+    """The latest published prerelease named next to the candidate source in the hero status line."""
+    status = re.search(r'<p class="status-line">.*?</p>', read("site/index.html"), re.S)[0]
+    return re.search(r'latest published prerelease <span class="mono">([0-9.]+)</span>', status)[1]
 
 
 def homepage_section(html: str, section_id: str) -> str:
@@ -185,161 +198,235 @@ def homepage_section(html: str, section_id: str) -> str:
 
 
 def text_of(html: str) -> str:
-    return flat(re.sub(r"<[^>]+>", " ", html))
+    inline = re.sub(r"</?(?:span|time|a|strong|code|em|b)(?:\s[^>]*)?>", "", html)
+    return flat(re.sub(r"<[^>]+>", " ", inline))
 
 
 def scoped_summary(name: str) -> dict:
     return json.loads(read(f"site/{name}.json"))
 
 
-def evidence_block(name: str) -> str:
-    return re.search(rf'<div[^>]*id="{name}".*?<!-- /{name} -->', read("site/index.html"), re.S)[0]
+TARGET_LABELS = {"aws-vm": "AWS VM", "eks": "EKS", "gcp-vm": "GCP VM", "gke": "GKE"}
 
 
-def target_rows(block: str) -> dict[str, str]:
-    return dict(re.findall(r'<tr data-target="([^"]+)">(.*?)</tr>', block, re.S))
+def evidence_section(heading_start: str) -> str:
+    """One level-2 section of the evidence page, found by the start of its heading."""
+    match = re.search(rf"^## {re.escape(heading_start)}.*?(?=^## |\Z)", read("docs/evidence.md"), re.S | re.M)
+    assert match, heading_start
+    return match[0]
 
 
-def test_hero_uses_latest_scoped_observations_without_transferring_versions():
+def plain_markdown(markdown: str) -> str:
+    return flat(re.sub(r"[|*`]", " ", markdown))
+
+
+def target_cells(section: str) -> dict[str, list[str]]:
+    """Table rows of an evidence section: target label -> remaining cells."""
+    rows = {}
+    for line in section.splitlines():
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if line.startswith("|") and cells[0] in TARGET_LABELS.values():
+            rows[cells[0]] = cells[1:]
+    return rows
+
+
+def test_status_line_and_evidence_section_use_latest_scoped_observations_without_transferring_versions():
     current = scoped_summary("qualification-0.4.5")
-    facts = text_of(re.search(r'<dl class="release-facts".*?</dl>', read("site/index.html"), re.S)[0])
-    assert release_version() == current["version"] == "0.4.5"
+    html = read("site/index.html")
+    source_version = tomllib.loads(read("pyproject.toml"))["project"]["version"]
+    assert release_version() == source_version == current["version"] == published_version() == "0.4.5"
+    status = text_of(re.search(r'<p class="status-line">.*?</p>', html, re.S)[0])
+    assert status.startswith("Version " + ".".join(source_version.split(".")[:2]) + " · Apache-2.0")
+    assert "Unreleased changes" in status
     assert current["overall_status"] == "PARTIAL_NOT_FULLY_QUALIFIED"
     initial = current["volume"]["initial_four_layer_equality"]
     assert initial["status"] == "PASS_SCOPED_INITIAL_FULL_TYPED_EQUALITY"
-    assert initial["source_rows"] == initial["history_rows"] == initial["mirror_rows"] == 1_000_000
-    assert initial["business_fields"] == 7 and initial["ignored_business_fields"] == 0
-    assert "full one-million-row initial comparison on AWS VM" in facts
-    assert "scoped reader recovery on AWS VM, EKS and GCP VM" in facts
-    assert "24-hour endurance ongoing" in facts
-    assert "GKE and the 10 s target remain incomplete" in facts
-    assert "No production qualification or SLA" in facts
+    assert initial["source_rows"] == initial["raw_snapshot_events"] == initial["history_rows"] == initial["mirror_rows"] == 1_000_000
+    assert initial["business_fields"] == 7 and initial["ignored_business_fields"] == initial["logical_duplicates"] == 0
+    proof = text_of(re.search(r'<p class="proof-line">.*?</p>', html, re.S)[0])
+    assert "One million synthetic rows compared across the source, original RAW snapshot, Snowflake history and mirror on AWS VM" in proof
+    assert f'(release {current["version"]}, {initial["finished_utc"][:10]})' in proof
+    evidence = text_of(homepage_section(html, "evidence"))
+    assert current["artifact_source_sha"][:12] in evidence
+    assert "18:08:54 UTC snapshot" in evidence and "This snapshot does not report the run’s current state" in evidence
+    assert "7 business fields, none ignored, no logical duplicates" in evidence
+    assert "reader-outage recovery passed on 3 of 4 targets: AWS VM, EKS and GCP VM" in evidence
+    assert "RAW, checkpoints and capture authority" in evidence
+    assert "Complete cloud-loss recovery on 0.4.5, with all original provider storage removed" in evidence
+    assert "retained-storage rebuilds above do not cover it" in evidence
+    assert "GCP VM reconstruction reached component restore only" in evidence and "GKE recovery did not pass" in evidence
+    assert "1 of 97 planned bursts" in evidence and "Receiver rotation" in evidence and "remained unproven" in evidence
+    assert "exceeded our 10 s observation target" in evidence and "12.383206 s" in evidence
+    assert "Intermediate insert/update mirror visibility was not proven" in evidence
+    assert "polling upper bounds, not a P95 or an SLA" in evidence
+    assert "Application control and persistence were observed" in evidence and "they do not prove native delivery" in evidence
+    assert "local commands described above are next-release source features" in evidence
     assert current["endurance"]["completed_24h_proven"] is False
     assert current["latency"]["p95_or_general_sla_qualified"] is False
-    readme = flat(read("README.md"))
-    assert "0.4.5 is published as a [prerelease]" in readme
-    assert "site/qualification-0.4.5.json" in readme
-    assert "the 10 s observation target has not passed" in readme
-    assert "8 cold/warm observations within 10 s" not in facts
+    assert "qualification-0.4.5.json" in html and "site/qualification-0.4.5.json" in read("README.md")
+
+
+def test_evidence_section_preserves_historical_observations_without_transferring_versions():
+    runtime = scoped_summary("runtime-0.3.5")
+    recovery = scoped_summary("recovery-0.3.4")
+    evidence = text_of(homepage_section(read("site/index.html"), "evidence"))
+    assert f'{runtime["version"]}, {runtime["date_utc"]}' in evidence and "110 mirror rows and 110 history C images" in evidence
+    assert f'{recovery["version"]}, 2026-10-12, 18:13 UTC' in evidence
+    assert "8 cold/warm observations within 10 s" in evidence
+    values = [v for site in recovery["sites"].values()
+              for v in (site["cold_SQL_to_mirror_upper_bound_s"], site["warm_SQL_to_mirror_upper_bound_s"])]
+    assert f"from {min(values):.3f} s to {max(values):.3f} s" in evidence
+    assert "Upper bounds, not a P95" in evidence and "1 of 4 targets" in evidence
 
 
 def test_current_runtime_copy_numbers_and_upgrade_paths_match_receipt():
     runtime = scoped_summary("runtime-0.3.5")
-    block = evidence_block("runtime-035")
-    text = text_of(block)
-    assert runtime["version"] in text and runtime["date_utc"] in block
+    section = evidence_section("0.3.5")
+    text = plain_markdown(section)
+    assert section.splitlines()[0].startswith(f'## {runtime["version"]}, {runtime["date_utc"]}')
     sites = runtime["initial_copy"]["sites"]
-    rows = target_rows(block)
-    assert set(rows) == set(sites)
-    assert f'{sum(site["new_executed_copy_jobs"] for site in sites.values())} new copy Jobs' in text
+    rows = target_cells(section)
+    assert set(rows) == {TARGET_LABELS[name] for name in sites}
+    total_jobs = sum(site["new_executed_copy_jobs"] for site in sites.values())
+    assert {8: "Eight"}[total_jobs] + " new copy Jobs" in text
     assert f'{runtime["initial_copy"]["new_source_writes"]} new source writes' in text
     for target, values in sites.items():
         assert values["passed"] and values["typed_values_exact"]
-        cells = re.findall(r'<td class="mono">([0-9]+)</td>', rows[target])
-        assert cells == [str(values["mirror_rows"]), str(values["history_C_images"]), str(values["new_executed_copy_jobs"])]
-        assert runtime["upgrade"]["sites"][target]["path"] in text_of(rows[target])
-    assert "EKS: 0.3.5 → 0.3.4 → 0.3.5" in text
+        cells = rows[TARGET_LABELS[target]]
+        assert cells[:3] == [str(values["mirror_rows"]), str(values["history_C_images"]), str(values["new_executed_copy_jobs"])]
+        assert cells[3] == runtime["upgrade"]["sites"][target]["path"]
+    assert "0.3.5 to 0.3.4 to 0.3.5" in text
     assert runtime["eks_version_cycle"]["postgres_pvc_retained"]
-    assert "same PostgreSQL PVC" in text and "pipelines paused" in text
-    assert "public installer refused" in text and "direct Helm" in text
+    assert "same PostgreSQL PVC" in text and "Pipelines stayed paused" in text
+    assert "refused an AMI-change replacement" in text and "direct Helm" in text
     assert runtime["upgrade"]["sites"]["aws-vm"]["public_installer_full_pass"] is False
-    assert "Not established" in text and "Not executed" in text
+    assert "Not tested" in text
 
 
 def test_runtime_publication_gate_is_preserved_and_draft_is_not_claimed_published():
     runtime = scoped_summary("runtime-0.3.5")
     assert isinstance(runtime["public_ready"], bool)
     if runtime["public_ready"] is False:
-        text = text_of(evidence_block("runtime-035"))
+        text = plain_markdown(evidence_section("0.3.5"))
         assert "Publication requires cleanup review" in text
         assert "published runtime qualification" not in text.lower()
     assert "runtime-0.3.5.json" in read("site/index.html")
+    assert "runtime-0.3.5.json" in read("docs/evidence.md")
 
 
 def test_recovery_targets_counts_faults_and_latency_match_receipt():
     summary = scoped_summary("recovery-0.3.4")
     assert summary["public_ready"] is True
-    block = evidence_block("recovery-034")
-    text = text_of(block)
-    assert summary["observed_at_utc"] in block
-    assert "new PostgreSQL PVCs" in text and "4 reader SIGKILL" in text
+    section = evidence_section("0.3.4, 2026-10-12 18:13 UTC")
+    text = plain_markdown(section)
+    assert summary["observed_at_utc"].startswith("2026-10-12T18:13")
+    assert "new PostgreSQL PVCs" in text and "Four reader SIGKILL" in text
     assert "acknowledged inside the stops" in text and "not an initial copy from empty" in text
-    assert "SQL begin → mirror" in text and "upper bounds" in text
+    assert "SQL begin to Snowflake mirror visibility" in text and "upper bounds" in text
     assert "not P95 or an SLA" in text
-    rows = target_rows(block)
-    assert set(rows) == set(summary["sites"])
+    rows = target_cells(section)
+    assert set(rows) == {TARGET_LABELS[name] for name in summary["sites"]}
     for target, values in summary["sites"].items():
         assert values["actual_reader_SIGKILL_and_ACK_inside_stop_passed"]
         assert values["complete_reconstruction_passed"] and not values["same_historical_PVC_reused"]
         assert values["full_typed_rows_and_history_exact"] and values["EVENT_ID_unique"]
-        cells = re.findall(r'<td class="mono">([0-9.]+)</td>', rows[target])
-        assert cells == [str(values["mirror_rows"]), str(values["history_images"]),
-                         f'{values["cold_SQL_to_mirror_upper_bound_s"]:.3f}', f'{values["warm_SQL_to_mirror_upper_bound_s"]:.3f}']
-        assert "Passed" in text_of(rows[target])
+        assert rows[TARGET_LABELS[target]] == [str(values["mirror_rows"]), str(values["history_images"]),
+                                               f'{values["cold_SQL_to_mirror_upper_bound_s"]:.3f}',
+                                               f'{values["warm_SQL_to_mirror_upper_bound_s"]:.3f}', "Passed"]
         assert max(values["cold_SQL_to_mirror_upper_bound_s"], values["warm_SQL_to_mirror_upper_bound_s"]) <= summary["latency"]["threshold_seconds"]
 
 
 def test_original_threshold_failure_remains_historical_with_its_original_clock():
     summary = historical_summary()
-    block = evidence_block("historical-034")
-    text = text_of(block)
-    assert "historical" in text.lower()
-    assert "Above threshold" in text
+    section = evidence_section("0.3.4, 2026-10-12: earlier trial")
+    text = plain_markdown(section)
+    assert "above the bar" in section.splitlines()[0]
     cdc = summary["typed_cdc_readback"]
     assert f'{cdc["history_images_per_site"]} history images' in text
     assert f'{cdc["mirror_rows_per_site"]} mirror rows' in text
     assert f'{cdc["duplicate_event_ids"]} duplicate event IDs' in text
-    assert "136" in text and "148" not in text
-    assert "not merged" in text and "SQL start → visible" in text
+    assert "136-image readbacks" in text and "SQL start to visible" in text
+    assert "148 history images" not in text, "the earlier trial must not merge with the later recovery campaign"
+    assert "apart from the later" in text
+    rows = target_cells(section)
     for target, values in summary["cold_warehouse_latency"]["targets"].items():
-        row = target_rows(block)[target]
-        cells = re.findall(r'<td class="mono">([0-9.]+)</td>', row)
-        assert cells == [f'{values["maximum_SQL_start_seconds"]:.3f}', f'{values["maximum_ACK_seconds"]:.3f}',
-                         f'{values["maximum_source_client_launch_seconds"]:.3f}']
-        assert ("Passed" if values["SQL_and_ACK_threshold_passed"] else "Above threshold") in text_of(row)
-    home = read("site/index.html")
-    assert home.index('id="runtime-035"') < home.index('id="recovery-034"') < home.index('id="historical-034"')
+        assert rows[TARGET_LABELS[target]] == [f'{values["maximum_SQL_start_seconds"]:.3f}', f'{values["maximum_ACK_seconds"]:.3f}',
+                                               f'{values["maximum_source_client_launch_seconds"]:.3f}',
+                                               "Passed" if values["SQL_and_ACK_threshold_passed"] else "Above"]
+    evidence = read("docs/evidence.md")
+    assert (evidence.index("## 0.3.5") < evidence.index("## 0.3.4, 2026-10-12 18:13 UTC")
+            < evidence.index("## 0.3.4, 2026-10-12: earlier trial"))
 
 
 def test_historical_results_are_labelled_and_not_compared_as_equivalent():
-    qualification = homepage_section(read("site/index.html"), "qualification")
-    history = re.search(r'<details class="history" id="historical-02".*?</details>', qualification, re.S)
-    assert history
-    assert "historical, artifacts not published" in text_of(history[0]).lower()
-    assert "not comparable" in text_of(history[0])
-    assert not re.search(r">0\.2\.\d+", qualification[:qualification.index(history[0])])
+    evidence = read("docs/evidence.md")
+    assert "not comparable with the cold-warehouse clock" in plain_markdown(evidence_section("Earlier published versions"))
+    section = evidence_section("0.2.x")
+    assert "artifacts not published" in section.splitlines()[0]
+    text = plain_markdown(section)
+    assert "Their artifacts and evidence are not published here" in text
+    assert "clock starts at the IBM i acknowledgement with warehouses already running" in text
+    assert evidence.index("## 0.2.x") > evidence.index("## 0.3.4, 2026-10-12: earlier trial")
 
 
 def test_limits_name_every_gap_of_the_current_version():
     runtime = scoped_summary("runtime-0.3.5")
-    limits = text_of(homepage_section(read("site/index.html"), "limits"))
+    limits = plain_markdown(evidence_section("Limits"))
     assert runtime["current_version_native_CDC_writes_outage_and_latency"]["status"] == "NOT_ESTABLISHED"
-    for word in ["Native CDC writes, reader outage and latency on 0.3.5", "Complete infrastructure loss on 0.3.5",
-                 "AWS public-installer upgrade", "same PostgreSQL PVC", "P95", "SLA", "Initial copy from empty on 0.3.4"]:
-        assert word in limits
+    for word in ["0.4.2 native and cloud operation", "0.3.5 native CDC writes, reader outage, latency",
+                 "0.3.5 complete infrastructure loss", "AWS public-installer upgrade on 0.3.5", "same PostgreSQL PVC",
+                 "P95", "SLA", "Initial copy from empty on 0.3.4", "Snowflake cost per 24 h", "1440 px", "loopback"]:
+        assert word in limits, word
 
 
-def test_readme_matches_scoped_receipts_and_preserves_historical_results():
+def test_readme_points_to_the_evidence_page_that_matches_scoped_receipts_and_preserves_history():
     runtime = scoped_summary("runtime-0.3.5")
     recovery = scoped_summary("recovery-0.3.4")
     readme = flat(read("README.md"))
     source_version = tomllib.loads(read("pyproject.toml"))["project"]["version"]
-    assert f'**{source_version} is published as a [prerelease]' in readme
-    assert f'The published **{runtime["version"]}**' in readme
-    assert "GKE and general qualification remain incomplete" in readme
-    assert "Historical measurements apply only to their original artifacts and scopes" in readme
+    assert f"Source {source_version} with Unreleased changes; latest published prerelease {source_version}" in readme
+    assert "one million rows across SOURCE, RAW, HISTORY and MIRROR on AWS VM" in readme
+    assert "site/qualification-0.4.5.json" in readme
+    assert "(docs/evidence.md)" in readme
+    evidence = flat(read("docs/evidence.md"))
+    assert f"Source version **{source_version}**" in evidence
+    assert f'## {runtime["version"]}, 2026-10-12' in evidence
+    assert "GKE recovery remains incomplete" in evidence and "10 s observation target has not passed" in evidence
+    assert "Historical measurements apply only to their original artifacts and scopes" in evidence
     for name in ["qualification-0.4.5.json", "runtime-0.3.5.json", "recovery-0.3.4.json", "qualification-0.3.4.json"]:
-        assert name in readme
-    assert "8 new copy Jobs" in readme and "110 history C images" in readme
-    assert "same PostgreSQL PVC" in readme and "direct Helm" in readme
-    assert "148 history images" in readme and "136 history images" in readme
-    assert "8 cold/warm observations" in readme and "not P95 or an SLA" in readme
-    assert "Targets qualified by batch" not in readme and "independently observed" not in readme
+        assert name in evidence
+    assert "Eight new copy Jobs" in evidence and "110 history C images" in evidence
+    assert "same PostgreSQL PVC" in evidence and "direct Helm" in evidence
+    assert "148 history images" in evidence and "136-image" in evidence and "136 history images" in evidence
+    assert "8 cold/warm observations" in evidence and "not P95 or an SLA" in evidence
+    assert "Targets qualified by batch" not in evidence and "independently observed" not in evidence
     for values in recovery["sites"].values():
-        assert f'{values["cold_SQL_to_mirror_upper_bound_s"]:.3f}' in readme
-        assert f'{values["warm_SQL_to_mirror_upper_bound_s"]:.3f}' in readme
+        assert f'{values["cold_SQL_to_mirror_upper_bound_s"]:.3f}' in evidence
+        assert f'{values["warm_SQL_to_mirror_upper_bound_s"]:.3f}' in evidence
     for values in historical_summary()["cold_warehouse_latency"]["targets"].values():
-        assert f'{values["maximum_SQL_start_seconds"]:.3f}' in readme
+        assert f'{values["maximum_SQL_start_seconds"]:.3f}' in evidence
+        assert f'{values["maximum_ACK_seconds"]:.3f}' in evidence
+        assert f'{values["maximum_source_client_launch_seconds"]:.3f}' in evidence
+
+
+def test_evidence_page_names_the_uncomfortable_facts_and_keeps_the_four_words():
+    evidence = flat(read("docs/evidence.md"))
+    assert "3 of 4 targets missed our 10 s bar" in evidence and "passed on all four targets" in evidence
+    assert "IBM i CPU and I/O cost is Not measured" in evidence
+    assert "Only IBM i 7.5 has been tested, on one shared qualification server" in evidence
+    assert "Production: not qualified" in evidence
+    assert not evidence.startswith("# Evidence This page")
+    for retired in ("Not established", "Not executed", "To establish", "Bounded trials", "Limited path"):
+        assert retired not in evidence, retired
+    for word in ("Measured", "Not measured", "Not tested", "Not supported"):
+        assert word in evidence, word
+
+
+def test_evidence_page_keeps_the_historical_results_of_the_old_readme():
+    evidence = flat(read("docs/evidence.md"))
+    for fact in ("2.317 to 7.992 s", "4.904 to 7.041 s", "5.013 to 7.776 s", "7.827 s at most", "6.35 to 31.31 s",
+                 "12.28 s, then 10.37 s", "154 events and 110 rows", "5.06 s", "upgrade 0.2.3 to 0.2.5"):
+        assert fact in evidence, fact
 
 
 def test_home_names_the_platform_once_with_its_former_names():
@@ -446,8 +533,8 @@ def test_subpath_site_does_not_publish_an_ineffective_robots_file(site):
 
 
 def test_cloud_command_names_the_assets_of_the_published_release():
-    install = homepage_section(read("site/index.html"), "install")
-    assert f"--assets-dir ./quadringent-{release_version()}" in install
+    install = homepage_section(read("site/index.html"), "try")
+    assert f"--assets-dir ./quadringent-{published_version()}" in install
 
 
 def test_links_to_repository_files_point_to_existing_files(site):
@@ -540,11 +627,13 @@ def test_journal_example_respects_the_ibm_threshold_rule():
 def test_operator_guide_covers_the_operating_path_and_is_published(site):
     guide = read("docs/product/operator-guide.md")
     headings = re.findall(r"^## \d\. (.+)$", guide, re.M)
-    assert headings == ["First installation", "Preflight", "First copy", "Read the evidence",
+    assert headings == ["First installation", "Preflight and diagnosis", "First copy", "Read the evidence",
                         "Outage", "Recovery", "Backup and restore", "Stop and uninstall"]
     page = (site / "docs/operator-guide/index.html").read_text()
     assert "--check-ibmi &lt;host&gt;" in page
     assert "Not measured" in page and "Synthetic or Historical" in page
+    for command in ("quadringent doctor --control-plane --json", "--from-report", "--export"):
+        assert command in page
 
 
 def test_current_installation_and_operator_guides_match_published_preview():
@@ -553,7 +642,7 @@ def test_current_installation_and_operator_guides_match_published_preview():
     assert f"quadringent-{version}-py3-none-any.whl" in installation
     assert f"quadringent-{version}.tar.gz" in installation
     assert f"--assets-dir /private/path/quadringent-{version}" in installation
-    assert f"**{version} DEV/INT prerelease**" in installation
+    assert f"{version} DEV/INT prerelease" in installation
     assert "qualification-0.4.5.json" in installation
     assert "do not qualify production" in flat(installation)
     operator = flat(read("docs/product/operator-guide.md"))

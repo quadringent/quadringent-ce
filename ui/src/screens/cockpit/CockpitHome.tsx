@@ -15,16 +15,17 @@ import { DiagnosticExport } from '../../components/DiagnosticExport.tsx';
 import { connectionAggregateState, fleetNeedsAttention } from '../../domain/cockpit.ts';
 import { getCockpitClient, useCockpitHome, type CockpitHomeState, type ConnectionHomeRow } from '../../data/useCockpit.ts';
 import { href } from '../../router.ts';
-import { requiresConfirmation, type ControlActionKind } from '../../domain/controlsPanel.ts';
+import type { ControlActionKind } from '../../domain/controlsPanel.ts';
+import { scopeControls } from './cockpitActions.ts';
 import { focusPrimaryControls, navigateBack } from './cockpitFunctionKeys.ts';
-import { EVIDENCE_COPY } from '../../domain/operator.ts';
+import { DIAGNOSTICS_COPY, EVIDENCE_COPY } from '../../domain/operator.ts';
 
 export function CockpitHome() {
-  const { state, reload } = useCockpitHome();
-  return <CockpitHomeView state={state} onRefresh={reload} />;
+  const { state, reload, refresh } = useCockpitHome();
+  return <CockpitHomeView state={state} onRefresh={reload} onSettled={refresh} />;
 }
 
-export function CockpitHomeView({ state, onRefresh }: { readonly state: CockpitHomeState; readonly onRefresh: () => void }) {
+export function CockpitHomeView({ state, onRefresh, onSettled }: { readonly state: CockpitHomeState; readonly onRefresh: () => void; readonly onSettled?: () => void }) {
   const bindings: readonly FunctionKeyBinding[] = [
     { key: 'F3', onTrigger: navigateBack },
     { key: 'F5', onTrigger: onRefresh },
@@ -41,6 +42,7 @@ export function CockpitHomeView({ state, onRefresh }: { readonly state: CockpitH
           <p className="board__summary">One row per connection.</p>
         </div>
         <div className="cockpit-home__header-actions">
+          <a className="board__refresh" href={href({ name: 'cockpit-diagnostics' })}>{DIAGNOSTICS_COPY.link}</a>
           <DiagnosticExport />
           <a className="board__refresh" href={href({ name: 'cockpit-confirmations' })}>Confirmations</a>
           <button type="button" className="board__refresh" onClick={onRefresh}>Refresh</button>
@@ -68,19 +70,10 @@ export function CockpitHomeView({ state, onRefresh }: { readonly state: CockpitH
           <div id="cockpit-primary-controls">
             <ControlsPanel
               level="fleet"
+              targetId="fleet"
               targetLabel="All connections"
               availableActions={['pause', 'resume'] as readonly ControlActionKind[]}
-              dryRun={async (action) => {
-                const client = await getCockpitClient();
-                return client.runFleetAction(action === 'pause' ? 'pause_all' : 'resume_all', { dryRun: true });
-              }}
-              execute={async (action) => {
-                if (requiresConfirmation(action)) throw new Error("Action not supported at fleet level.");
-                const client = await getCockpitClient();
-                await client.runFleetAction(action === 'pause' ? 'pause_all' : 'resume_all');
-                return { pendingConfirmationId: null };
-              }}
-              verify={async () => { onRefresh(); }}
+              {...scopeControls({ level: 'fleet' }, { getClient: getCockpitClient, onSettled: onSettled ?? onRefresh })}
             />
           </div>
 
@@ -105,7 +98,6 @@ function AttentionBanner({ rows }: { readonly rows: readonly ConnectionHomeRow[]
   const target = rows.find((row) => connectionAggregateState(row.connection) === 'attention');
   return (
     <p className="cockpit-attention-banner" role="alert">
-      <span aria-hidden="true" />
       <span>At least one connection needs verification.</span>
       {target ? (
         <a className="cockpit-banner-link" href={href({ name: 'cockpit-connection', id: target.connection.id })}>

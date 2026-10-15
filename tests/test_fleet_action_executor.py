@@ -899,9 +899,8 @@ def test_run_state_drives_real_per_table_phases(tmp_path: Path) -> None:
                 continuity_proven=True,
                 gap=False,
             )
-    run_store.save(
-        run_state_document(run, prepare_intent_id=prepared["intent_id"])
-    )
+    from test_fleet_progression import financial_state
+    run_store.save(run_state_document(run, prepare_intent_id=prepared["intent_id"], created_at="2026-09-20T10:00:00Z", credit_evidence=financial_state(run, intent=prepared["intent_id"])))
 
     projected = executor.project()
     assert projected["phase"] == "LIVE"
@@ -953,7 +952,8 @@ def test_run_state_stale_intent_blocks_projection(tmp_path: Path) -> None:
     run = create_fleet(max_concurrency=4, credit_budget=1e9)
     for name in MANIFEST:
         run = prepare_table(run, name, FRESH)
-    run_store.save(run_state_document(run, prepare_intent_id="intent-dead"))
+    from test_fleet_progression import financial_state
+    run_store.save(run_state_document(run, prepare_intent_id="intent-dead", created_at="2026-09-20T10:00:00Z", credit_evidence=financial_state(run, intent="intent-dead")))
 
     projected = executor.project()
     assert projected["phase"] == "UNKNOWN"

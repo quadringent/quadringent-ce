@@ -53,7 +53,7 @@ class BulkActionsService:
         self._org_id = org_id
         self._sources = SourcesService(engine, secret_box, org_id=org_id)
         self._destinations = DestinationsService(engine, secret_box, org_id=org_id)
-        self._pipelines = PipelinesService(engine)
+        self._pipelines = PipelinesService(engine, org_id=org_id)
         self._executor = executor
 
     def pause_all(self, *, now: datetime | None = None) -> BulkPauseResult:

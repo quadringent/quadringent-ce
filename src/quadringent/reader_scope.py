@@ -13,7 +13,7 @@ READER_CHECKPOINT_SCOPE = "source-raw-v1"
 
 def reader_checkpoint_stream_key(*, storage_backend: str, source_id: str, journal_library: str,
                                  journal_name: str, raw_bucket: str, raw_prefix: str) -> str:
-    backend = {"aws": "s3", "s3": "s3", "gcs": "gcs"}.get(storage_backend.strip().lower())
+    backend = {"aws": "s3", "s3": "s3", "gcs": "gcs", "local": "local"}.get(storage_backend.strip().lower())
     if backend is None:
         raise ValueError("unknown reader checkpoint backend")
     root = _clean_root(raw_prefix)

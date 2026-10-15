@@ -50,3 +50,28 @@ test('an approved copy can be explicitly executed, then verified, without approv
   assert.match(approved, />Execute action</);
   assert.doesNotMatch(approved, />Approve</);
 });
+
+test('an unreadable expiry date is worded in English, never in another language', () => {
+  const markup = render({ status: 'ready', items: [{ ...pending, expiresAt: 'not-a-date' }] });
+  assert.match(markup, /Expires on unknown date/);
+  assert.doesNotMatch(markup, /date inconnue/);
+});
+
+test('requester wording and labels come from the operator copy', () => {
+  const markup = render({ status: 'ready', items: [pending, { ...pending, id: 'cf_2', requestedByKind: 'human', requestedById: null }] });
+  assert.match(markup, /Requested by the agent agent_1/);
+  assert.match(markup, /Requested by an operator</);
+  assert.match(markup, /Pending request/);
+  assert.match(markup, /aria-label="Confirmations to review"/);
+  assert.match(markup, /Table pl_1/);
+});
+
+test('the screen holds no hard-coded user-facing English or French sentences outside operator.ts', async () => {
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(new URL('./CockpitConfirmations.tsx', import.meta.url), 'utf8');
+  for (const literal of ['date inconnue', 'Operator decision', 'Requested by', 'Expires on', 'Reported risk', 'Pending request',
+    'Verification in progress', 'Quadringent is querying', 'Service unavailable', 'did not confirm', 'cannot be executed from this screen',
+    'Confirmations to review', '/ Decisions', '>Refresh<', '>Reading<']) {
+    assert.ok(!source.includes(literal), `${literal} must come from CONFIRMATIONS_COPY`);
+  }
+});

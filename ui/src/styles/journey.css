@@ -33,8 +33,6 @@
 
 .journey__mark-label {
   font-size: var(--t-micro);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--ink-4);
 }
 
@@ -207,9 +205,8 @@
 
 .journey__problems {
   margin-top: var(--space-6);
-  padding: var(--space-4) var(--space-5);
-  background: var(--signal-incident-soft);
-  border-radius: var(--r-sm);
+  padding: var(--space-4) 0 0;
+  border-top: 1px solid var(--line-strong);
 }
 
 .journey__problems-title {

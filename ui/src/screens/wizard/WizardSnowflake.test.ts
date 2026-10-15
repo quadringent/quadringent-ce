@@ -63,7 +63,7 @@ test('la première réponse conserve le téléchargement de la clé et la consig
   assert.equal(destination.privateKeyPem, privateKey);
   assert.match(markup, /href="data:application\/x-pem-file;charset=utf-8,CLE_SYNTHETIQUE_UNIQUE"/);
   assert.match(markup, /download="quadringent-snowflake-private-key.pem"/);
-  assert.match(markup, /retain a copy of the private key/);
+  assert.match(markup, /Keep a copy of the private key/);
   assert.ok(!markup.includes(replayMessage));
   assert.match(markup, />Verify access<\/button>/);
   assert.match(markup, /class="action-button action-button--primary" disabled="">Continue<\/button>/);

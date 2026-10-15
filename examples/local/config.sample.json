@@ -1,0 +1,36 @@
+{
+  "format_version": 1,
+  "name": "sales",
+  "label": "qdt-0a1b2c3d",
+  "created_at": "2026-10-13T09:30:00+00:00",
+  "ibmi": {
+    "host": "ibmi.example.test",
+    "user": "COPYUSER",
+    "tls": true,
+    "allow_plaintext": false,
+    "ca_file": null,
+    "database_port": null,
+    "signon_port": null,
+    "command_port": null
+  },
+  "source_time_zone": null,
+  "from_checkout": null,
+  "data_location": "bind",
+  "table": {"schema": "SALESLIB", "name": "ORDERS"},
+  "snowflake": {
+    "account": "myorg-myaccount",
+    "database": "QUADRINGENT",
+    "schema": null,
+    "role": "QDT_ROLE_0A1B2C3D",
+    "user": "QDT_SVC_0A1B2C3D"
+  },
+  "images": {
+    "capture": "ghcr.io/quadringent/quadringent-ce:0.4.1-capture",
+    "loader": "ghcr.io/quadringent/quadringent-ce:0.4.1-control-plane"
+  },
+  "ids": {
+    "source": "00112233445566778899aabbccddeeff",
+    "pipeline": "ffeeddccbbaa99887766554433221100",
+    "table": "0123456789abcdef0123456789abcdef"
+  }
+}

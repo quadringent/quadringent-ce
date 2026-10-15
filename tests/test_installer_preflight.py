@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import unittest
 
+from quadringent.diagnostics.network import ibmi_ports
+
 from quadringent.installer.plan import InstallInputs
 from quadringent.installer.preflight import (
     check_cloud_credentials,
@@ -56,8 +58,21 @@ class IbmiReachabilityTests(unittest.TestCase):
             return _Sock()
 
         results = check_ibmi_reachability("ibmi.example.com", socket_factory=fake_socket)
-        self.assertEqual(len(results), 3)
+        # The default JTOpen path: database, sign-on, command and the server mapper.
+        self.assertEqual(len(results), len(ibmi_ports()))
         self.assertTrue(all(result.ok for result in results))
+
+    def test_reachable_ports_are_reported_as_tcp_only(self) -> None:
+        def fake_socket(address, timeout):
+            class _Sock:
+                def close(self):
+                    pass
+
+            return _Sock()
+
+        for result in check_ibmi_reachability("ibmi.example.com", socket_factory=fake_socket):
+            self.assertIn("/tcp", result.name)
+            self.assertIn("TLS and sign-on not tested", result.detail)
 
     def test_unreachable_port_reported(self) -> None:
         def fake_socket(address, timeout):

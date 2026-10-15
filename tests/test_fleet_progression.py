@@ -8,8 +8,12 @@ site_fixture.build_test_site()
 
 import json
 import unittest
+from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Mapping
+
+import pytest
 
 from quadringent_control_plane.fleet import (
     MANIFEST,
@@ -46,6 +50,7 @@ CURRENT = JournalCheckpoint("DEMOJRN3776", 50)
 TAIL = JournalCheckpoint("DEMOJRN3776", 50)
 CHAIN = ReceiverChain((ReceiverSpan("DEMOJRN3776", 1, 200),))
 INTENT = "intent-a"
+RUN_CREATED = "2026-09-20T10:00:00+00:00"
 
 
 @dataclass
@@ -91,11 +96,14 @@ def certification(**overrides: object) -> CertificationMeasure:
 
 def measure(
     *,
+    table: str = MANIFEST[0],
     estimated: int | None = 100,
     snapshot_rows: int | None = 100,
     published: int | None = 100,
     loaded: int | None = 110,
     certification: CertificationMeasure | None = None,
+    estimated_credit: float | None = 0.1,
+    measured_credit: float | None = 0.11,
 ) -> TableMeasure:
     return TableMeasure(
         estimated_rows=estimated,
@@ -103,11 +111,13 @@ def measure(
         snapshot_published=published,
         loaded_rows=loaded,
         certification=certification,
+        estimated_credits=None if estimated_credit is None else credit("estimate", estimated_credit),
+        measured_credits=None if measured_credit is None else credit("measured", measured_credit, table=table),
     )
 
 
 def measures(**overrides: object) -> dict[str, TableMeasure]:
-    return {name: measure(**overrides) for name in MANIFEST}
+    return {name: measure(table=name, **overrides) for name in MANIFEST}
 
 
 def evidence(
@@ -122,6 +132,7 @@ def evidence(
     gap: bool | None = False,
     tables: Mapping[str, TableMeasure] | None = None,
     intent: str | None = INTENT,
+    budget: float | None = 10,
 ) -> FleetEvidence:
     return FleetEvidence(
         prepare_intent_id=intent,
@@ -134,6 +145,7 @@ def evidence(
         continuity_proven=continuity,
         gap=gap,
         tables=measures() if tables is None else tables,
+        credit_budget=None if budget is None else credit("budget", budget),
     )
 
 
@@ -144,12 +156,200 @@ def progression(
     max_concurrency: int = 4,
 ) -> tuple[FleetProgression, MemoryStore]:
     memory = store or MemoryStore()
-    driver = FleetProgression(
+    class FixedCreationProgression(FleetProgression):
+        def _create(self, evidence):
+            run = super()._create(evidence)
+            self._created_at = RUN_CREATED
+            return run
+
+    driver = FixedCreationProgression(
         plan=StubPlan(max_concurrency=max_concurrency),
         run_store=memory,
         evidence_provider=lambda: provider_evidence,
     )
     return driver, memory
+
+
+def credit(kind: str, value: float, *, table: str = MANIFEST[0], intent: str = INTENT):
+    from quadringent_control_plane import fleet_progression as module
+
+    return module.CreditEvidence(
+        credits=value, kind=kind,
+        source={"budget": "operator_budget", "estimate": "declared_estimate", "measured": "attributed_metering"}[kind],
+        evidence_sha256="a" * 64, observed_at=datetime.now(timezone.utc).isoformat(),
+        window=ProofWindow("2026-09-20T10:00:00+00:00", "2026-09-20T10:05:00+00:00") if kind == "measured" else None,
+        work_proof=module.CreditWorkProof(intent, table,
+            ProofWindow("2026-09-20T10:00:00+00:00", "2026-09-20T10:05:00+00:00"),
+            "2026-09-20T10:05:00+00:00", "b" * 64) if kind == "measured" else None,
+    )
+
+
+def financial_state(run, *, intent=INTENT):
+    tables = {}
+    for table in run.tables:
+        entries = {}
+        if table.estimated_credits is not None:
+            entries["estimate"] = credit("estimate", table.estimated_credits).to_dict()
+        if table.actual_credits is not None:
+            entries["measured"] = credit("measured", table.actual_credits, table=table.name, intent=intent).to_dict()
+        if entries:
+            tables[table.name] = entries
+    return {"budget": credit("budget", run.credit_budget).to_dict(), "tables": tables}
+
+
+def test_million_rows_without_a_financial_budget_creates_no_credit_state():
+    supplied = evidence(budget=None, tables=measures(estimated=1000000, snapshot_rows=1000000, published=1000000, loaded=1000000))
+    driver, memory = progression(provider_evidence=supplied)
+    outcome = driver.tick()
+    assert outcome.reason == "unknown_credit_budget"
+    assert memory.document is None
+
+
+def test_explicit_credits_are_independent_of_million_row_counters():
+    from dataclasses import replace
+
+    supplied = replace(evidence(tables={name: TableMeasure(
+        estimated_rows=1000000, snapshot_rows=1000000, snapshot_published=1000000, loaded_rows=1000000,
+        estimated_credits=credit("estimate", 0.1), measured_credits=credit("measured", 0.11, table=name),
+    ) for name in MANIFEST}), credit_budget=credit("budget", 10))
+    driver, memory = progression(provider_evidence=supplied)
+    for _ in range(8):
+        outcome = driver.tick()
+    run = deserialize_fleet(memory.document["fleet"])
+    assert outcome.phase == "LIVE" and run.credit_budget == 10
+    assert all(t.copied_rows == t.total_rows == 1000000 and t.actual_credits == 0.11 for t in run.tables)
+    assert all(t.estimated_credits == 0.1 for t in run.tables)
+    stored = memory.document["credit_evidence"]
+    assert stored["budget"]["source"] == "operator_budget"
+    assert stored["tables"][MANIFEST[0]]["measured"]["evidence_sha256"] == "a" * 64
+
+
+def test_loaded_rows_do_not_supply_a_missing_measurement():
+    from dataclasses import replace
+
+    supplied = replace(evidence(tables={name: TableMeasure(
+        estimated_rows=1000000, snapshot_rows=1000000, snapshot_published=1000000, loaded_rows=1000000,
+        estimated_credits=credit("estimate", 0.1),
+    ) for name in MANIFEST}), credit_budget=credit("budget", 10))
+    driver, memory = progression(provider_evidence=supplied)
+    for _ in range(4):
+        outcome = driver.tick()
+    run = deserialize_fleet(memory.document["fleet"])
+    active = [t for t in run.tables if t.admitted]
+    assert active and all(t.phase is Phase.CATCHING_UP and t.actual_credits is None for t in active)
+    assert any("unknown_cost" in error for error in outcome.errors)
+
+
+def test_explicit_budget_does_not_replace_an_unknown_estimate():
+    from dataclasses import replace
+
+    driver, memory = progression(provider_evidence=replace(
+        evidence(tables={name: TableMeasure(estimated_rows=1000000) for name in MANIFEST}), credit_budget=credit("budget", 10)))
+    outcome = driver.tick()
+    run = deserialize_fleet(memory.document["fleet"])
+    assert all(t.phase is Phase.READY and t.estimated_credits is None for t in run.tables)
+    assert any("unknown_cost" in error for error in outcome.errors)
+
+
+@pytest.mark.parametrize("kind", ["budget", "estimate", "measured"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), -0.1, True, "0.1", 10**1000])
+def test_invalid_credit_values_are_not_measurements(kind, value):
+    with pytest.raises(FleetError):
+        credit(kind, value)
+
+
+def test_zero_is_an_explicit_measurement_not_missing_evidence():
+    from dataclasses import replace
+
+    supplied = replace(evidence(tables={name: TableMeasure(
+        estimated_rows=100, snapshot_rows=100, snapshot_published=100, loaded_rows=110,
+        estimated_credits=credit("estimate", 0.1), measured_credits=credit("measured", 0, table=name),
+    ) for name in MANIFEST}), credit_budget=credit("budget", 10))
+    driver, memory = progression(provider_evidence=supplied)
+    for _ in range(8):
+        outcome = driver.tick()
+    assert outcome.phase == "LIVE"
+    assert all(t.actual_credits == 0 for t in deserialize_fleet(memory.document["fleet"]).tables)
+
+
+def test_legacy_row_based_credit_state_is_quarantined_without_overwrite():
+    from quadringent_control_plane import fleet as domain
+
+    run = domain.create_fleet(max_concurrency=1, credit_budget=4000000)
+    for name in MANIFEST:
+        run = domain.prepare_table(run, name, START)
+    run = domain.admit_next(run, estimated_credits=1000000)
+    run = domain.record_history_progress(run, MANIFEST[0], copied_rows=1000000, total_rows=1000000)
+    run = domain.record_actual_cost(run, MANIFEST[0], 1000000)
+    original = {"format_version": "quadringent-fleet-run-state-v1", "environment": domain.ENVIRONMENT,
+                "prepare_intent_id": INTENT, "created_at": "2026-09-20T10:00:00+00:00", "fleet": domain.serialize_fleet(run)}
+    memory = MemoryStore(document=deepcopy(original))
+    driver, _ = progression(memory, provider_evidence=evidence())
+    outcome = driver.tick()
+    assert outcome.status == "halted" and outcome.reason == "unverified_credit_state"
+    assert outcome.phase is None and memory.document == original and memory.saved == 0
+
+
+def test_explicit_estimate_cannot_exceed_the_declared_budget():
+    supplied = evidence(budget=0.05)
+    driver, memory = progression(provider_evidence=supplied)
+    outcome = driver.tick()
+    run = deserialize_fleet(memory.document["fleet"])
+    assert all(t.phase is Phase.READY and t.actual_credits is None for t in run.tables)
+    assert any("admission_refused" in error for error in outcome.errors)
+
+
+def test_measured_overrun_keeps_the_domain_financial_guard():
+    driver, memory = progression(provider_evidence=evidence(
+        budget=0.15, tables=measures(measured_credit=0.2)), max_concurrency=1)
+    driver.tick()
+    run = deserialize_fleet(memory.document["fleet"])
+    assert run.tables[0].phase is Phase.BLOCKED
+    assert run.tables[0].blocked_reason == "cost_overrun"
+    assert run.tables[0].actual_credits == 0.2 and run.consumed_credits > run.credit_budget
+    assert run.tables[0].copied_rows == run.tables[0].total_rows == 100
+
+
+def test_credit_provenance_is_checked_again_when_loading_persisted_state():
+    driver, memory = progression(provider_evidence=evidence())
+    driver.tick()
+    memory.document["credit_evidence"]["tables"][MANIFEST[0]]["measured"]["credits"] = 1000000
+    original = deepcopy(memory.document)
+    saved = memory.saved
+    with pytest.raises(FleetError, match="differ"):
+        driver.tick()
+    assert memory.document == original and memory.saved == saved
+
+
+def test_estimate_cannot_be_supplied_as_a_measurement():
+    with pytest.raises(FleetError):
+        TableMeasure(measured_credits=credit("estimate", 0.2))
+
+
+def test_changed_budget_cannot_silently_reuse_a_persisted_limit():
+    driver, memory = progression(provider_evidence=evidence())
+    driver.tick()
+    original, saved = deepcopy(memory.document), memory.saved
+    restarted, _ = progression(memory, provider_evidence=evidence(budget=0.05))
+    outcome = restarted.tick()
+    assert outcome.status == "halted" and outcome.reason == "credit_budget_changed"
+    assert memory.document == original and memory.saved == saved
+
+
+def test_pre_run_metering_never_supplies_current_table_cost():
+    from dataclasses import replace
+    from quadringent_control_plane.fleet_progression import CreditEvidence
+
+    stale = CreditEvidence(0, "measured", "attributed_metering", "b" * 64,
+                           "2000-01-02T00:00:00Z", ProofWindow("2000-01-01T00:00:00Z", "2000-01-01T00:01:00Z"))
+    supplied = evidence(tables={name: replace(measure(), measured_credits=stale) for name in MANIFEST})
+    driver, memory = progression(provider_evidence=supplied)
+    for _ in range(8):
+        outcome = driver.tick()
+    run = deserialize_fleet(memory.document["fleet"])
+    assert all(table.actual_credits is None for table in run.tables)
+    assert outcome.phase != "LIVE"
+    assert all("measured" not in value for value in memory.document["credit_evidence"]["tables"].values())
 
 
 class ProgressionTest(unittest.TestCase):
@@ -191,7 +391,7 @@ class ProgressionTest(unittest.TestCase):
         for table in run.tables:
             self.assertEqual(table.copied_rows, 100)
             self.assertEqual(table.total_rows, 100)
-            self.assertEqual(table.actual_credits, 110.0)
+            self.assertEqual(table.actual_credits, 0.11)
 
     def test_concurrency_bounds_admission(self) -> None:
         # Quatre slots : deux tables encore prêtes attendent leur tour tant
@@ -202,6 +402,7 @@ class ProgressionTest(unittest.TestCase):
             current=JournalCheckpoint("DEMOJRN3776", 60),
             tables={
                 name: measure(
+                    table=name,
                     snapshot_rows=50, published=100
                 )
                 for name in MANIFEST
@@ -259,7 +460,7 @@ class ProgressionTest(unittest.TestCase):
 
     def test_unknown_cost_stays_catching_up(self) -> None:
         unpriced = evidence(
-            tables={name: measure(loaded=None) for name in MANIFEST},
+            tables={name: measure(loaded=None, measured_credit=None) for name in MANIFEST},
         )
         driver, memory = progression(provider_evidence=unpriced)
         for _ in range(4):
@@ -342,7 +543,7 @@ class ProgressionTest(unittest.TestCase):
     def test_live_tables_certify_on_measured_proof(self) -> None:
         certified = evidence(
             tables={
-                name: measure(certification=certification()) for name in MANIFEST
+                name: measure(table=name, certification=certification()) for name in MANIFEST
             }
         )
         driver, memory = progression(provider_evidence=certified)
@@ -377,6 +578,7 @@ class ProgressionTest(unittest.TestCase):
         stale = evidence(
             tables={
                 name: measure(
+                    table=name,
                     certification=certification(
                         measured_at="2020-01-01T00:00:00+00:00"
                     )
@@ -400,6 +602,7 @@ class ProgressionTest(unittest.TestCase):
         divergent = evidence(
             tables={
                 name: measure(
+                    table=name,
                     certification=certification(target_hash="hash-b")
                 )
                 for name in MANIFEST
@@ -431,6 +634,7 @@ class ProgressionTest(unittest.TestCase):
         corrected = evidence(
             tables={
                 name: measure(
+                    table=name,
                     certification=certification(
                         window=ProofWindow(
                             "2026-09-20T11:00:00+00:00",
@@ -454,6 +658,7 @@ class ProgressionTest(unittest.TestCase):
         breached = evidence(
             tables={
                 name: measure(
+                    table=name,
                     certification=certification(freshness_seconds=301.0)
                 )
                 for name in MANIFEST
@@ -612,3 +817,116 @@ class HelpersTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.mark.parametrize("change", ["intent", "table", "late_start", "short_window", "proof_before_run", "observed_before_proof", "no_binding"])
+def test_metering_requires_causal_current_run_table_binding(change):
+    from dataclasses import replace
+
+    tables = {}
+    for name in MANIFEST:
+        measured = credit("measured", 0, table=name)
+        proof = measured.work_proof
+        if change == "intent":
+            measured = replace(measured, work_proof=replace(proof, prepare_intent_id="old-intent"))
+        elif change == "table":
+            other = next(table for table in MANIFEST if table != name)
+            measured = replace(measured, work_proof=replace(proof, table_name=other))
+        elif change == "late_start":
+            measured = replace(measured, window=ProofWindow("2026-09-20T10:00:01Z", "2026-09-20T10:05:00Z"))
+        elif change == "short_window":
+            measured = replace(measured, window=ProofWindow("2026-09-20T10:00:00Z", "2026-09-20T10:04:59Z"))
+        elif change == "proof_before_run":
+            measured = replace(measured, work_proof=replace(proof,
+                window=ProofWindow("2000-01-01T00:00:00Z", "2000-01-01T00:01:00Z"),
+                measured_at="2000-01-01T00:01:00Z"))
+        elif change == "observed_before_proof":
+            measured = replace(measured, window=ProofWindow("2000-01-01T00:00:00Z", "2000-01-01T00:01:00Z"),
+                               observed_at="2000-01-02T00:00:00Z")
+        elif change == "no_binding":
+            measured = replace(measured, work_proof=None)
+        tables[name] = replace(measure(table=name), measured_credits=measured)
+    driver, memory = progression(provider_evidence=evidence(tables=tables))
+    for _ in range(4):
+        outcome = driver.tick()
+    assert outcome.phase != "LIVE"
+    assert all(table.actual_credits is None for table in deserialize_fleet(memory.document["fleet"]).tables)
+    assert any("unknown_cost" in error for error in outcome.errors)
+
+
+def test_larger_completed_billing_window_and_long_metering_lag_are_admissible():
+    from dataclasses import replace
+
+    tables = {name: replace(measure(table=name), measured_credits=replace(credit("measured", 0.11, table=name),
+        window=ProofWindow("2026-09-19T00:00:00Z", "2026-09-21T00:00:00Z"))) for name in MANIFEST}
+    driver, memory = progression(provider_evidence=evidence(tables=tables))
+    for _ in range(8):
+        outcome = driver.tick()
+    assert outcome.phase == "LIVE"
+    measured = memory.document["credit_evidence"]["tables"][MANIFEST[0]]["measured"]
+    assert measured["evidence_sha256"] == "a" * 64
+    assert measured["work_proof"]["canonical_sha256"] == "b" * 64
+    assert measured["work_proof"]["prepare_intent_id"] == INTENT
+
+
+@pytest.mark.parametrize("change", ["decreased", "moving_start", "shrinking_end", "older_observation", "older_proof"])
+def test_cumulative_metering_cannot_regress_or_switch_windows_before_live(change):
+    from dataclasses import replace
+
+    initial = evidence(tail=JournalCheckpoint(TAIL.receiver, 60), tables={
+        name: replace(measure(table=name), measured_credits=replace(credit("measured", 0.11, table=name),
+            window=ProofWindow("2026-09-20T10:00:00Z", "2026-09-21T00:00:00Z"))) for name in MANIFEST})
+    driver, memory = progression(provider_evidence=initial)
+    driver.tick()
+    previous = deepcopy(memory.document["credit_evidence"]["tables"][MANIFEST[0]]["measured"])
+    incoming = {}
+    for name, table in initial.tables.items():
+        measured = replace(table.measured_credits, credits=0.12)
+        if change == "decreased":
+            measured = replace(measured, credits=0.01)
+        elif change == "moving_start":
+            measured = replace(measured, window=ProofWindow("2026-09-19T00:00:00Z", "2026-09-21T00:00:00Z"))
+        elif change == "shrinking_end":
+            measured = replace(measured, window=ProofWindow("2026-09-20T10:00:00Z", "2026-09-20T11:00:00Z"))
+        elif change == "older_observation":
+            measured = replace(measured, observed_at="2026-09-21T01:00:00Z")
+        elif change == "older_proof":
+            measured = replace(measured, work_proof=replace(measured.work_proof,
+                window=ProofWindow("2026-09-20T10:00:00Z", "2026-09-20T10:04:00Z"),
+                measured_at="2026-09-20T10:04:00Z"))
+        incoming[name] = replace(table, measured_credits=measured)
+    driver._evidence_provider = lambda: replace(initial, tables=incoming)
+    outcome = driver.tick()
+    assert memory.document["credit_evidence"]["tables"][MANIFEST[0]]["measured"] == previous
+    assert deserialize_fleet(memory.document["fleet"]).tables[0].actual_credits == 0.11
+    assert any("contradictory_cost" in error for error in outcome.errors)
+
+
+def test_unchanged_credit_amount_keeps_new_current_proof_and_original_metering_hash():
+    from dataclasses import replace
+
+    initial = evidence(tail=JournalCheckpoint(TAIL.receiver, 60))
+    driver, memory = progression(provider_evidence=initial)
+    driver.tick()
+    incoming = {name: replace(table, measured_credits=replace(table.measured_credits, evidence_sha256="c" * 64,
+        window=ProofWindow("2026-09-20T10:00:00Z", "2026-09-20T10:07:00Z"),
+        work_proof=replace(table.measured_credits.work_proof,
+            window=ProofWindow("2026-09-20T10:00:00Z", "2026-09-20T10:06:00Z"),
+            measured_at="2026-09-20T10:06:00Z", canonical_sha256="d" * 64))) for name, table in initial.tables.items()}
+    driver._evidence_provider = lambda: replace(initial, tables=incoming)
+    driver.tick()
+    measured = memory.document["credit_evidence"]["tables"][MANIFEST[0]]["measured"]
+    assert measured["credits"] == 0.11 and measured["evidence_sha256"] == "c" * 64
+    assert measured["work_proof"]["canonical_sha256"] == "d" * 64
+
+
+def test_pre_binding_v2_measurement_cannot_be_reused_or_rewritten():
+    driver, memory = progression(provider_evidence=evidence())
+    driver.tick()
+    for table in memory.document["credit_evidence"]["tables"].values():
+        if "measured" in table:
+            table["measured"].pop("work_proof", None)
+    original, saved = deepcopy(memory.document), memory.saved
+    with pytest.raises(FleetError, match="current run/table"):
+        driver.tick()
+    assert memory.document == original and memory.saved == saved

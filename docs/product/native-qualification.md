@@ -10,6 +10,9 @@ The 24-hour run is ongoing; receiver rotation and the final independent oracle
 remain unproven. Scoped reader-recovery checks passed on AWS VM, EKS and GCP VM;
 GKE remains incomplete. The 10 s observation target has not passed.
 
+Those million-row results used a separate native qualification harness; see
+[stock verifier scope](../evidence.md#stock-verifier-scope) before choosing a verifier.
+
 The historical [October 12, 2026 preview summary](../../site/qualification-0.3.4.json)
 records observed artifacts, typed data, version cycles and latency for 0.3.4.
 The cold-warehouse 10 s gate failed on three targets. Earlier reader-failure

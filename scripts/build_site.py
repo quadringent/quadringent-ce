@@ -118,6 +118,8 @@ def seo_head(url: str, title: str, description: str, base: str, repository: str,
 
 def publish_guides(root: Path, output: Path, base: str, repository: str) -> list[str]:
     import markdown
+    icon = re.search(r'<link rel="icon"[^>]*>', (root / "site/index.html").read_text())
+    icon_head = icon[0] + "\n" if icon else ""
     available = {name: details for name, details in DOC_PAGES.items() if (root / name).is_file()}
     urls = [base]
     version = re.search(r'^version\s*=\s*"(\d+\.\d+)\.', (root / "pyproject.toml").read_text(), re.M) if (root / "pyproject.toml").is_file() else None
@@ -151,7 +153,7 @@ def publish_guides(root: Path, output: Path, base: str, repository: str) -> list
 
         body = re.sub(r'(href|srcset|src)="([^"]+)"', link, body)
         url = base + f"docs/{slug}/"
-        head = seo_head(url, title, description, base, repository, home=False)
+        head = seo_head(url, title, description, base, repository, home=False) + icon_head
         page = f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{escape(title)} · Quadringent</title><meta name="description" content="{escape(description, quote=True)}">
@@ -172,6 +174,7 @@ def publish_guides(root: Path, output: Path, base: str, repository: str) -> list
             '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
             f'<title>{title}</title><meta name="description" content="English installation, evidence, operations and security guides.">'
             + seo_head(base + "docs/", title, "English installation, evidence, operations and security guides.", base, repository, home=False)
+            + icon_head
             + '<link rel="stylesheet" href="../style.css"></head><body><main class="guide"><nav><a href="../">Quadringent</a></nav>'
             f'<h1>{title}</h1><ul>{"".join(index_links)}</ul></main></body></html>'
         )

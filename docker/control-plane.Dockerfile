@@ -60,6 +60,7 @@ COPY src/quadringent/diagnostics/__init__.py src/quadringent/diagnostics/model.p
 COPY src/quadringent/infrastructure_costs.py src/quadringent/storage_backend.py src/quadringent/gcs_backend.py src/quadringent/checkpoint.py src/quadringent/receiver_identity.py src/quadringent/capture_binding.py src/quadringent/receiver_registry.py /app/src/quadringent/
 COPY src/quadringent/proof_windows.py src/quadringent/contract.py src/quadringent/object_store.py src/quadringent/raw.py src/quadringent/observability_snapshot.py src/quadringent/destination_proof.py src/quadringent/destination_sync.py /app/src/quadringent/
 COPY src/quadringent/continuous.py src/quadringent/ibmi_reader.py src/quadringent/java_catalog.py src/quadringent/java_worker.py src/quadringent/source_gate.py src/quadringent/sql_window.py src/quadringent/slo_telemetry.py src/quadringent/snowflake_loader.py src/quadringent/snowflake_replay.py /app/src/quadringent/
+COPY src/quadringent/stage_timings.py /app/src/quadringent/
 COPY src/quadringent/fleet_capture.py src/quadringent/fleet_certify_probe.py src/quadringent/table_discovery.py /app/src/quadringent/
 COPY src/quadringent/snowflake_destination.py src/quadringent/snowflake_streaming_loader.py src/quadringent/snowflake_sql_loader.py src/quadringent/storage_layout.py src/quadringent/reader_scope.py /app/src/quadringent/
 COPY src/quadringent_control_plane /app/src/quadringent_control_plane

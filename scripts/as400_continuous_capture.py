@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import logging
 import math
 import os
 from pathlib import Path
@@ -60,6 +61,7 @@ from quadringent.java_worker import (
 from quadringent.object_store import RawFirstCaptureCoordinator, S3ObjectStore
 from quadringent.site_config import current as current_site
 from quadringent.storage_backend import backend_from_environment
+from quadringent.stage_timings import stage_trace_from_environment
 from quadringent.source_gate import (
     DynamoDbSourceGate,
     SourceAuthenticationBlockedError,
@@ -67,6 +69,17 @@ from quadringent.source_gate import (
     SourceGatePolicy,
     SourceUnavailablePausedError,
 )
+
+
+def _reader_stage_trace(binding: CaptureBinding):
+    trace = stage_trace_from_environment('reader', binding=binding)
+    if trace is not None:
+        logger = logging.getLogger('quadringent.stage_timings')
+        if not logger.handlers:
+            logger.addHandler(logging.StreamHandler())
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+    return trace
 
 
 def main() -> int:
@@ -297,6 +310,7 @@ def main() -> int:
         catch_up_max_entries=catch_up_entries,
         capture_binding=binding,
         receiver_registry=registry,
+        stage_trace_factory=lambda: _reader_stage_trace(binding),
         poll_seconds=float(os.environ.get("AS400_POLL_SECONDS", "5")),
         min_poll_seconds=float(os.environ.get("AS400_MIN_POLL_SECONDS", "1")),
         # AS400_RECEIPTED_SCANS : posée par ``build_reader_deployment`` même

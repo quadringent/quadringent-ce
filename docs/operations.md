@@ -60,6 +60,18 @@ Measure on the target IBM i: actual tail-probe cost compared with a full
 catalog, and p50/p95 write-to-raw-publication latency with both mechanisms
 enabled. Offline development does not establish those measurements.
 
+## Stage timing
+
+For a source build after 0.4.5, set `QUADRINGENT_STAGE_TIMINGS=true` in the
+reader and destination-loader processes to log `stage_timing` JSON records.
+The flag is off by default. Records separate native checks, capture, RAW
+publication, both loader preflights, SQL execution and checkpoint CAS, using
+hashed capture/checkpoint identities and batch digests for correlation.
+SQL text, parameters, row values and exception messages are omitted.
+Each trace limits stage records and reports truncation. Durations use the
+process monotonic clock; UTC observations have no measured clock-error bound.
+These records do not prove source-to-mirror latency or a committed transaction.
+
 ## Audit
 
 `actions.jsonl` lives on the fleet state volume and records intent, request

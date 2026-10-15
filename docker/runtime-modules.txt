@@ -5,6 +5,7 @@ src/quadringent/capture_binding.py
 src/quadringent/receiver_registry.py
 src/quadringent/console_snapshot.py
 src/quadringent/continuous.py
+src/quadringent/stage_timings.py
 src/quadringent/contract.py
 src/quadringent/destination_proof.py
 src/quadringent/destination_sync.py

@@ -48,6 +48,7 @@ from quadringent.snowflake_streaming_loader import (
 from quadringent.snowflake_sql_loader import HistorySqlLoader
 from quadringent.storage_backend import StorageBackend, registry_authority
 from quadringent.storage_layout import journal_prefix, snapshot_prefix
+from quadringent.stage_timings import StageTrace, measure_stage, stage_trace_from_environment, timed_cursor
 
 # Ce script tourne dans l'image du control plane (voir docker/control-plane.
 # Dockerfile) : il peut importer ce paquet, contrairement à l'image de
@@ -713,11 +714,12 @@ def _bound_preflight(table, storage, raw_prefix_root, *, history_mode, receipt_c
 
 def _load_bound_table_once(table, *, plan, storage, raw_prefix_root, streaming_client_factory, cursor,
                             flush_each_batch=False, session_pool=None, receipt_cache=None, history_mode='streaming',
-                            on_snapshot_applied=None, cycle_metrics=None):
+                            on_snapshot_applied=None, cycle_metrics=None, stage_trace=None):
     if history_mode != 'sql' or session_pool is not None:
         raise DestinationLoaderError('bound capture requires SQL history until full Streaming offsets are supported')
-    checkpoint, current, evidence, pending, prepared = _bound_preflight(
-        table, storage, raw_prefix_root, history_mode=history_mode, receipt_cache=receipt_cache)
+    with measure_stage(stage_trace, "loader_preflight"):
+        checkpoint, current, evidence, pending, prepared = _bound_preflight(
+            table, storage, raw_prefix_root, history_mode=history_mode, receipt_cache=receipt_cache)
     if evidence is None or (current is not None and not pending):
         return 0, 0
     snapshots, batches = prepared
@@ -725,18 +727,27 @@ def _load_bound_table_once(table, *, plan, storage, raw_prefix_root, streaming_c
     merge = MirrorMergePlan(plan=plan)
     try:
         if current is None:
-            cursor.execute(f'DELETE FROM {plan.qualified_mirror_table}')
+            snapshot_trace = stage_trace.child(point=evidence.require_bound()) if stage_trace is not None else None
+            timed_cursor(snapshot_trace, cursor, "snapshot_clear").execute(f'DELETE FROM {plan.qualified_mirror_table}')
             for batch in snapshots:
+                batch_trace = snapshot_trace.child(batch_id=batch.manifest.batch_id,
+                    payload_sha256=batch.manifest.payload_sha256) if snapshot_trace is not None else None
                 existing = existing_history_event_ids(plan, batch, cursor) if history.needs_history_lookup else ()
-                _load_history_batch(history, batch, existing, cycle_metrics)
+                _load_history_batch(history, batch, existing, cycle_metrics, stage_trace=batch_trace)
                 if batch.events:
-                    merge.execute(cursor, event_ids=tuple(event.event_id for event in batch.events))
-            checkpoint.compare_and_set_bound(None, evidence.require_bound())
+                    merge.execute(timed_cursor(batch_trace, cursor, "mirror_execute"),
+                                  event_ids=tuple(event.event_id for event in batch.events))
+            with measure_stage(snapshot_trace, "checkpoint_cas"):
+                checkpoint.compare_and_set_bound(None, evidence.require_bound())
             current = evidence.require_bound()
             if on_snapshot_applied is not None:
                 on_snapshot_applied()
         processed, appended = 0, 0
         for item, batch in zip(pending, batches, strict=True):
+            batch_trace = stage_trace.child(point=item.position,
+                batch_id=batch.manifest.batch_id if batch is not None else None,
+                payload_sha256=batch.manifest.payload_sha256 if batch is not None else None,
+            ) if stage_trace is not None else None
             overlapping_boundary = (current == evidence.require_bound()
                                     and item.start.receiver_identity == current.receiver_identity
                                     and item.start.sequence <= current.sequence < item.position.sequence)
@@ -747,11 +758,13 @@ def _load_bound_table_once(table, *, plan, storage, raw_prefix_root, streaming_c
                                                        if event.position.sequence > evidence.require_bound().sequence))
             if batch is not None and batch.events:
                 existing = existing_history_event_ids(plan, batch, cursor) if history.needs_history_lookup else ()
-                result = _load_history_batch(history, batch, existing, cycle_metrics)
+                result = _load_history_batch(history, batch, existing, cycle_metrics, stage_trace=batch_trace)
                 appended += result.events_appended
-                merge.execute(cursor, event_ids=tuple(event.event_id for event in batch.events))
+                merge.execute(timed_cursor(batch_trace, cursor, "mirror_execute"),
+                              event_ids=tuple(event.event_id for event in batch.events))
                 processed += 1
-            checkpoint.compare_and_set_bound(current, item.position)
+            with measure_stage(batch_trace, "checkpoint_cas"):
+                checkpoint.compare_and_set_bound(current, item.position)
             current = item.position
         return processed, appended
     finally:
@@ -916,11 +929,12 @@ def discover_new_batches_from_manifest_keys(
 
 def _load_history_batch(
     history_loader: HistoryStreamingLoader | HistorySqlLoader, batch: RawBatch, existing: Collection[str],
-    cycle_metrics: StreamingCycleMetrics | None,
+    cycle_metrics: StreamingCycleMetrics | None, *, stage_trace: StageTrace | None = None,
 ) -> HistoryStreamingLoadResult:
     if isinstance(history_loader, HistoryStreamingLoader):
         return history_loader.load_batch(batch, already_present_ids=existing, cycle_metrics=cycle_metrics)
-    return history_loader.load_batch(batch, already_present_ids=existing)
+    return history_loader.load_batch(batch, already_present_ids=existing,
+                                    **({"stage_trace": stage_trace} if stage_trace is not None else {}))
 
 
 def load_snapshot_once(
@@ -1013,6 +1027,7 @@ def load_table_once(
     history_mode: str = "streaming",
     on_snapshot_applied: Callable[[], None] | None = None,
     cycle_metrics: StreamingCycleMetrics | None = None,
+    stage_trace: StageTrace | None = None,
 ) -> tuple[int, int]:
     """Charge une table et publie un relevé borné seulement en mode Streaming.
 
@@ -1029,6 +1044,7 @@ def load_table_once(
             streaming_client_factory=streaming_client_factory, cursor=cursor,
             flush_each_batch=flush_each_batch, session_pool=session_pool, receipt_cache=receipt_cache,
             history_mode=history_mode, on_snapshot_applied=on_snapshot_applied, cycle_metrics=metrics,
+            stage_trace=stage_trace,
         )
     except BaseException:
         if metrics is not None:
@@ -1053,6 +1069,7 @@ def _load_table_once(
     history_mode: str = "streaming",
     on_snapshot_applied: Callable[[], None] | None = None,
     cycle_metrics: StreamingCycleMetrics | None = None,
+    stage_trace: StageTrace | None = None,
 ) -> tuple[int, int]:
     """Charge tous les lots en attente pour une table — un passage, pas une boucle.
 
@@ -1080,7 +1097,7 @@ def _load_table_once(
             table, plan=plan, storage=storage, raw_prefix_root=raw_prefix_root,
             streaming_client_factory=streaming_client_factory, cursor=cursor, flush_each_batch=flush_each_batch,
             session_pool=session_pool, receipt_cache=receipt_cache, history_mode=history_mode,
-            on_snapshot_applied=on_snapshot_applied, cycle_metrics=cycle_metrics)
+            on_snapshot_applied=on_snapshot_applied, cycle_metrics=cycle_metrics, stage_trace=stage_trace)
     with measure_loader_stage(cycle_metrics, "discovery_raw"):
         object_store_factory = storage.object_store if receipt_cache is None else receipt_cache.object_store
         object_store = object_store_factory(raw_prefix_for_table(raw_prefix_root, table.schema_name, table.table_name))
@@ -1339,34 +1356,46 @@ def run_once(*, storage: StorageBackend, tables: tuple[LoaderTable, ...], raw_pr
     measurements: list[tuple[LoaderTable, TableDestinationPlan, int, int]] = []
     for table in tables:
         plan = build_plan(table, database=database, schema=schema, mirror_schema=mirror_schema)
-        if table.capture_binding is not None:
-            if history_mode != 'sql' or session_pool is not None:
-                raise DestinationLoaderError('bound capture requires SQL history until full Streaming offsets are supported')
-            _, _, evidence, _, _ = _bound_preflight(table, storage, raw_prefix_root,
-                                                    history_mode=history_mode, receipt_cache=receipt_cache)
-            if evidence is None:
-                continue
-        if ensure_schema:
-            ensure_tables_exist(plan, cursor)
-        snapshot_applied = False
+        trace = stage_trace_from_environment("loader", binding=table.capture_binding,
+            table_id=table.table_id) if table.capture_binding is not None else None
+        failed = False
+        try:
+            if table.capture_binding is not None:
+                if history_mode != 'sql' or session_pool is not None:
+                    raise DestinationLoaderError('bound capture requires SQL history until full Streaming offsets are supported')
+                with measure_stage(trace, "loader_outer_preflight"):
+                    _, _, evidence, _, _ = _bound_preflight(table, storage, raw_prefix_root,
+                                                            history_mode=history_mode, receipt_cache=receipt_cache)
+                if evidence is None:
+                    continue
+            if ensure_schema:
+                ensure_tables_exist(plan, timed_cursor(trace, cursor, "schema_execute"))
+            snapshot_applied = False
 
-        def mark_snapshot_applied() -> None:
-            nonlocal snapshot_applied
-            snapshot_applied = True
+            def mark_snapshot_applied() -> None:
+                nonlocal snapshot_applied
+                snapshot_applied = True
 
-        processed, appended = load_table_once(
-            table, plan=plan, storage=storage, raw_prefix_root=raw_prefix_root,
-            streaming_client_factory=streaming_client_factory, cursor=cursor,
-            flush_each_batch=flush_each_batch,
-            session_pool=session_pool,
-            receipt_cache=receipt_cache,
-            history_mode=history_mode,
-            on_snapshot_applied=mark_snapshot_applied,
-        )
-        if processed:
-            LOG.info("table=%s batches=%d events=%d", table.table_name, processed, appended)
-        if processed or snapshot_applied or measure_lag:
-            measurements.append((table, plan, processed, appended))
+            processed, appended = load_table_once(
+                table, plan=plan, storage=storage, raw_prefix_root=raw_prefix_root,
+                streaming_client_factory=streaming_client_factory, cursor=cursor,
+                flush_each_batch=flush_each_batch,
+                session_pool=session_pool,
+                receipt_cache=receipt_cache,
+                history_mode=history_mode,
+                on_snapshot_applied=mark_snapshot_applied,
+                **({"stage_trace": trace} if trace is not None else {}),
+            )
+            if processed:
+                LOG.info("table=%s batches=%d events=%d", table.table_name, processed, appended)
+            if processed or snapshot_applied or measure_lag:
+                measurements.append((table, plan, processed, appended))
+        except BaseException:
+            failed = True
+            raise
+        finally:
+            if trace is not None:
+                trace.finish(failed=failed)
     # Lag reads must not delay delivery of the next table in the same pass.
     for table, plan, processed, appended in measurements:
         lag = measure_and_log_lag(plan, cursor)

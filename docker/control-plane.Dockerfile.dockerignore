@@ -38,6 +38,7 @@ src/quadringent/**
 !src/quadringent/destination_sync.py
 !src/quadringent/raw.py
 !src/quadringent/continuous.py
+!src/quadringent/stage_timings.py
 !src/quadringent/ibmi_reader.py
 !src/quadringent/java_catalog.py
 !src/quadringent/java_worker.py

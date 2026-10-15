@@ -37,7 +37,8 @@ def test_native_identity_checkpoint_modules_import_from_the_image_filesystem(ima
         result = subprocess.run(
             [sys.executable, "-I", "-c",
              "import sys; sys.path.insert(0, '.'); "
-             "import quadringent.checkpoint, quadringent.java_catalog, quadringent.gcs_backend"],
+             "import quadringent.checkpoint, quadringent.java_catalog, quadringent.gcs_backend; "
+             "import quadringent.continuous, quadringent.stage_timings"],
             cwd=root, capture_output=True, text=True, timeout=15,
         )
         assert result.returncode == 0, result.stderr

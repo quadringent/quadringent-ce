@@ -16,6 +16,7 @@ from .contract import ChangeEvent, JournalPosition
 from .raw import RawBatch
 from .snowflake_destination import TableDestinationPlan, snowflake_type_for
 from .snowflake_streaming_loader import HistoryStreamingLoadResult, _history_row
+from .stage_timings import StageTrace, timed_cursor
 
 _MAX_MERGE_ROWS = 100
 _TECHNICAL_TYPES = (
@@ -48,7 +49,8 @@ class HistorySqlLoader:
         return None
 
     def load_batch(
-        self, batch: RawBatch | Sequence[ChangeEvent], *, already_present_ids: Collection[str] = ()
+        self, batch: RawBatch | Sequence[ChangeEvent], *, already_present_ids: Collection[str] = (),
+        stage_trace: StageTrace | None = None,
     ) -> HistoryStreamingLoadResult:
         if already_present_ids:
             raise ValueError("SQL history MERGE owns EVENT_ID deduplication")
@@ -65,7 +67,7 @@ class HistorySqlLoader:
         for start in range(0, len(rows), _MAX_MERGE_ROWS):
             chunk = rows[start : start + _MAX_MERGE_ROWS]
             statement, params = _merge_statement(self._plan, chunk)
-            self._cursor.execute(statement, params)
+            timed_cursor(stage_trace, self._cursor, "history_execute").execute(statement, params)
             count = self._cursor.rowcount
             if type(count) is not int or not 0 <= count <= len(chunk):
                 raise RuntimeError("Snowflake history MERGE returned an invalid rowcount")

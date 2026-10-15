@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
 import re
 import time
 from typing import Callable, Protocol, Sequence
@@ -17,6 +18,7 @@ from .source_gate import (
     SourceConfigurationBlockedError,
     SourceUnavailablePausedError,
 )
+from .stage_timings import StageTrace, measure_stage
 
 __all__ = ["IbmiUserDisabledError"]
 
@@ -524,6 +526,7 @@ class ContinuousCaptureService:
         proof_window_count: int | None = None,
         capture_binding: CaptureBinding | None = None,
         receiver_registry: object | None = None,
+        stage_trace_factory: Callable[[], StageTrace | None] | None = None,
     ) -> None:
         if type(receipted_scans) is not bool:
             raise ValueError('receipted_scans must be a boolean')
@@ -554,6 +557,7 @@ class ContinuousCaptureService:
         self.checkpoint_store = checkpoint_store
         self.capture_binding = capture_binding
         self.receiver_registry = receiver_registry
+        self.stage_trace_factory = stage_trace_factory
         self.max_entries = max_entries
         self.catch_up_max_entries = max(max_entries, catch_up_max_entries)
         self.bootstrap = bootstrap
@@ -804,81 +808,124 @@ class ContinuousCaptureService:
             raise ReceiverPlanningError('native receiver generation changed; capture stopped')
 
     def _run_bound_once(self, poll_started: float) -> PollResult:
+        trace = None
+        if self.stage_trace_factory is not None:
+            try:
+                trace = self.stage_trace_factory()
+            except Exception:
+                pass
+        try:
+            result = self._run_bound_once_traced(poll_started, trace)
+        except BaseException:
+            self._finish_stage_trace(trace, failed=True)
+            raise
+        self._finish_stage_trace(trace, failed=False)
+        return result
+
+    @staticmethod
+    def _finish_stage_trace(trace: StageTrace | None, *, failed: bool) -> None:
+        if trace is not None:
+            try:
+                trace.finish(failed=failed)
+            except Exception:
+                pass
+
+    @staticmethod
+    def _stage_trace_child(trace: StageTrace | None, point: BoundCheckpoint,
+                           manifest: bytes | None = None) -> StageTrace | None:
+        if trace is None:
+            return None
+        try:
+            if manifest is None:
+                return trace.child(point=point)
+            record = json.loads(manifest)
+            return trace.child(point=point, batch_id=record['batch_id'],
+                               payload_sha256=record['payload_sha256'])
+        except Exception:
+            return None
+
+    def _run_bound_once_traced(self, poll_started: float, trace: StageTrace | None) -> PollResult:
         binding = self.capture_binding
         registry = self.receiver_registry
-        checkpoint = self.checkpoint_store.load_bound()
-        registry.require(binding, binding.bootstrap)
-        anchor = checkpoint or binding.bootstrap
-        binding.validate_checkpoint(anchor)
-        registry.require(binding, anchor)
-        if checkpoint is None and self.coordinator.store.list_receipt_keys(1000):
-            raise ReceiverPlanningError('bound checkpoint absent with existing receipts; restore required')
-        self._advance_proof_window()
-        if self.proof_windows_complete:
-            return PollResult('proof_complete', None)
-        catalog_started = time.perf_counter()
-        self._require_native(anchor)
-        receivers = self.catalog.snapshot(required_receiver=anchor.position.receiver)
-        matches = [row for row in receivers if row.receiver == anchor.position.receiver]
-        if len(matches) != 1 or matches[0].receiver_library != anchor.receiver_identity.receiver_library:
-            raise ReceiverPlanningError('bound checkpoint is absent from its native journal')
-        require_readable_receiver(matches[0])
-        self._require_native(anchor)
-        source_tail = _source_tail(receivers)
-        lag_sequences = _effective_lag(anchor.position, source_tail, receivers)
-        if (matches[0].last_sequence is None and matches[0].status == 'ATTACHED'
-                and matches[0].first_sequence == anchor.sequence + 1):
-            plan = None
-        else:
-            plan = plan_next_window(anchor.position, receivers, max_entries=_planned_max_entries(
-                lag_sequences, max_entries=self.max_entries,
-                catch_up_max_entries=self.catch_up_max_entries))
-        if checkpoint is None:
-            # Seed only after the admitted boundary is proven readable.
-            self.checkpoint_store.compare_and_set_bound(None, anchor)
-            checkpoint = anchor
-        catalog_ms = (time.perf_counter() - catalog_started) * 1000
-        if plan is None:
-            self.metrics.idle_polls += 1
-            self.metrics.observe_poll(poll_ms=(time.perf_counter() - poll_started) * 1000,
-                                      catalog_ms=catalog_ms, capture_ms=0.0, publish_ms=0.0,
-                                      checkpoint_ms=0.0, payload_bytes=0, manifest_bytes=0,
-                                      source_tail=source_tail, lag_sequences=lag_sequences,
-                                      receivers=receivers)
+        with measure_stage(trace, 'reader_preflight'):
+            checkpoint = self.checkpoint_store.load_bound()
+            registry.require(binding, binding.bootstrap)
+            anchor = checkpoint or binding.bootstrap
+            binding.validate_checkpoint(anchor)
+            registry.require(binding, anchor)
+            if checkpoint is None and self.coordinator.store.list_receipt_keys(1000):
+                raise ReceiverPlanningError('bound checkpoint absent with existing receipts; restore required')
             self._advance_proof_window()
-            return PollResult('idle', None)
+            if self.proof_windows_complete:
+                return PollResult('proof_complete', None)
+            catalog_started = time.perf_counter()
+            self._require_native(anchor)
+            receivers = self.catalog.snapshot(required_receiver=anchor.position.receiver)
+            matches = [row for row in receivers if row.receiver == anchor.position.receiver]
+            if len(matches) != 1 or matches[0].receiver_library != anchor.receiver_identity.receiver_library:
+                raise ReceiverPlanningError('bound checkpoint is absent from its native journal')
+            require_readable_receiver(matches[0])
+            self._require_native(anchor)
+            source_tail = _source_tail(receivers)
+            lag_sequences = _effective_lag(anchor.position, source_tail, receivers)
+            if (matches[0].last_sequence is None and matches[0].status == 'ATTACHED'
+                    and matches[0].first_sequence == anchor.sequence + 1):
+                plan = None
+            else:
+                plan = plan_next_window(anchor.position, receivers, max_entries=_planned_max_entries(
+                    lag_sequences, max_entries=self.max_entries,
+                    catch_up_max_entries=self.catch_up_max_entries))
+            if checkpoint is None:
+                # Seed only after the admitted boundary is proven readable.
+                self.checkpoint_store.compare_and_set_bound(None, anchor)
+                checkpoint = anchor
+            catalog_ms = (time.perf_counter() - catalog_started) * 1000
+            if plan is None:
+                self.metrics.idle_polls += 1
+                self.metrics.observe_poll(poll_ms=(time.perf_counter() - poll_started) * 1000,
+                                          catalog_ms=catalog_ms, capture_ms=0.0, publish_ms=0.0,
+                                          checkpoint_ms=0.0, payload_bytes=0, manifest_bytes=0,
+                                          source_tail=source_tail, lag_sequences=lag_sequences,
+                                          receivers=receivers)
+                self._advance_proof_window()
+                return PollResult('idle', None)
 
-        identity = self._native_identity(plan.receiver_library, plan.end.receiver)
-        fresh = self.catalog.snapshot(required_receiver=anchor.position.receiver)
-        verify_captured_receivers(plan, receivers, fresh)
-        if self._native_identity(plan.receiver_library, plan.end.receiver) != identity:
-            raise ReceiverPlanningError('native receiver changed before the scan')
-        self._require_native(anchor)
-        start = binding.checkpoint(identity, plan.start.sequence)
-        end = binding.checkpoint(identity, plan.end.sequence)
-        registry.claim(binding, start)
-        observe = getattr(self.runner, 'observe_lag', None)
-        if callable(observe):
-            observe(lag_sequences)
-        started = time.perf_counter()
-        captured = self.runner.capture(plan)
-        scan_completed_at = self.utc_now()
-        capture_ms = (time.perf_counter() - started) * 1000
-        if captured.scanned_to != plan.end:
-            raise ReceiverPlanningError('source runner did not reach the bound scan end')
-        self._require_native(anchor)
-        self._require_native(end)
-        verified = self.catalog.snapshot(required_receiver=anchor.position.receiver)
-        verify_captured_receivers(plan, receivers, verified)
-        self._require_native(anchor)
-        self._require_native(end)
-        registry.require(binding, anchor)
-        registry.require(binding, end)
-        manifest = None if captured.manifest is None else bind_raw_batch(
-            captured.manifest, captured.payload, binding=binding, end=end)
-        result = self.coordinator.capture_receipted_window_result(
-            start=start, end=end, previous=checkpoint, manifest_content=manifest,
-            payload=captured.payload, scan_completed_at=scan_completed_at, capture_binding=binding)
+            identity = self._native_identity(plan.receiver_library, plan.end.receiver)
+            fresh = self.catalog.snapshot(required_receiver=anchor.position.receiver)
+            verify_captured_receivers(plan, receivers, fresh)
+            if self._native_identity(plan.receiver_library, plan.end.receiver) != identity:
+                raise ReceiverPlanningError('native receiver changed before the scan')
+            self._require_native(anchor)
+            start = binding.checkpoint(identity, plan.start.sequence)
+            end = binding.checkpoint(identity, plan.end.sequence)
+            registry.claim(binding, start)
+            observe = getattr(self.runner, 'observe_lag', None)
+            if callable(observe):
+                observe(lag_sequences)
+        window_trace = self._stage_trace_child(trace, end)
+        with measure_stage(window_trace, 'reader_capture'):
+            started = time.perf_counter()
+            captured = self.runner.capture(plan)
+            scan_completed_at = self.utc_now()
+            capture_ms = (time.perf_counter() - started) * 1000
+        with measure_stage(window_trace, 'reader_validate'):
+            if captured.scanned_to != plan.end:
+                raise ReceiverPlanningError('source runner did not reach the bound scan end')
+            self._require_native(anchor)
+            self._require_native(end)
+            verified = self.catalog.snapshot(required_receiver=anchor.position.receiver)
+            verify_captured_receivers(plan, receivers, verified)
+            self._require_native(anchor)
+            self._require_native(end)
+            registry.require(binding, anchor)
+            registry.require(binding, end)
+            manifest = None if captured.manifest is None else bind_raw_batch(
+                captured.manifest, captured.payload, binding=binding, end=end)
+        publish_trace = self._stage_trace_child(window_trace, end, manifest)
+        with measure_stage(publish_trace, 'raw_publish'):
+            result = self.coordinator.capture_receipted_window_result(
+                start=start, end=end, previous=checkpoint, manifest_content=manifest,
+                payload=captured.payload, scan_completed_at=scan_completed_at, capture_binding=binding)
         event_count = result.receipt['event_count']
         if plan.rotated:
             self.metrics.receiver_rotations += 1

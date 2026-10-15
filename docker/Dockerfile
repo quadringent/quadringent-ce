@@ -83,6 +83,7 @@ COPY src/quadringent/capture_binding.py /app/quadringent/
 COPY src/quadringent/receiver_registry.py /app/quadringent/
 COPY src/quadringent/console_snapshot.py /app/quadringent/
 COPY src/quadringent/continuous.py /app/quadringent/
+COPY src/quadringent/stage_timings.py /app/quadringent/
 COPY src/quadringent/contract.py /app/quadringent/
 COPY src/quadringent/destination_proof.py /app/quadringent/
 COPY src/quadringent/destination_sync.py /app/quadringent/

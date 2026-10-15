@@ -78,6 +78,22 @@ are not established. Other sites' active compute was removed, while two
 soft-deleted bucket generations remained retained; campaign cleanup was
 not complete.
 
+### Stock verifier scope
+
+A static review on 2026-10-15 found that the stock 0.4.5 verifier checks the
+Snowpipe `RAW(PAYLOAD, SOURCE_FILE)` / `CANONICAL` contract, not the endurance
+run's typed native-v2 `HISTORY` / `MIRROR` contract. Using that verifier for this
+endurance is Not supported. No verifier image was inspected or run for this
+review; image admission does not prove successful verification. The initial
+million-row comparison above used a separate native qualification harness;
+the stock verifier does not perform that comparison automatically.
+
+Canonical 0.4.5 source at
+[`ad30f16`](https://github.com/quadringent/quadringent-ce/tree/ad30f16ae9346bd332a482dc1d6de84f2b3e75f1):
+[image entrypoint](https://github.com/quadringent/quadringent-ce/blob/ad30f16ae9346bd332a482dc1d6de84f2b3e75f1/docker/verifier.Dockerfile#L36),
+[verification command](https://github.com/quadringent/quadringent-ce/blob/ad30f16ae9346bd332a482dc1d6de84f2b3e75f1/scripts/quadringent_autonomous_verify.py#L24-L33)
+and [Snowpipe queries](https://github.com/quadringent/quadringent-ce/blob/ad30f16ae9346bd332a482dc1d6de84f2b3e75f1/src/quadringent/snowflake_autonomous.py#L229-L294).
+
 ## 0.4.2: historical published prerelease
 
 Native continuity, reader outage, latency, complete cloud-loss recovery and the operator path are Not tested on 0.4.2. This version binds native capture to the original admitted receiver, refuses automatic adoption of legacy v1 checkpoints, and adds selected replay backup and restore with guarded RAW retention. Keep the previous version and its state until a migration has been verified; see the [native capture guide](product/native-qualification.md).

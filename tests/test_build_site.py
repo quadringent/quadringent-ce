@@ -1,9 +1,30 @@
 import json
+import re
 from pathlib import Path
 
 import pytest
 
 from build_site import build, repository_base
+
+
+def test_generated_guides_use_the_landing_icon(tmp_path):
+    root = tmp_path / "source"
+    (root / "site").mkdir(parents=True)
+    landing = (Path(__file__).resolve().parents[1] / "site/index.html").read_text()
+    icon = re.search(r'<link rel="icon"[^>]*>', landing)[0]
+    (root / "site/index.html").write_text(
+        f"<html><head><title>Quadringent</title>{icon}</head><body><h1>Start</h1></body></html>"
+    )
+    (root / "site/style.css").write_text("")
+    (root / "README.md").write_text("# Getting started\n\nUse the guide.")
+    (root / "SECURITY.md").write_text("# Security\n\nUse scoped identities.")
+    out = tmp_path / "built"
+    build("https://github.com/example/project", out, source_root=root,
+          site_url="https://example.github.io/project/")
+    pages = list(out.rglob("*.html"))
+    assert len(pages) == 4
+    for page in pages:
+        assert page.read_text().count(icon) == 1, page.relative_to(out)
 
 
 def test_published_site_has_canonical_metadata_and_discovery_files(tmp_path):

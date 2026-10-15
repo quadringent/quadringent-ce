@@ -205,5 +205,25 @@
     "final_journal_raw_history_mirror_oracle_proven": false,
     "general_native_cdc_qualified": false,
     "completion_within_cost_limit_guaranteed": false
+  },
+  "verifier_compatibility_review": {
+    "reviewed_at_utc": "2026-10-15T22:07:06.353234+00:00",
+    "method": "STATIC_CANONICAL_0_4_5_CONTRACT_REVIEW",
+    "decision": "NO_GO_STOCK_VERIFIER_FOR_TYPED_NATIVE_V2_ENDURANCE",
+    "canonical_source": {
+      "revision": "ad30f16ae9346bd332a482dc1d6de84f2b3e75f1",
+      "paths": [
+        "docker/verifier.Dockerfile",
+        "scripts/quadringent_autonomous_verify.py",
+        "src/quadringent/snowflake_autonomous.py",
+        "src/quadringent/site_config.py"
+      ]
+    },
+    "stock_contract": "Snowpipe RAW(PAYLOAD, SOURCE_FILE) / CANONICAL",
+    "typed_history_mirror_verification_supported": false,
+    "verifier_image_inspected_or_run_for_review": false,
+    "image_admission_proves_runtime_verification": false,
+    "initial_million_comparison_origin": "Separate native qualification harness; not an automatic stock verifier result.",
+    "evidence_sha256": "3664cd2b739dc0ecd6639d10036ad377f7986a1d52d8c1a4e2974fa73547f7c7"
   }
 }

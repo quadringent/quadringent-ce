@@ -1,0 +1,209 @@
+{
+  "schema": "quadringent.qualification-snapshot.v1",
+  "prepared_at_utc": "2026-10-15T18:17:07.712554+00:00",
+  "version": "0.4.5",
+  "artifact_source_sha": "ad30f16ae9346bd332a482dc1d6de84f2b3e75f1",
+  "overall_status": "PARTIAL_NOT_FULLY_QUALIFIED",
+  "publication_status": "PUBLIC_OBSERVED_SNAPSHOT",
+  "reader_outage_recovery": [
+    {
+      "site": "AWS_VM",
+      "status": "PASS_SCOPED_READER_RECOVERY",
+      "acknowledged_source_mutations": 3,
+      "history_events": 6,
+      "history_exact": true,
+      "source_mirror_exact": true,
+      "ten_second_target_passed": false,
+      "general_native_cdc_qualified": false,
+      "evidence_sha256": "2e629efe4243556b7772f642f34d455b3fd5802f5e7e1171afb14f542b0e07bf",
+      "sdk_report_sha256": "6dcebee34af707620816ff17705f79e5cfc1a2c265973d6990342ae13ada475c"
+    },
+    {
+      "site": "AWS_EKS",
+      "status": "PASS_SCOPED_READER_RECOVERY",
+      "acknowledged_source_mutations": 3,
+      "history_events": 6,
+      "history_exact": true,
+      "source_mirror_exact": true,
+      "ten_second_target_passed": false,
+      "general_native_cdc_qualified": false,
+      "evidence_sha256": "7d267ebe584c05c9e6f4fa4fc820e9a593366c19adb671cb2eb2a9036cd73577",
+      "sdk_report_sha256": "65d134bf1e6c90a69c6585ed3d13212835572474db86e98cf4851951a35dd47c"
+    },
+    {
+      "site": "GCP_VM",
+      "status": "PASS_SCOPED_READER_RECOVERY",
+      "acknowledged_source_mutations": 3,
+      "history_events": 6,
+      "history_exact": true,
+      "source_mirror_exact": true,
+      "ten_second_target_passed": false,
+      "general_native_cdc_qualified": false,
+      "evidence_sha256": "418a30c025d461b7c3531ff1cc30ccd35468ae1c3f9671210819d9eeeb8309af",
+      "sdk_report_sha256": "0e26fa65fbc5a7bd6e459102a13947a8e74230204a42e1518411a2dd81df11eb"
+    }
+  ],
+  "reconstruction": [
+    {
+      "site": "AWS_VM",
+      "status": "PASS_SCOPED_REBUILD",
+      "scope": "Original VM and boot volume removed; replacement VM restored application, PostgreSQL and persistent state; RAW, checkpoint and capture authority retained.",
+      "complete_original_provider_storage_loss_tested": false,
+      "typed_source_fixture_rows": 55,
+      "post_restore_delivery_observed": true,
+      "ten_second_target_passed": false,
+      "general_native_cdc_qualified": false,
+      "evidence_sha256": "ac7565c574fa9168360c8c3e0aef61b993269c4b71736b8150fed084e26467e2"
+    },
+    {
+      "site": "AWS_EKS",
+      "status": "PASS_SCOPED_REBUILD",
+      "scope": "Application control plane, PostgreSQL data and persistent volume replaced; retained RAW, checkpoint and capture-authority storage.",
+      "complete_original_provider_storage_loss_tested": false,
+      "typed_source_fixture_rows": 55,
+      "post_restore_delivery_observed": true,
+      "ten_second_target_passed": false,
+      "general_native_cdc_qualified": false,
+      "evidence_sha256": "8faeba71c13ae993af5b613466b7b936974b1603562d2bc17ea0c5b6cbdf1769"
+    },
+    {
+      "site": "GCP_VM",
+      "status": "PARTIAL_COMPONENT_RESTORE_ONLY",
+      "post_restore_source_witness_qualified": false,
+      "vm_identity_verified": false,
+      "evidence_sha256": "cb2dd6f3a6860720a63107c5112883ba54e38c7da679f4aca5abf8244d4df68d",
+      "source_witness_state": "WITNESS_NOT_READY_NO_WRITE",
+      "source_witness_evidence_sha256": "81484915d4f4f9cda0cb912bf28a17463d006ec14e2c0986266f4e46f5bd19e6"
+    },
+    {
+      "site": "GCP_GKE",
+      "status": "BLOCKED_LATE_TABLE_BOUND_COVERAGE",
+      "recovery_qualified": false,
+      "evidence_sha256": "e71ceee79946bf206d34b0d8a1dab418e6645c48859fa4ba65c0ee39fbdfe9a0"
+    }
+  ],
+  "volume": {
+    "source_rows": 1000000,
+    "source_to_original_raw_snapshot": "PASS_FULL_TYPED_EQUALITY",
+    "compared_columns": 7,
+    "ignored_columns": 0,
+    "duplicates": 0,
+    "missing_rows": 0,
+    "last_row_negative_control_detected": true,
+    "source_raw_evidence_sha256": "2f1b2f96dc736d6517f471ee3361f94cf7e8430175252d1a25ccad1010b2e7bf",
+    "snowflake_full_million_equality": "PASS_INITIAL_FULL_TYPED_EQUALITY",
+    "endurance_24h": "IN_PROGRESS_NOT_PROVEN",
+    "receiver_rotation_in_endurance": "NOT_PROVEN",
+    "independent_final_journal_raw_history_mirror_oracle": "NOT_RUN",
+    "source_raw_negative_control_scope": "SOURCE_AND_RAW_SNAPSHOT_ONLY",
+    "historical_partial_delivery_observation": {
+      "observed_utc": "2026-10-15T17:13:50.399586+00:00",
+      "history_rows": 693000,
+      "mirror_rows": 690000,
+      "evidence_sha256": "827995535db571af5fbddd7b5e8a93eb90b9f757baf56179b6edb6de59748959",
+      "superseded_by_initial_full_comparison": true
+    },
+    "initial_four_layer_equality": {
+      "status": "PASS_SCOPED_INITIAL_FULL_TYPED_EQUALITY",
+      "scope": "Initial quiescent SOURCE, original RAW snapshot, HISTORY and MIRROR; every row compared.",
+      "source_rows": 1000000,
+      "raw_snapshot_events": 1000000,
+      "history_rows": 1000000,
+      "mirror_rows": 1000000,
+      "business_fields": 7,
+      "ignored_business_fields": 0,
+      "logical_duplicates": 0,
+      "history_technical_identity_fields": 4,
+      "foreign_history_epochs_filtered_out": false,
+      "finished_utc": "2026-10-15T18:01:27.118716+00:00",
+      "evidence_sha256": "54d30dee8868378e067f659066919862c0d3fc0eccb02ee3ff7f7f6e359f95f7"
+    }
+  },
+  "latency": {
+    "target_seconds": 10,
+    "status": "FAIL_OBSERVED_SAMPLES",
+    "p95_or_general_sla_qualified": false,
+    "cold_warehouse_example": {
+      "site": "AWS_VM",
+      "history_visibility_from_source_ack_seconds": 26.376888,
+      "mirror_visibility_from_source_ack_seconds": 26.709965,
+      "scope": "One post-restore source witness with documented warehouse state; visibility upper bounds, not a latency distribution.",
+      "evidence_sha256": "6ac075069ab33e1b8ad8ecbf58bbd61ff42768a8a11b952dac7455d8bb3b8422"
+    },
+    "first_endurance_burst": {
+      "status": "FAIL_TEN_SECOND_OBSERVATION_TARGET",
+      "measurement_kind": "OBSERVED_VISIBILITY_UPPER_BOUNDS_FROM_SOURCE_ACK",
+      "insert_history_seconds": 12.383206,
+      "update_history_seconds": 12.165561,
+      "delete_history_and_final_mirror_absence_seconds": 11.98298,
+      "intermediate_insert_update_mirror_visibility_proven": false,
+      "p95_or_general_sla_qualified": false,
+      "scope": "Polling visibility bounds for one burst; exact event delivery times and a latency distribution are not established.",
+      "evidence_sha256": "82ceaab006adcc6dcf504945c473cb7e71c44d317cb74900ac4489fec793cfe9"
+    }
+  },
+  "local_mode": {
+    "application_control_and_persistence": "PASS_SCOPED",
+    "native_source_to_snowflake_cdc": "UNSUPPORTED_OR_UNPROVEN",
+    "browser_render_verified": false,
+    "evidence_sha256": "8876d02eb725008fb93336f39461823c9b962eacaf00bbb7696221a8ed37d7b1"
+  },
+  "cost": {
+    "final_attributable_billing": "PENDING",
+    "current_warehouse_size": "X-Small",
+    "current_warehouse_generation": "1",
+    "auto_suspend_seconds": 1,
+    "measured_invoice_or_cost_per_million_claimed": false,
+    "warehouse_observed_at_utc": "2026-10-15T18:03:40.620456+00:00",
+    "warehouse_metadata_evidence_sha256": "d67a097004cc32e1b3d9f405d8eaac825c27c580d84ea311d2337c89d7c597b9",
+    "auto_resume": true,
+    "warehouse_resource_constraint": "STANDARD_GEN_1",
+    "warehouse_observed_state": "SUSPENDED",
+    "completion_within_cost_limit_guaranteed": false
+  },
+  "cleanup": {
+    "campaign_complete": false,
+    "other_site_active_compute_removed": true,
+    "retained_soft_deleted_bucket_generations": 2,
+    "provider_hard_delete_dates_utc": [
+      "2026-10-22T15:27:11.823Z",
+      "2026-10-22T15:27:14.354Z"
+    ],
+    "retained_storage_final_cost_measured": false,
+    "evidence_sha256": "216e601015dc9e339b0429998d0faaf5db6fb5048fa4565171233060f248f8f3"
+  },
+  "interpretation": [
+    "Passing component results do not qualify all four platforms or general production use.",
+    "The initial one-million-row four-layer equality passes; completed 24-hour continuity, receiver rotation and the independent final journal oracle remain unproven.",
+    "One burst establishes typed HISTORY and the deleted identity's final MIRROR absence; intermediate insert/update MIRROR visibility is unproven.",
+    "Observed visibility bounds exceed the ten-second target; no P95 or general latency SLA is qualified.",
+    "Source writes and data are synthetic; no customer environment or customer dataset is used.",
+    "Public release promotion requires final evidence and scope review."
+  ],
+  "evidence_snapshot_utc": "2026-10-15T18:08:54.157733+00:00",
+  "endurance": {
+    "status": "IN_PROGRESS_NOT_24H_QUALIFIED",
+    "started_utc": "2026-10-15T18:08:27.957050+00:00",
+    "first_source_ack_utc": "2026-10-15T18:08:41.600546130Z",
+    "completed_bursts_at_snapshot": 1,
+    "planned_bursts": 97,
+    "first_burst": {
+      "status": "PASS_SCOPED_TYPED_HISTORY_AND_DELETE_END_STATE",
+      "acknowledged_source_mutations": 3,
+      "history_events": 4,
+      "business_fields_compared": 7,
+      "mirror_rows_for_deleted_identity": 0,
+      "reconciled_within_observation_seconds": 120,
+      "intermediate_insert_update_mirror_visibility_proven": false,
+      "independent_native_position_oracle_verified": false,
+      "ten_second_target_passed": false,
+      "finished_utc": "2026-10-15T18:08:54.151953+00:00",
+      "evidence_sha256": "82ceaab006adcc6dcf504945c473cb7e71c44d317cb74900ac4489fec793cfe9"
+    },
+    "completed_24h_proven": false,
+    "receiver_rotation_proven": false,
+    "final_journal_raw_history_mirror_oracle_proven": false,
+    "general_native_cdc_qualified": false,
+    "completion_within_cost_limit_guaranteed": false
+  }
+}

@@ -164,3 +164,22 @@ def test_unknown_inline_tags_are_escaped_and_known_markup_is_kept(tmp_path):
     assert "ghcr.io/&lt;owner&gt;/app" in page and "--check-ibmi &lt;host&gt;" in page
     assert "<details><summary>More</summary>" in page
     assert "<code>code &lt;x&gt;</code>" in page
+
+
+def test_guide_evidence_links_target_the_copied_public_site_file(tmp_path):
+    root = tmp_path / "source"
+    (root / "site").mkdir(parents=True)
+    (root / "site/index.html").write_text("<html><head><title>Q</title></head></html>")
+    (root / "site/style.css").write_text("")
+    receipt = root / "site/qualification-current.json"
+    receipt.write_text('{"status":"PARTIAL"}')
+    (root / "README.md").write_text(
+        "# Current results\n\n[Evidence](site/qualification-current.json#scope)\n\n"
+        "[Absent](site/not-published.json)"
+    )
+    out = tmp_path / "built"
+    build("https://github.com/example/project", out, source_root=root, site_url="https://example.github.io/project/")
+    guide = (out / "docs/getting-started/index.html").read_text()
+    assert 'href="../../qualification-current.json#scope"' in guide
+    assert (out / "qualification-current.json").read_bytes() == receipt.read_bytes()
+    assert 'href="https://github.com/example/project/blob/main/site/not-published.json"' in guide

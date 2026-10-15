@@ -62,8 +62,8 @@ TLS or the IBM i account, `STOPPED_PROOF_CHAIN` to incomplete continuity,
 [on-call runbook](oncall-runbook.md) lists the first reads for each case.
 Keep one reader per journal; never start a second reader to "help".
 
-Diagnostic export requires v0.4.3 or a newer source build. Published v0.4.2
-packages do not include it. An authenticated organization administrator can select **Download diagnostic**
+Diagnostic export is included in the published v0.4.5 prerelease.
+An authenticated organization administrator can select **Download diagnostic**
 in the cockpit. The JSON file contains a dated local database snapshot,
 resource counts and declared/cached states with temporary resource aliases.
 It excludes names, endpoints, credentials, SQL, row payloads and raw logs.

@@ -111,6 +111,8 @@ def publish_guides(root: Path, output: Path, base: str, repository: str) -> list
             resolved = posixpath.normpath(posixpath.join(posixpath.dirname(source), parsed.path))
             if attr == "href" and resolved in available:
                 target = "../" + available[resolved][0] + "/"
+            elif attr == "href" and resolved.startswith("site/") and (root / resolved).is_file():
+                target = "../../" + resolved.removeprefix("site/")
             elif attr == "src" and resolved.startswith("site/assets/"):
                 target = "../../" + resolved.removeprefix("site/")
             elif attr == "src":

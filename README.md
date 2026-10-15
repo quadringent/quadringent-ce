@@ -19,10 +19,14 @@ The engine, API and local cockpit are open source under [Apache-2.0](LICENSE),
 with no license key or commercial table limit. Operators pay their own
 infrastructure costs. No production qualification is claimed.
 
-Source version is **0.4.5 candidate**; the latest published prerelease remains
-**0.4.2**. Original native receiver bindings, selected replay backup/restore
-and guarded RAW retention are included. Native
-continuity, complete site recovery and the operator path need fresh qualification.
+**0.4.5 is published as a [prerelease](https://github.com/quadringent/quadringent-ce/releases/tag/v0.4.5).**
+The [October 15 observed results](site/qualification-0.4.5.json) record a full
+one-million-row initial SOURCE/RAW/HISTORY/MIRROR comparison on an AWS VM.
+Reader-recovery checks passed within their recorded scopes on AWS VM, EKS and
+GCP VM; GKE and general qualification remain incomplete. The 24-hour endurance
+run is ongoing, and the 10 s observation target has not passed. Original native
+receiver bindings, selected replay backup/restore and guarded RAW retention
+are included; these results do not qualify production or an SLA.
 
 This preview changes native capture configuration and checkpoint semantics.
 It requires the original admitted receiver binding and refuses automatic adoption
@@ -120,7 +124,7 @@ temporary access were removed; protected original stopped VMs and disks remain.
 cloud-loss recovery are not established.** Source equivalence to 0.3.4 does not
 turn that version's observations into 0.3.5 execution evidence.
 
-## Latest published 0.3.4 recovery — October 12, 2026
+## Historical 0.3.4 four-target recovery — October 12, 2026
 
 Fresh infrastructure and **new PostgreSQL PVCs** on all four targets restored
 PostgreSQL, original keys/auth state, RAW, checkpoints and pipeline identities.

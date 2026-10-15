@@ -4,7 +4,13 @@ The installed command observes the product's readers and loaders on GKE, EKS
 or k3s VMs. It starts no second capture/loader and does not replace the Docker
 development harness.
 
-The [October 12, 2026 preview summary](../../site/qualification-0.3.4.json)
+The [October 15, 2026 observed 0.4.5 results](../../site/qualification-0.4.5.json)
+include a complete typed initial comparison of one million rows on an AWS VM.
+The 24-hour run is ongoing; receiver rotation and the final independent oracle
+remain unproven. Scoped reader-recovery checks passed on AWS VM, EKS and GCP VM;
+GKE remains incomplete. The 10 s observation target has not passed.
+
+The historical [October 12, 2026 preview summary](../../site/qualification-0.3.4.json)
 records observed artifacts, typed data, version cycles and latency for 0.3.4.
 The cold-warehouse 10 s gate failed on three targets. Earlier reader-failure
 results apply to 0.3.2; complete site reconstruction and renewed CDC still need

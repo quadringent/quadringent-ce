@@ -201,18 +201,26 @@ def target_rows(block: str) -> dict[str, str]:
 
 
 def test_hero_uses_latest_scoped_observations_without_transferring_versions():
-    runtime = scoped_summary("runtime-0.3.5")
-    recovery = scoped_summary("recovery-0.3.4")
+    current = scoped_summary("qualification-0.4.5")
     facts = text_of(re.search(r'<dl class="release-facts".*?</dl>', read("site/index.html"), re.S)[0])
-    published_version = "0.4.2"
-    assert release_version() == published_version
+    assert release_version() == current["version"] == "0.4.5"
+    assert current["overall_status"] == "PARTIAL_NOT_FULLY_QUALIFIED"
+    initial = current["volume"]["initial_four_layer_equality"]
+    assert initial["status"] == "PASS_SCOPED_INITIAL_FULL_TYPED_EQUALITY"
+    assert initial["source_rows"] == initial["history_rows"] == initial["mirror_rows"] == 1_000_000
+    assert initial["business_fields"] == 7 and initial["ignored_business_fields"] == 0
+    assert "full one-million-row initial comparison on AWS VM" in facts
+    assert "scoped reader recovery on AWS VM, EKS and GCP VM" in facts
+    assert "24-hour endurance ongoing" in facts
+    assert "GKE and the 10 s target remain incomplete" in facts
+    assert "No production qualification or SLA" in facts
+    assert current["endurance"]["completed_24h_proven"] is False
+    assert current["latency"]["p95_or_general_sla_qualified"] is False
     readme = flat(read("README.md"))
-    assert f'latest published prerelease remains **{published_version}**' in readme
-    assert f'{published_version}: native CDC, outage, latency and complete cloud-loss recovery need fresh qualification' in facts
-    assert f'Historical {runtime["version"]}: fresh initial copy on 4 targets' in facts
-    assert f'{recovery["version"]} recovery' in facts
-    assert "8 cold/warm observations within 10 s" in facts
-    assert "gate failed on 3" not in facts
+    assert "0.4.5 is published as a [prerelease]" in readme
+    assert "site/qualification-0.4.5.json" in readme
+    assert "the 10 s observation target has not passed" in readme
+    assert "8 cold/warm observations within 10 s" not in facts
 
 
 def test_current_runtime_copy_numbers_and_upgrade_paths_match_receipt():
@@ -316,11 +324,11 @@ def test_readme_matches_scoped_receipts_and_preserves_historical_results():
     recovery = scoped_summary("recovery-0.3.4")
     readme = flat(read("README.md"))
     source_version = tomllib.loads(read("pyproject.toml"))["project"]["version"]
-    assert f'Source version is **{source_version} candidate**' in readme
+    assert f'**{source_version} is published as a [prerelease]' in readme
     assert f'The published **{runtime["version"]}**' in readme
-    assert "need fresh qualification" in readme
+    assert "GKE and general qualification remain incomplete" in readme
     assert "Historical measurements apply only to their original artifacts and scopes" in readme
-    for name in ["runtime-0.3.5.json", "recovery-0.3.4.json", "qualification-0.3.4.json"]:
+    for name in ["qualification-0.4.5.json", "runtime-0.3.5.json", "recovery-0.3.4.json", "qualification-0.3.4.json"]:
         assert name in readme
     assert "8 new copy Jobs" in readme and "110 history C images" in readme
     assert "same PostgreSQL PVC" in readme and "direct Helm" in readme
@@ -537,3 +545,16 @@ def test_operator_guide_covers_the_operating_path_and_is_published(site):
     page = (site / "docs/operator-guide/index.html").read_text()
     assert "--check-ibmi &lt;host&gt;" in page
     assert "Not measured" in page and "Synthetic or Historical" in page
+
+
+def test_current_installation_and_operator_guides_match_published_preview():
+    version = scoped_summary("qualification-0.4.5")["version"]
+    installation = read("docs/product/install-default.md")
+    assert f"quadringent-{version}-py3-none-any.whl" in installation
+    assert f"quadringent-{version}.tar.gz" in installation
+    assert f"--assets-dir /private/path/quadringent-{version}" in installation
+    assert f"**{version} DEV/INT prerelease**" in installation
+    assert "qualification-0.4.5.json" in installation
+    assert "do not qualify production" in flat(installation)
+    operator = flat(read("docs/product/operator-guide.md"))
+    assert f"published v{version} prerelease" in operator

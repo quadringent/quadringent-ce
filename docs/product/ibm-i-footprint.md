@@ -43,7 +43,7 @@ GCS bucket (GCP), never on the IBM i.
 
 ## How it reads the journal
 
-All reads go through JDBC and the JTOpen driver, plus the journal-retrieval
+Product reads go through JDBC and the JTOpen driver, plus the journal-retrieval
 library below. The statements are in the Java sources listed in the last column.
 
 | What is read | IBM i interface | Where in the code |
@@ -76,6 +76,20 @@ never calls `setReadOnly`. Its protection is the absence of write statements in
 the code and the authorities of the profile you give it. The snapshot and
 catalog classes do set their connections read-only.
 <!-- source: java/src/main/java/io/quadringent/as400/JournalSession.java, java/src/main/java/io/quadringent/as400/ReadOnlyTableSnapshot.java, java/src/main/java/io/quadringent/as400/FleetCatalogProbe.java -->
+
+`ReadOnlyMemberIdentity` is an Unreleased verification tool with no product
+entry point. Besides metadata `SELECT` queries, it uses JTOpen `ProgramCall`
+for two IBM retrieval APIs:
+[`QUSRMBRD`](https://www.ibm.com/docs/en/i/7.5.0?topic=ssw_ibm_i_75%2Fapis%2Fqusrmbrd.html)
+(`MBRD0200`, exact member, overrides disabled) and
+[`QJORJIDI`](https://www.ibm.com/docs/en/i/7.4.0?topic=ssw_ibm_i_74%2Fapis%2FQJORJIDI.html)
+(`RJID0100`, member DATA identifier resolved as `*QDDS`). It creates no outfile
+or object and sends no CL command. The gate pins the closed API constructor,
+parameters and call adapter; `ProgramCall`, `ProgramParameter` and
+`SocketProperties` imports are reviewed only for this class. Current member
+observations do not prove historical format, generation or a stable cut.
+Runtime behavior and minimum-profile authorities: Not tested.
+<!-- source: java/src/main/java/io/quadringent/as400/ReadOnlyMemberIdentity.java, tests/test_trust_claims.py -->
 
 ## Which authorities each component needs
 
@@ -140,8 +154,8 @@ any new Java file.
 - It does not run `INSERT`, `UPDATE`, `DELETE`, `MERGE`, `CREATE`, `DROP` or
   `ALTER` on the IBM i from the Java reader classes, except the class named
   below.
-- It does not run a CL command or `QCMDEXC`, and does not use the JTOpen
-  command or program call classes, in the Java classes of this repository.
+- The product path does not run a CL command or `QCMDEXC`. Direct JTOpen
+  program calls are limited to the two reviewed retrieval APIs above.
   The journal-parsing library calls IBM journal APIs; that is covered by the
   authorities table, not by this scan.
 - It does not write to the IBM i IFS.
@@ -224,7 +238,8 @@ machine; they do not touch your IBM i.
    environment described in [CONTRIBUTING.md](../../CONTRIBUTING.md#checks).
 2. Read the statements. They are in `java/src/main/java/io/quadringent/as400/`.
    This search lists the places where a statement could change data or call a
-   command; only `QualificationSourceDriver.java` should appear:
+   command. `QualificationSourceDriver.java` contains the write exception;
+   `ReadOnlyMemberIdentity.java` contains the reviewed native retrieval adapter:
 
    ```sh
    grep -nE "executeUpdate|executeBatch|addBatch|\.execute\(|prepareCall|CommandCall|ProgramCall|QCMDEXC|IFS[A-Za-z]|insertRow|updateRow|deleteRow|CONCUR_UPDATABLE|com\.ibm\.as400\.access\.\*" \

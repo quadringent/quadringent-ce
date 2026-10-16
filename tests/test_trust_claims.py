@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import json
 import re
 import sys
@@ -67,6 +68,16 @@ ALLOWED_JTOPEN_IMPORTS = frozenset(
         "SecureAS400",
     }
 )
+
+MEMBER_IDENTITY_CLASS = "ReadOnlyMemberIdentity.java"
+MEMBER_IDENTITY_IMPORTS = frozenset({"ProgramCall", "ProgramParameter", "SocketProperties"})
+# Review covers the closed API constructor, exact parameters and call adapter.
+MEMBER_IDENTITY_BLOCKS = {
+    "    public record ProgramRequest(": "30e4c218928f425ed8f379a78ccb01f763500f1593f25f116ffe38a10bc0bdb3",
+    "    private static byte[] member(": "3865f7ccc50733453e7e0fbfce93cfb768ec90f469bddeb8ba4218cc20dfdf3d",
+    "    private static void resolve(": "be7422d4cbcc7e10e4969ebecb39c74fb3767d3d2d5f2007e8e3b8d03861cca7",
+    "    private static NativeReply call(": "ba20e11e6345c1f08131d444751e2d041c454e71d7817734ca94175cab8842ea",
+}
 
 # --------------------------------------------------------------------------
 # Detectors
@@ -205,18 +216,44 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def reviewed_member_blocks(source: str) -> list[str] | None:
+    blocks = []
+    for signature, expected in MEMBER_IDENTITY_BLOCKS.items():
+        if source.count(signature) != 1:
+            return None
+        start = source.index(signature)
+        end = source.find("\n    }", start)
+        if end < 0:
+            return None
+        block = source[start : end + len("\n    }")]
+        if hashlib.sha256(block.encode()).hexdigest() != expected:
+            return None
+        blocks.append(block)
+    return blocks
+
+
 # --------------------------------------------------------------------------
 # (a) Reader code issues no data-changing SQL and no object-changing CL
 # --------------------------------------------------------------------------
 
 
-def reader_source_findings(source: str) -> list[str]:
+def reader_source_findings(source: str, *, file_name: str | None = None) -> list[str]:
     """Everything in one Java source that the footprint page says is absent."""
+    allowed_imports = ALLOWED_JTOPEN_IMPORTS
+    review_findings = []
+    if file_name == MEMBER_IDENTITY_CLASS:
+        blocks = reviewed_member_blocks(source)
+        program_import = "import com.ibm.as400.access.ProgramCall;"
+        if blocks is None or source.count(program_import) != 1:
+            review_findings.append("unreviewed_member_native_surface")
+        else:
+            allowed_imports |= MEMBER_IDENTITY_IMPORTS
+            source = source.replace(blocks[-1], "").replace(program_import, "")
     code, literals = strip_java(source)
     jtopen = [
         f"com.ibm.as400.{package}.{name}"
         for package, name in _JTOPEN_REFERENCE.findall(code)
-        if package != "access" or name not in ALLOWED_JTOPEN_IMPORTS
+        if package != "access" or name not in allowed_imports
     ]
     jtopen_literals = [
         f"com.ibm.as400.{package}.{name}"
@@ -225,6 +262,7 @@ def reader_source_findings(source: str) -> list[str]:
         if package != "access" or name not in ALLOWED_JTOPEN_LITERALS
     ]
     return [
+        *review_findings,
         *changing_statements(literals),
         *_JAVA_WRITE_API.findall(code),
         *_JAVA_TRUST_BYPASS.findall(code),
@@ -235,7 +273,7 @@ def reader_source_findings(source: str) -> list[str]:
 
 @pytest.mark.parametrize("path", reader_java_files(), ids=lambda p: p.name)
 def test_java_reader_class_issues_no_changing_sql_or_cl(path: Path) -> None:
-    assert reader_source_findings(_read(path)) == []
+    assert reader_source_findings(_read(path), file_name=path.name) == []
 
 
 def test_a_reader_class_with_a_write_would_fail_the_scan() -> None:
@@ -272,12 +310,90 @@ def test_wildcard_and_unreviewed_jtopen_imports_are_findings() -> None:
     assert reader_source_findings(f"import com.ibm.as400.access.AS400;\n{body}") == []
 
 
+def test_member_native_reads_require_the_reviewed_class_and_narrow_imports() -> None:
+    source = _read(JAVA_MAIN / "ReadOnlyMemberIdentity.java")
+    assert reader_source_findings(source, file_name="ReadOnlyMemberIdentity.java") == []
+    assert reader_source_findings(source, file_name="AnotherReader.java")
+    assert reader_source_findings(source)
+    assert not {"ProgramCall", "ProgramParameter", "SocketProperties"} & ALLOWED_JTOPEN_IMPORTS
+
+
+@pytest.mark.parametrize(
+    "before,after",
+    [
+        ('Set.of("QUSRMBRD", "QJORJIDI")', 'Set.of("QUSRMBRD", "QJORJIDI", "QUSRJOB")'),
+        ('Set.of("QUSRMBRD", "QJORJIDI")', 'Set.of("QUSRMBRD", "QJORJIDI", "QCMDEXC")'),
+        ('new ProgramRequest("QUSRMBRD",', 'new ProgramRequest("QUSRJOB",'),
+        ('new ProgramRequest("QUSRMBRD",', 'new ProgramRequest("QCMDEXC",'),
+        ('"/QSYS.LIB/" + request.program() + ".PGM"', '"/OTHER.LIB/" + request.program() + ".PGM"'),
+        ('if (!Set.of("QUSRMBRD", "QJORJIDI").contains(program) || receiverLength < 1',
+         'if (receiverLength < 1'),
+        ('ProgramCall call = new ProgramCall(system,', 'ProgramCall call = new ProgramCall(null,'),
+        ('encode("0", 1, ccsid), errorBuffer()', 'encode("1", 1, ccsid), errorBuffer()'),
+        ('import com.ibm.as400.access.ProgramParameter;', 'import com.ibm.as400.access.*;'),
+    ],
+    ids=["third-api", "command-api", "third-api-call", "command-call", "changed-path", "removed-validator",
+         "changed-adapter", "member-overrides", "wildcard"],
+)
+def test_member_native_review_rejects_changed_api_guard_path_or_adapter(before: str, after: str) -> None:
+    source = _read(JAVA_MAIN / "ReadOnlyMemberIdentity.java")
+    assert source.count(before) == 1
+    assert reader_source_findings(source.replace(before, after), file_name="ReadOnlyMemberIdentity.java")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        'new ProgramCall(system, "/QSYS.LIB/QUSRMBRD.PGM", parameters);',
+        'new com.ibm.as400.access.ProgramCall(system, "/QSYS.LIB/QUSRMBRD.PGM", parameters);',
+        'Class.forName("com.ibm.as400.access.ProgramCall");',
+        's.executeUpdate("x");',
+        's.executeQuery("CREATE TABLE QTEMP.X (A INT)");',
+        's.executeQuery("CALL QSYS2.QCMDEXC(?, ?)");',
+        'new com.ibm.as400.access.IFSFileOutputStream(system, "/x");',
+        'X509TrustManager trust;',
+    ],
+)
+def test_member_native_review_does_not_hide_other_calls_or_writes(body: str) -> None:
+    source = _read(JAVA_MAIN / "ReadOnlyMemberIdentity.java")
+    mutated = source.rstrip()[:-1] + f"\n    void unreviewed() {{ {body} }}\n}}\n"
+    assert reader_source_findings(mutated, file_name="ReadOnlyMemberIdentity.java")
+
+
+@pytest.mark.parametrize("name", ["ProgramCall", "ProgramParameter", "SocketProperties", "CommandCall", "CharacterDataArea"])
+def test_member_native_imports_are_not_an_unlimited_permission(name: str) -> None:
+    source = f"import com.ibm.as400.access.{name};\nclass AnotherReader {{}}"
+    assert reader_source_findings(source, file_name="AnotherReader.java")
+    if name not in {"ProgramCall", "ProgramParameter", "SocketProperties"}:
+        member = _read(JAVA_MAIN / "ReadOnlyMemberIdentity.java")
+        assert reader_source_findings(source + member, file_name="ReadOnlyMemberIdentity.java")
+
+
+def test_member_native_interfaces_are_documented_and_not_product_entrypoints() -> None:
+    page = _read(FOOTPRINT)
+    for text in ("Unreleased", "`ReadOnlyMemberIdentity`", "`ProgramCall`", "`QUSRMBRD`", "`QJORJIDI`",
+                 "MBRD0200", "RJID0100", "Not tested"):
+        assert text in page
+    for name in ("qusrmbrd.html", "QJORJIDI.html"):
+        assert name in page
+    for base in ("src", "scripts", "chart", "docker", "deploy"):
+        for path in (ROOT / base).rglob("*"):
+            if path.is_file() and path.suffix in {".py", ".sh", ".yaml", ".yml", ".tpl", ""}:
+                assert "ReadOnlyMemberIdentity" not in _read(path), path
+
+
 def test_java_reader_classes_import_only_reviewed_jtopen_classes() -> None:
     imported: set[str] = set()
     for path in reader_java_files():
-        code, _ = strip_java(_read(path))
-        imported.update(name for package, name in _JTOPEN_REFERENCE.findall(code) if package == "access")
-    assert imported <= ALLOWED_JTOPEN_IMPORTS
+        source = _read(path)
+        code, _ = strip_java(source)
+        allowed = ALLOWED_JTOPEN_IMPORTS
+        if path.name == MEMBER_IDENTITY_CLASS:
+            assert reviewed_member_blocks(source) is not None
+            allowed |= MEMBER_IDENTITY_IMPORTS
+        references = set(_JTOPEN_REFERENCE.findall(code))
+        assert all(package == "access" and name in allowed for package, name in references), path.name
+        imported.update(name for _, name in references)
     assert imported, "no JTOpen class found: the scan would pass vacuously"
 
 

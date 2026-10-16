@@ -134,7 +134,10 @@ def case(authority, tmp_path, request):
         source_system="ibmi",
         journal="JRN",
     )
-    identity = ReceiverIdentity("TESTLIB", "JRN", "TESTLIB", "RCV1", "offline-v1", "generation-one")
+    native = getattr(request, "param", "local") == "native"
+    identity = ReceiverIdentity("TESTLIB", "JRN", "TESTLIB", "RCV1",
+                                "ibmi-ifs-object-v1" if native else "offline-v1",
+                                "1:123:456:789" if native else "generation-one")
     binding = registry.create_or_load_binding(scope_id=stream, identity=identity, sequence=20)
     checkpoint = binding.checkpoint(identity, 21)
     storage.checkpoint_store(stream).compare_and_set_bound(None, checkpoint)

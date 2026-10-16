@@ -40,6 +40,12 @@ distinguish an absent archive object from a denied read.
 Read access to the corresponding `native-preparations-v1` archive and list/read
 access to the table's journal prefix are separate scoped permissions. Collection
 alone grants no native qualification or stable-cut proof.
+The server collector can also record native receiver identities/catalogue ranges
+and Snowflake identities before and after exports on the same sessions. Snowflake
+account, user, role and warehouse expectations must come from server configuration.
+Archive replay recalculates the seven streams and comparison with bounded memory;
+missing platform, source-provenance, full receiver-chain, inventory or stable-cut
+authority keeps native admission incomplete. This controller remains uninstalled.
 
 ## Prepare values and secrets
 

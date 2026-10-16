@@ -18,9 +18,14 @@ from urllib.request import urlopen
 base = "http://127.0.0.1:8844"
 from quadringent_control_plane.v2.build_identity import read_build_identity
 from quadringent_control_plane.v2.services.native_collection import StoredNativeCollector, CollectionLimits
+from quadringent_control_plane.v2.services.native_replay import StoredCollectionReplay
+from quadringent.qualification.verification_identity import observe_destination_identity
+from quadringent.qualification.verification_receivers import observe_receiver
+from zipfile import ZipFile
 from quadringent.qualification.verification_guard import collect_native_guards
 from botocore.session import get_session
 assert callable(StoredNativeCollector) and callable(collect_native_guards)
+assert callable(StoredCollectionReplay) and callable(observe_destination_identity) and callable(observe_receiver)
 assert CollectionLimits().max_seconds == 3600
 multipart = get_session().get_service_model('s3').operation_model('CompleteMultipartUpload')
 assert 'IfNoneMatch' in multipart.input_shape.members, 'conditional archive completion requires SDK support'
@@ -46,6 +51,9 @@ for attempt in range(100):
         time.sleep(0.1)
 else:
     raise AssertionError("packaged cockpit must serve HTML at /")
+
+with ZipFile('/app/probe.jar') as producer:
+    assert producer.getinfo('io/quadringent/as400/NativeVerificationReceiverExport.class').file_size > 0
 
 class Assets(HTMLParser):
     paths = []

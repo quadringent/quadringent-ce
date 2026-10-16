@@ -163,7 +163,8 @@ class GcsObjectStore:
             return created
 
     def verify_file(
-        self, key: str, *, expected_sha256: str, byte_count: int, check_current: Callable[[], bool] = lambda: True
+        self, key: str, *, expected_sha256: str, byte_count: int,
+        check_current: Callable[[], bool] = lambda: True, output=None
     ) -> None:
         _archive_arguments(expected_sha256, byte_count, check_current)
         _archive_fence(check_current)
@@ -172,10 +173,10 @@ class GcsObjectStore:
         _archive_fence(check_current)
         if blob is None:
             raise FileNotFoundError(key)
-        self._verify_file_archive(blob, None, expected_sha256, byte_count, check_current)
+        self._verify_file_archive(blob, None, expected_sha256, byte_count, check_current, output=output)
 
     @staticmethod
-    def _verify_file_archive(blob, snapshot, expected_sha256, byte_count, check_current):
+    def _verify_file_archive(blob, snapshot, expected_sha256, byte_count, check_current, *, output=None):
         generation = getattr(blob, "generation", None)
         if (
             type(generation) not in {str, int}
@@ -185,7 +186,7 @@ class GcsObjectStore:
         ):
             raise ValueError("file archive object length or generation differs")
         source = _GcsArchiveReader(blob, int(generation), byte_count, check_current)
-        _archive_verify(source, snapshot, expected_sha256, byte_count, check_current)
+        _archive_verify(source, snapshot, expected_sha256, byte_count, check_current, output=output)
         _archive_fence(check_current)
 
     def _same_existing(self, blob: Any, full_key: str, content: bytes, digest: str) -> bool:

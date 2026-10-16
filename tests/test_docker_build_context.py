@@ -223,6 +223,7 @@ def test_native_remote_imports_work_in_isolated_runtime_tree(dockerfile, ignore,
         expected_qualification = sorted(set(expected_qualification) | {
             "proof.py", "verification_collect.py", "verification_destination.py", "verification_guard.py",
             "verification_ledger.py", "verification_native.py", "verification_stored.py",
+            "verification_identity.py", "verification_receivers.py",
         })
     script = f'''import pathlib,sys
 sys.path.insert(0,sys.argv[1])

@@ -85,9 +85,10 @@ class ObjectStore(Protocol):
         """Conditionally archive and fully verify one bounded-memory file snapshot."""
 
     def verify_file(
-        self, key: str, *, expected_sha256: str, byte_count: int, check_current: Callable[[], bool] = lambda: True
+        self, key: str, *, expected_sha256: str, byte_count: int,
+        check_current: Callable[[], bool] = lambda: True, output=None
     ) -> None:
-        """Verify the entire archived file without requiring its local source."""
+        """Verify all bytes; optional output is usable only after successful return."""
 
     def get(self, key: str) -> bytes:
         """Read one previously published object for integrity validation/replay."""
@@ -212,7 +213,8 @@ class FileObjectStore:
                     os.unlink(temporary, dir_fd=directory)
 
     def verify_file(
-        self, key: str, *, expected_sha256: str, byte_count: int, check_current: Callable[[], bool] = lambda: True
+        self, key: str, *, expected_sha256: str, byte_count: int,
+        check_current: Callable[[], bool] = lambda: True, output=None
     ) -> None:
         _archive_arguments(expected_sha256, byte_count, check_current)
         _archive_fence(check_current)
@@ -221,7 +223,8 @@ class FileObjectStore:
             name,
             validate,
         ):
-            _archive_verify_local(name, None, expected_sha256, byte_count, check_current, parent_descriptor=directory)
+            _archive_verify_local(name, None, expected_sha256, byte_count, check_current,
+                                  parent_descriptor=directory, output=output)
             validate()
 
     @staticmethod
@@ -543,7 +546,7 @@ class _ArchiveReader:
         return data
 
 
-def _archive_verify(source, snapshot, expected_sha256, byte_count, check_current):
+def _archive_verify(source, snapshot, expected_sha256, byte_count, check_current, *, output=None):
     _archive_fence(check_current)
     if snapshot is not None:
         snapshot.seek(0)
@@ -560,16 +563,19 @@ def _archive_verify(source, snapshot, expected_sha256, byte_count, check_current
         if count > byte_count or (snapshot is not None and snapshot.read(len(chunk)) != chunk):
             raise ValueError("file archive readback differs")
         measured.update(chunk)
+        if output is not None and (type(written := output.write(chunk)) is not int or written != len(chunk)):
+            raise ValueError("file archive output incomplete")
     if count != byte_count or measured.hexdigest() != expected_sha256:
         raise ValueError("file archive readback hash or length differs")
     _archive_fence(check_current)
 
 
-def _archive_verify_local(path, snapshot, expected_sha256, byte_count, check_current, *, parent_descriptor=None):
+def _archive_verify_local(path, snapshot, expected_sha256, byte_count, check_current, *,
+                          parent_descriptor=None, output=None):
     with _archive_regular(path, parent_descriptor=parent_descriptor) as (source, metadata):
         if metadata.st_size != byte_count:
             raise ValueError("file archive collision has a different length")
-        _archive_verify(source, snapshot, expected_sha256, byte_count, check_current)
+        _archive_verify(source, snapshot, expected_sha256, byte_count, check_current, output=output)
     _archive_fence(check_current)
 
 
@@ -732,7 +738,8 @@ class S3ObjectStore:
                 self.client.abort_multipart_upload(Bucket=self.bucket, Key=key, UploadId=upload_id)
 
     def verify_file(
-        self, key: str, *, expected_sha256: str, byte_count: int, check_current: Callable[[], bool] = lambda: True
+        self, key: str, *, expected_sha256: str, byte_count: int,
+        check_current: Callable[[], bool] = lambda: True, output=None
     ) -> None:
         _archive_arguments(expected_sha256, byte_count, check_current)
         _archive_fence(check_current)
@@ -744,9 +751,9 @@ class S3ObjectStore:
                 raise FileNotFoundError(key) from error
             raise
         _archive_fence(check_current)
-        self._verify_file_archive(full_key, identity, None, expected_sha256, byte_count, check_current)
+        self._verify_file_archive(full_key, identity, None, expected_sha256, byte_count, check_current, output=output)
 
-    def _verify_file_archive(self, key, identity, snapshot, expected_sha256, byte_count, check_current):
+    def _verify_file_archive(self, key, identity, snapshot, expected_sha256, byte_count, check_current, *, output=None):
         _archive_fence(check_current)
         tag = identity.get("ETag")
         if type(tag) is not str or not tag:
@@ -767,7 +774,7 @@ class S3ObjectStore:
                 or ("VersionId" in arguments and response.get("VersionId") != arguments["VersionId"])
             ):
                 raise ValueError("file archive object length or identity differs")
-            _archive_verify(body, snapshot, expected_sha256, byte_count, check_current)
+            _archive_verify(body, snapshot, expected_sha256, byte_count, check_current, output=output)
         finally:
             body.close()
         _archive_fence(check_current)

@@ -6,9 +6,9 @@ visibles dans un pipeline que si elles portent le nom exact de sa table
 Seuls les formats structurés émis par le chargeur sont acceptés ; toute
 autre ligne est écartée avant de franchir l'API.
 
-``miroir_secondes`` mesure le délai IBM i -> MERGE du dernier lot traité.
-Le relevé ``retard mesuré`` suit un lot traité et donne l'âge de sa dernière
-mutation visible dans Snowflake ; il ne prouve pas le retard d'un flux inactif.
+Legacy ``mirror_seconds`` and commit-age logs describe surviving row age,
+not batch delivery latency. Delivery counts remain attributable to the table;
+latency is not measured by these formats.
 """
 
 from __future__ import annotations
@@ -45,10 +45,19 @@ _DELIVERY = re.compile(
     r"\b(?:delivery|livraison) table=(?P<table>[A-Za-z][A-Za-z0-9_]*) "
     "(?:new_events|événements_nouveaux)=(?P<count>\\d+) (?:mirror_seconds|miroir_secondes)=(?P<lat>\\d+(?:\\.\\d+)?)\\b"
 )
+_DELIVERY_COUNT = re.compile(
+    r"\bdelivery table=(?P<table>[A-Za-z][A-Za-z0-9_]*) "
+    r"new_events=(?P<count>\d+) latency=unmeasured\b"
+)
 _LAG = re.compile(
     "\\b(?:measured lag|retard mesuré) table=(?P<table>[A-Za-z][A-Za-z0-9_]*) "
     r"(?:history|historique)=(?P<history>None|\d+(?:\.\d+)?)s "
     r"(?:mirror|miroir)=(?P<mirror>None|\d+(?:\.\d+)?)s\b"
+)
+_COMMIT_AGE = re.compile(
+    r"\bobserved commit age table=(?P<table>[A-Za-z][A-Za-z0-9_]*) "
+    r"history_latest=(?P<history>None|-?\d+(?:\.\d+)?)s "
+    r"mirror_surviving=(?P<mirror>None|-?\d+(?:\.\d+)?)s\b"
 )
 _LOAD = re.compile(
     r"\btable=(?P<table>[A-Za-z][A-Za-z0-9_]*) "
@@ -173,19 +182,20 @@ def _parse(line: str, table_name: str, expected_tag: str | None = None) -> _Fact
     _, marker, cycle = message.partition("loader_cycle ")
     if marker:
         return _cycle_fact(at, cycle, expected_tag)
-    delivery = _DELIVERY.search(message)
+    delivery = _DELIVERY_COUNT.search(message) or _DELIVERY.search(message)
     if delivery is not None and delivery["table"].upper() == table_name:
         count = int(delivery["count"])
-        latency = float(delivery["lat"])
-        return _Fact(at, "delivery", f"Mirror delivery: {count} new events, {latency} s", count, latency)
-    lag = _LAG.search(message)
+        if count <= 0:
+            return None
+        return _Fact(at, "delivery", f"Mirror delivery: {count} new events; latency not measured.", count)
+    lag = _COMMIT_AGE.search(message) or _LAG.search(message)
     if lag is not None and lag["table"].upper() == f"{table_name}_HISTORY":
         history = _number(lag["history"])
         mirror = _number(lag["mirror"])
         return _Fact(
             at,
             "lag",
-            f"Last mutation age: history {lag['history']} s, mirror {lag['mirror']} s",
+            f"Commit age: history latest {lag['history']} s, mirror surviving row {lag['mirror']} s",
             mirror_seconds=mirror,
             history_seconds=history,
         )
@@ -251,7 +261,7 @@ class KubernetesLoaderTelemetry:
         reason = "no measurement attributable to this table in the recent Kubernetes log"
         absent = {
             "observed_state": "pod state not measured by this source",
-            "lag_seconds": "source -> mirror lag not measured while idle",
+            "lag_seconds": "source -> mirror delivery latency is not measured by commit-age logs",
             "rows_source": "source total not measured by the loader",
             "rows_destination": "destination total not measured by the log",
         }
@@ -293,8 +303,9 @@ class KubernetesLoaderTelemetry:
             delivery=EvidenceStage(
                 state="observed" if now - latest.at <= timedelta(minutes=5) else "stale",
                 observed_at=latest.at.isoformat().replace("+00:00", "Z"),
-                event_count=latest.count, lag_seconds=latest.mirror_seconds,
-                detail="Last delivered batch for this table; limited to retained loader logs, not a destination total.",
+                event_count=latest.count, lag_seconds=None,
+                detail="Last delivered batch for this table; latency is not measured. "
+                       "Limited to retained loader logs, not a destination total.",
             ),
             reconciliation=EvidenceStage(
                 detail="Complete reconciliation and duplicate counts require an independent destination read."
@@ -316,7 +327,7 @@ class KubernetesLoaderTelemetry:
             points.append(
                 MetricPoint(
                     at=fact.at.isoformat().replace("+00:00", "Z"),
-                    lag_seconds=fact.mirror_seconds,
+                    lag_seconds=None,
                     throughput_rows_per_second=rate,
                 )
             )
@@ -326,7 +337,7 @@ class KubernetesLoaderTelemetry:
             provenance="journal_chargeur_kubernetes",
             freshness="limited to the last 2000 pod log lines",
             collected_at=self._now().isoformat().replace("+00:00", "Z"),
-            reason="Lag is the IBM i → MERGE delay of delivered batches; the series is limited to the retained log.",
+            reason="Delivery latency is not measured by these logs; the series is limited to retained delivery counts.",
         )
 
     def fetch(self, pipeline_id: str, *, since: str | None) -> tuple[RawLogEntry, ...]:

@@ -314,6 +314,8 @@ class LagQueryPlanTests(unittest.TestCase):
         metrics = LagQueryPlan(plan=_plan()).read(cursor)
         self.assertEqual(metrics.history_lag_seconds, 5.2)
         self.assertEqual(metrics.mirror_lag_seconds, 6.3)
+        self.assertEqual(metrics.history_latest_commit_age_seconds, 5.2)
+        self.assertEqual(metrics.mirror_surviving_commit_age_seconds, 6.3)
 
     def test_read_never_invents_a_zero_for_an_empty_table(self) -> None:
         class RowCursor:
@@ -330,6 +332,18 @@ class LagQueryPlanTests(unittest.TestCase):
         metrics = LagQueryPlan(plan=_plan()).read(cursor)
         self.assertIsNone(metrics.history_lag_seconds)
         self.assertIsNone(metrics.mirror_lag_seconds)
+        self.assertIsNone(metrics.history_latest_commit_age_seconds)
+        self.assertIsNone(metrics.mirror_surviving_commit_age_seconds)
+
+    def test_missing_rows_and_negative_commit_ages_are_not_fabricated_zeroes(self) -> None:
+        for rows, expected in (((None, None), (None, None)), (((-1.0,), (-2.0,)), (-1.0, -2.0))):
+            with self.subTest(rows=rows):
+                cursor = Mock()
+                cursor.fetchone.side_effect = rows
+                metrics = LagQueryPlan(plan=_plan()).read(cursor)
+                self.assertEqual((metrics.history_latest_commit_age_seconds,
+                                  metrics.mirror_surviving_commit_age_seconds), expected)
+                self.assertEqual(cursor.execute.call_count, 2)
 
 
 if __name__ == "__main__":

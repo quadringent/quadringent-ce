@@ -34,7 +34,7 @@ def _line(at: str, message: str) -> str:
 
 
 @pytest.mark.parametrize("log_language", ["english", "legacy"])
-def test_loader_telemetry_is_per_table_and_uses_only_measured_delivery(log_language: str) -> None:
+def test_loader_telemetry_keeps_delivery_counts_but_not_legacy_age_as_latency(log_language: str) -> None:
     log = "".join(
         (
             _line("2026-09-28T21:01:00Z", "retard mesuré table=QDC_TAIL_HISTORY historique=12.0s miroir=13.0s"),
@@ -57,7 +57,7 @@ def test_loader_telemetry_is_per_table_and_uses_only_measured_delivery(log_langu
     )
 
     series = telemetry.metrics("p1", "1h")
-    assert [point.lag_seconds for point in series.points] == [11.2, 8.1]
+    assert [point.lag_seconds for point in series.points] == [None, None]
     assert series.points[0].throughput_rows_per_second is None
     assert series.points[1].throughput_rows_per_second == 3 / 120
     assert series.provenance == "journal_chargeur_kubernetes"
@@ -74,6 +74,49 @@ def test_loader_telemetry_is_per_table_and_uses_only_measured_delivery(log_langu
     assert observation.mirror_lag_seconds == 13.0
     assert observation.throughput_rows_per_second == 3 / 120
     assert observation.last_arrival_at == "2026-09-28T21:04:00Z"
+
+
+@pytest.mark.parametrize("history_age,mirror_age", [("2.0", "3602.0"), ("None", "None"), ("-1.0", "-2.0")])
+def test_explicit_commit_ages_remain_separate_from_delivery(history_age: str, mirror_age: str) -> None:
+    log = _line("2026-09-28T21:01:00Z", f"observed commit age table=ORDERS_HISTORY history_latest={history_age}s mirror_surviving={mirror_age}s")
+    log += _line("2026-09-28T21:02:00Z", "delivery table=ORDERS new_events=4 latency=unmeasured")
+    telemetry = KubernetesLoaderTelemetry(FakePods(log), resolve=lambda _: LoaderIdentity("dst1", "ORDERS"),
+        now=lambda: datetime(2026, 9, 28, 21, 3, tzinfo=timezone.utc))
+    result = telemetry.evidence("p1")
+    assert result.delivery.state == "observed" and result.delivery.event_count == 4
+    assert result.delivery.lag_seconds is None
+    assert "latency is not measured" in result.delivery.detail
+    series = telemetry.metrics("p1", "1h")
+    assert len(series.points) == 1 and series.points[0].lag_seconds is None
+    assert "latency is not measured" in series.reason
+    observation = telemetry.observe("p1")
+    assert observation.lag_seconds is None
+    assert observation.history_lag_seconds == (None if history_age == "None" else float(history_age))
+    assert observation.mirror_lag_seconds == (None if mirror_age == "None" else float(mirror_age))
+    assert observation.last_arrival_at == "2026-09-28T21:02:00Z"
+    entries = telemetry.fetch("p1", since=None)
+    assert len(entries) == 2
+    assert "mirror surviving row" in entries[0].message
+    assert "latency not measured" in entries[1].message
+
+
+@pytest.mark.parametrize("count", [0, -1])
+def test_no_new_events_never_become_a_delivery_fact(count: int) -> None:
+    pods = FakePods(_line("2026-09-28T21:02:00Z", f"delivery table=ORDERS new_events={count} latency=unmeasured"))
+    telemetry = KubernetesLoaderTelemetry(pods, resolve=lambda _: LoaderIdentity("dst1", "ORDERS"),
+        now=lambda: datetime(2026, 9, 28, 21, 3, tzinfo=timezone.utc))
+    assert telemetry.evidence("p1").delivery.state == "absent"
+    assert telemetry.metrics("p1", "1h").points == ()
+
+
+def test_legacy_mirror_seconds_is_never_promoted_to_delivery_latency() -> None:
+    pods = FakePods(_line("2026-09-28T21:02:00Z", "delivery table=ORDERS new_events=4 mirror_seconds=38629.43"))
+    telemetry = KubernetesLoaderTelemetry(pods, resolve=lambda _: LoaderIdentity("dst1", "ORDERS"),
+        now=lambda: datetime(2026, 9, 28, 21, 3, tzinfo=timezone.utc))
+    assert telemetry.evidence("p1").delivery.event_count == 4
+    assert telemetry.evidence("p1").delivery.lag_seconds is None
+    assert telemetry.metrics("p1", "1h").points[0].lag_seconds is None
+    assert "38629.43" not in telemetry.fetch("p1", since=None)[0].message
 
 
 def test_loader_telemetry_refuses_unknown_mapping_and_stale_delivery() -> None:

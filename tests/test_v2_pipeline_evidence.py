@@ -65,7 +65,8 @@ def test_loader_delivery_is_bounded_to_this_table_and_never_certifies_reconcilia
                          '2026-10-10T11:59:30Z delivery table=ORDERS new_events=3 mirror_seconds=6.2')
     result = provider.evidence('ppl1').to_dict()
     assert result['delivery']['event_count'] == 3
-    assert result['delivery']['lag_seconds'] == 6.2
+    assert result['delivery']['lag_seconds'] is None
+    assert 'latency is not measured' in result['delivery']['detail']
     assert result['delivery']['state'] == 'observed'
     assert result['reading']['state'] == 'absent'
     assert result['reconciliation']['state'] == 'absent'

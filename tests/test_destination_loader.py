@@ -10,9 +10,11 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+import sqlite3
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
@@ -26,6 +28,7 @@ from quadringent.snowflake_destination import UnsupportedColumnTypeError
 from quadringent.snowflake_streaming_loader import (
     FakeStreamingClient,
     HistoryStreamingLoader,
+    LagQueryPlan,
     StreamingLagMetrics,
     encode_offset_token,
 )
@@ -242,24 +245,63 @@ def test_receipt_cache_lru_touch_preserves_recent_receipt(tmp_path):
     assert len(storage.reads) == 4
 
 
-def test_run_once_emits_measured_mirror_delivery_after_merge(caplog) -> None:
+@pytest.mark.parametrize("age", [11.2, 3602.0, 0.0, None, -1.0])
+def test_run_once_keeps_delivery_count_without_claiming_commit_age_as_latency(caplog, age) -> None:
     (table,) = loader.parse_table_set(_TABLE_SET_JSON)
     with (
         patch.object(loader, "load_table_once", return_value=(1, 2)),
-        patch.object(loader, "measure_and_log_lag", return_value=StreamingLagMetrics(10.0, 11.2)),
+        patch.object(loader, "measure_and_log_lag", return_value=StreamingLagMetrics(10.0, age)),
     ):
         with caplog.at_level("INFO", logger="quadringent.destination_loader"):
             loader.run_once(
                 storage=None, tables=(table,), raw_prefix_root="raw", database="D", schema="S",
                 streaming_client_factory=None, cursor=None, ensure_schema=False,
             )
-    assert "delivery table=ORDHDR new_events=2 mirror_seconds=11.2" in caplog.text
+    assert "delivery table=ORDHDR new_events=2 latency=unmeasured" in caplog.text
+    assert "mirror_seconds=" not in caplog.text
 
 
-def test_run_once_does_not_claim_delivery_without_new_batch(caplog) -> None:
+@pytest.mark.parametrize("operation,events", [("insert", 1), ("update", 2), ("delete", 4)])
+def test_real_row_state_age_is_never_attributed_to_delivery_latency(caplog, operation, events):
+    old = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    commit = old + timedelta(hours=1)
+    now = commit + timedelta(seconds=2)
+    connection = sqlite3.connect(":memory:")
+    connection.create_function("SYSDATE", 0, lambda: now.isoformat())
+    connection.create_function("DATEDIFF", 3, lambda unit, value, end:
+        None if value is None else int((datetime.fromisoformat(end) - datetime.fromisoformat(value)).total_seconds() * 1000))
+    connection.executescript("CREATE TABLE source(id INT, value TEXT); CREATE TABLE mirror(id INT, value TEXT, COMMIT_TIMESTAMP TEXT); CREATE TABLE history(COMMIT_TIMESTAMP TEXT);")
+    connection.execute("INSERT INTO source VALUES(1,'baseline')")
+    connection.execute("INSERT INTO mirror VALUES(1,'baseline',?)", (old.isoformat(),))
+    if operation in {"insert", "delete"}:
+        connection.execute("INSERT INTO source VALUES(2,'inserted')")
+        connection.execute("INSERT INTO mirror VALUES(2,'inserted',?)", (commit.isoformat(),))
+    if operation == "update":
+        connection.execute("UPDATE source SET value='updated' WHERE id=1")
+        connection.execute("UPDATE mirror SET value='updated',COMMIT_TIMESTAMP=? WHERE id=1", (commit.isoformat(),))
+    if operation == "delete":
+        connection.execute("DELETE FROM source WHERE id=2")
+        connection.execute("DELETE FROM mirror WHERE id=2")
+    connection.execute("INSERT INTO history VALUES(?)", (commit.isoformat(),))
+    assert connection.execute("SELECT id,value FROM source").fetchall() == connection.execute("SELECT id,value FROM mirror").fetchall()
+    age = LagQueryPlan(SimpleNamespace(qualified_history_table="history", qualified_mirror_table="mirror")).read(connection.cursor())
+    assert age.history_lag_seconds == 2
+    assert age.mirror_lag_seconds == (3602 if operation == "delete" else 2)
+    (table,) = loader.parse_table_set(_TABLE_SET_JSON)
+    with patch.object(loader, "load_table_once", return_value=(1, events)), patch.object(loader, "measure_and_log_lag", return_value=age):
+        with caplog.at_level("INFO", logger="quadringent.destination_loader"):
+            loader.run_once(storage=None, tables=(table,), raw_prefix_root="raw", database="D", schema="S",
+                            streaming_client_factory=None, cursor=None, ensure_schema=False)
+    connection.close()
+    assert f"delivery table=ORDHDR new_events={events} latency=unmeasured" in caplog.text
+    assert "mirror_seconds=" not in caplog.text
+
+
+@pytest.mark.parametrize("loaded", [(0, 0), (1, 0)])
+def test_run_once_does_not_claim_delivery_without_new_events(caplog, loaded) -> None:
     (table,) = loader.parse_table_set(_TABLE_SET_JSON)
     with (
-        patch.object(loader, "load_table_once", return_value=(0, 0)),
+        patch.object(loader, "load_table_once", return_value=loaded),
         patch.object(loader, "measure_and_log_lag", return_value=StreamingLagMetrics(10.0, 11.2)),
     ):
         with caplog.at_level("INFO", logger="quadringent.destination_loader"):
@@ -267,7 +309,58 @@ def test_run_once_does_not_claim_delivery_without_new_batch(caplog) -> None:
                 storage=None, tables=(table,), raw_prefix_root="raw", database="D", schema="S",
                 streaming_client_factory=None, cursor=None, ensure_schema=False,
             )
+    assert "delivery table=" not in caplog.text
     assert "livraison table=" not in caplog.text
+
+
+def test_measure_and_log_lag_names_surviving_row_age_explicitly(caplog):
+    (table,) = loader.parse_table_set(_TABLE_SET_JSON)
+    cursor = Mock()
+    cursor.fetchone.side_effect = [(2.0,), (3602.0,)]
+    with caplog.at_level("INFO", logger="quadringent.destination_loader"):
+        result = loader.measure_and_log_lag(loader.build_plan(table, database="D", schema="S"), cursor)
+    assert result.mirror_lag_seconds == 3602.0
+    assert "observed commit age table=ORDHDR_HISTORY history_latest=2.0s mirror_surviving=3602.0s" in caplog.text
+    assert "delivery table=" not in caplog.text
+
+
+def test_failed_age_read_does_not_erase_a_completed_delivery_count(caplog):
+    (table,) = loader.parse_table_set(_TABLE_SET_JSON)
+    with patch.object(loader, "load_table_once", return_value=(1, 2)), patch.object(
+        loader, "measure_and_log_lag", side_effect=RuntimeError("synthetic metric read failure")
+    ):
+        with caplog.at_level("INFO", logger="quadringent.destination_loader"), pytest.raises(RuntimeError):
+            loader.run_once(storage=None, tables=(table,), raw_prefix_root="raw", database="D", schema="S",
+                            streaming_client_factory=None, cursor=None, ensure_schema=False)
+    assert "delivery table=ORDHDR new_events=2 latency=unmeasured" in caplog.text
+
+
+def test_all_completed_delivery_counts_precede_the_first_age_read(caplog):
+    (first,) = loader.parse_table_set(_TABLE_SET_JSON)
+    second = replace(first, table_id="tbl2", table_name="DETAIL")
+    failure = RuntimeError("synthetic metric read failure")
+    logs_before_age_read = []
+
+    def fail_measurement(plan, cursor):
+        logs_before_age_read.append(caplog.text)
+        raise failure
+
+    with (
+        patch.object(loader, "load_table_once", side_effect=[(1, 2), (1, 3)]) as load,
+        patch.object(loader, "measure_and_log_lag", side_effect=fail_measurement) as measure,
+    ):
+        with caplog.at_level("INFO", logger="quadringent.destination_loader"), pytest.raises(RuntimeError) as raised:
+            loader.run_once(
+                storage=None, tables=(first, second), raw_prefix_root="raw", database="D", schema="S",
+                streaming_client_factory=None, cursor=None, ensure_schema=False,
+            )
+
+    assert raised.value is failure
+    assert load.call_count == 2
+    measure.assert_called_once()
+    assert "delivery table=ORDHDR new_events=2 latency=unmeasured" in caplog.text
+    assert "delivery table=DETAIL new_events=3 latency=unmeasured" in caplog.text
+    assert "delivery table=DETAIL new_events=3 latency=unmeasured" in logs_before_age_read[0]
 
 
 def test_run_once_does_not_query_snowflake_without_new_batch() -> None:
@@ -326,8 +419,9 @@ def test_run_once_measures_applied_snapshot_once_then_keeps_idle_without_sql(tmp
     statements = [call.args[0] for call in cursor.execute.call_args_list]
     assert any(sql.startswith("DELETE FROM") for sql in statements)
     assert sum(sql.startswith("SELECT DATEDIFF") for sql in statements) == 2
-    assert "measured lag table=ORDHDR_HISTORY" in caplog.text
+    assert "observed commit age table=ORDHDR_HISTORY" in caplog.text
     # Un snapshot ne porte pas une mesure de livraison d'une mutation de journal.
+    assert "delivery table=" not in caplog.text
     assert "livraison table=" not in caplog.text
     assert storage.checkpoint_store(loader.loader_checkpoint_stream_key(table.table_id, evidence_key)).load() == (
         JournalPosition("RCV0001", 20)

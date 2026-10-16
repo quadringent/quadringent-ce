@@ -4,6 +4,7 @@
 
 Changes not yet in a published release.
 
+- Keep delivery counts separate from surviving-row commit ages, including after deletes. Loader logs do not establish delivery latency, which stays unmeasured.
 - Add SQL authority scaffolding for future native verification, with context generations, fenced requests and immutable historical results. Strict enforcement is disabled by default; native admission, activation and API/cockpit integration remain unavailable.
 - Enforce agent tokens' source restrictions on v2 reads, actions, confirmations and paginated lists. Refuse global operations without a safe source scope before providers or cached responses run. This fix is not included in the 0.4.5 images.
 - Add bounded native reconciliation helpers: typed row streams, disk-backed comparisons, and read-only IBM i and Snowflake exports. Native provenance, a stable collection boundary and cockpit integration remain required; these helpers do not establish transaction consistency or runtime qualification.

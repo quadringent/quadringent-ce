@@ -548,27 +548,35 @@ VALUES ({insert_values})"""
         cursor.execute(self.merge_sql(event_ids=event_ids))
 
 
-# --- Retard mesuré (historique + miroir) ------------------------------------
+# --- Commit ages (history and surviving mirror rows) -----------------------
 
 
 @dataclass(frozen=True)
 class StreamingLagMetrics:
-    """Retards mesurés, exposés tels quels à la couche d'observation v2
-    (``quadringent_control_plane.v2.services.observation.PipelineObservation``
-    .history_lag_seconds/.mirror_lag_seconds). ``None`` quand la table est
-    encore vide (aucun événement chargé) — jamais 0, jamais dérivé d'une
-    autre figure.
+    """Commit ages, with legacy field names retained for compatibility.
+
+    A delete removes its timestamp from MIRROR. Its surviving-row age is not
+    delivery latency; an empty MIRROR returns None even after a successful load.
     """
 
     history_lag_seconds: float | None
     mirror_lag_seconds: float | None
 
+    @property
+    def history_latest_commit_age_seconds(self) -> float | None:
+        return self.history_lag_seconds
+
+    @property
+    def mirror_surviving_commit_age_seconds(self) -> float | None:
+        return self.mirror_lag_seconds
+
 
 @dataclass(frozen=True)
 class LagQueryPlan:
-    """Requêtes SQL mesurant le retard : écart entre le ``COMMIT_TIMESTAMP``
-    IBM i le plus récent chargé et l'instant de la requête — la fraîcheur du
-    dernier événement vu, pas une moyenne ni un débit.
+    """Measure latest HISTORY and surviving MIRROR commit ages in UTC.
+
+    These whole-table maxima do not identify a delivered batch, pending events
+    or source-head freshness. Method names remain compatible with older callers.
     """
 
     plan: TableDestinationPlan

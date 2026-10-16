@@ -45,12 +45,8 @@ class PipelineObservation:
     rows_destination: int | None
     last_arrival_at: str | None
     collected_at: str | None
-    # Retards de la voie Snowpipe Streaming (docs/decisions/2026-09-23-miroir-
-    # snowflake.md) : history_lag_seconds mesure l'écart entre le commit_timestamp
-    # IBM i le plus récent chargé dans l'historique et l'instant de mesure ;
-    # mirror_lag_seconds fait de même côté miroir (MIRROR_UPDATED_AT le plus
-    # récent). None avec une raison en copy_merge (voie non mesurée) — jamais
-    # dérivés de lag_seconds ni d'une autre figure.
+    # Legacy names: ages of the latest HISTORY and surviving MIRROR commits.
+    # Neither establishes delivery latency; unavailable measurements stay None.
     history_lag_seconds: float | None = None
     mirror_lag_seconds: float | None = None
     absent_reasons: dict[str, str] = field(default_factory=dict)

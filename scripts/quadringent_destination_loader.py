@@ -1247,10 +1247,10 @@ def ensure_tables_exist(plan: TableDestinationPlan, cursor: Any) -> None:
 def measure_and_log_lag(plan: TableDestinationPlan, cursor: Any) -> StreamingLagMetrics:
     metrics = LagQueryPlan(plan=plan).read(cursor)
     LOG.info(
-        "measured lag table=%s history=%ss mirror=%ss",
+        "observed commit age table=%s history_latest=%ss mirror_surviving=%ss",
         plan.history_table,
-        metrics.history_lag_seconds,
-        metrics.mirror_lag_seconds,
+        metrics.history_latest_commit_age_seconds,
+        metrics.mirror_surviving_commit_age_seconds,
     )
     return metrics
 
@@ -1396,19 +1396,16 @@ def run_once(*, storage: StorageBackend, tables: tuple[LoaderTable, ...], raw_pr
         finally:
             if trace is not None:
                 trace.finish(failed=failed)
-    # Lag reads must not delay delivery of the next table in the same pass.
-    for table, plan, processed, appended in measurements:
-        lag = measure_and_log_lag(plan, cursor)
-        # Ce relevé suit le MERGE synchrone du lot. Quand la table a
-        # avancé, l'âge de sa dernière mutation dans le miroir mesure
-        # le délai de livraison IBM i -> miroir de ce lot. Au repos le
-        # même âge augmente : ne jamais le publier comme une nouvelle
-        # livraison sans lot traité.
-        if processed and lag.mirror_lag_seconds is not None and lag.mirror_lag_seconds >= 0:
+    # Emit all completed counts before an age query can fail.
+    for table, _plan, processed, appended in measurements:
+        # MERGE completion gives a count, not a source-to-destination latency.
+        if processed and appended > 0:
             LOG.info(
-                "delivery table=%s new_events=%d mirror_seconds=%s",
-                table.table_name, appended, lag.mirror_lag_seconds,
+                "delivery table=%s new_events=%d latency=unmeasured",
+                table.table_name, appended,
             )
+    for _table, plan, _processed, _appended in measurements:
+        measure_and_log_lag(plan, cursor)
 
 
 def main(argv: list[str] | None = None) -> int:

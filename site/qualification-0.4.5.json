@@ -225,5 +225,83 @@
     "image_admission_proves_runtime_verification": false,
     "initial_million_comparison_origin": "Separate native qualification harness; not an automatic stock verifier result.",
     "evidence_sha256": "3664cd2b739dc0ecd6639d10036ad377f7986a1d52d8c1a4e2974fa73547f7c7"
+  },
+  "followup_2026_10_16": {
+    "observed_at_utc": "2026-10-16T04:20:51.345865+00:00",
+    "artifact_source_sha": "ad30f16ae9346bd332a482dc1d6de84f2b3e75f1",
+    "scope": "Synthetic 0.4.5 campaign closeout; the October 15 snapshot above remains unchanged.",
+    "endurance": {
+      "status": "STOPPED_PARTIAL_NO_AUTOREPLAY",
+      "planned_bursts": 97,
+      "completed_bursts_within_120_seconds": 30,
+      "late_recovered_burst_index": 30,
+      "late_recovered_burst_acknowledged_source_mutations": 3,
+      "late_recovered_burst_exceeded_120_seconds": true,
+      "late_recovered_burst_reconciled_after_stop": true,
+      "next_fixed_cadence_burst_index": 31,
+      "next_fixed_cadence_burst_missed": true,
+      "fixed_97_burst_contract_passed": false,
+      "completed_24h_proven": false,
+      "receiver_rotation_proven": false,
+      "ten_second_target_passed": false,
+      "evidence_sha256": "9bec70b015059f4c95a488004aa96f0ed4e9f77acf2d7f05563f18828aeb2689"
+    },
+    "final_comparison": {
+      "status": "PASS_SCOPED_FULL_TYPED_EQUALITY",
+      "observed_at_utc": "2026-10-16T02:28:43.915521+00:00",
+      "source_rows": 1000000,
+      "raw_snapshot_rows": 1000000,
+      "independent_native_journal_images": 124,
+      "stored_raw_journal_images": 124,
+      "history_rows": 1000124,
+      "mirror_rows": 1000000,
+      "business_fields": 7,
+      "history_technical_identity_fields": 4,
+      "ignored_fields": 0,
+      "logical_duplicates": 0,
+      "raw_scope": "Complete current published logical batch set captured before and after; not a classification of all physical object versions or auxiliary receipts.",
+      "origin": "Separate independent qualification harness; not the stock verifier or automatic product verification.",
+      "native_sdk_qualified": false,
+      "p95_or_general_latency_sla_qualified": false,
+      "evidence_sha256": "861e5234571e46d7a8332eee1df0b0349801a259d228b52654fddf70e8944240"
+    },
+    "cleanup": {
+      "current_cloud_campaign_closed": true,
+      "aws_resources_removed": [
+        "VM",
+        "boot volume",
+        "network interface",
+        "security group",
+        "foundation"
+      ],
+      "snowflake_site_service_warehouse_sets_removed": 5,
+      "snowflake_roles_removed": 10,
+      "snowflake_operator_service_and_role_removed": true,
+      "snowflake_shared_resource_monitor_removed": true,
+      "source_million_row_fixture": {
+        "deleted_at_utc": "2026-10-16T04:19:20Z",
+        "rows_read_before_deletion": 1000000,
+        "fresh_full_hash_equal_to_retained_archive": true,
+        "archive_retained": true
+      },
+      "protected_source_tables": 2,
+      "protected_rows_per_table": 55,
+      "protected_source_hashes_unchanged": true,
+      "journal_and_receiver_identities_and_attachment_retained": true,
+      "unchanged_journal_positions_claimed": false,
+      "receiver_rotation_claimed": false,
+      "historical_provider_backup_and_soft_delete_retention_distinct": true,
+      "evidence_sha256": "afceb8df624d8c371bff86e425313e82a2ce84a80401c6ceb9676f7b3c355395"
+    },
+    "cost": {
+      "last_resource_monitor_readback_credits": 5.33,
+      "resource_monitor_quota_credits": 8,
+      "resource_monitor_quota_reset": false,
+      "final_invoice_measured": false,
+      "retained_storage_final_cost_measured": false,
+      "global_zero_cost_claimed": false,
+      "evidence_sha256": "9bec70b015059f4c95a488004aa96f0ed4e9f77acf2d7f05563f18828aeb2689"
+    },
+    "unreleased_changes_qualified": false
   }
 }

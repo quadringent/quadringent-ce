@@ -6,9 +6,12 @@ development harness.
 
 The [October 15, 2026 observed 0.4.5 results](../../site/qualification-0.4.5.json)
 include a complete typed initial comparison of one million rows on an AWS VM.
-The 24-hour run is ongoing; receiver rotation and the final independent oracle
-remain unproven. Scoped reader-recovery checks passed on AWS VM, EKS and GCP VM;
-GKE remains incomplete. The 10 s observation target has not passed.
+The run has stopped: 30 of 97 planned bursts completed within the observation
+guard; a late burst was recovered after the stop and the next fixed cadence was
+missed. The [October 16 closeout](../evidence.md#045-2026-10-16-campaign-closeout)
+records final scoped equality and cleanup, with the failed 24-hour contract and
+unvalidated receiver rotation retained. Scoped reader-recovery checks passed on
+AWS VM, EKS and GCP VM; GKE remains incomplete. The 10 s target has not passed.
 
 Those million-row results used a separate native qualification harness; see
 [stock verifier scope](../evidence.md#stock-verifier-scope) before choosing a verifier.

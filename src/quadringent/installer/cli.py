@@ -439,6 +439,9 @@ def run(argv: Sequence[str], *, runner: CommandRunner | None = None, stdout: Tex
     stdout = stdout if stdout is not None else sys.stdout
 
     if args.command == "qualification":
+        if args.qualification_mode == "collect":
+            from quadringent.qualification.verification_collect_cli import run_collection
+            return run_collection(args.config, args.out_dir, stdout=stdout)
         from quadringent.qualification.cli import run_native
         return run_native(args.config,args.out_dir,args.phase,stdout=stdout)
     if args.command == "recovery":

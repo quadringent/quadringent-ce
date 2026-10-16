@@ -572,6 +572,9 @@ def run_native(config,out_dir,phase,*,stdout=None):
 def add_parser(subparsers):
     group=subparsers.add_parser('qualification',help="Qualify an existing native installation")
     commands=group.add_subparsers(dest='qualification_mode',required=True)
+    collection=commands.add_parser('collect',help="Collect seven private streams; does not admit native authority")
+    collection.add_argument('--config',required=True)
+    collection.add_argument('--out-dir',required=True)
     native=commands.add_parser('native',help="Private native evidence, read-only by default")
     native.add_argument('--config',required=True)
     native.add_argument('--out-dir',required=True)

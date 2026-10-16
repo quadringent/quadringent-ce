@@ -52,9 +52,15 @@ class _Budget:
         self.check()
 
     def check(self):
+        self._remaining()
+        if self.check_current() is not True:
+            raise ValueError("native_guard_fence_or_deadline")
+        return self._remaining()
+
+    def _remaining(self):
         now = time.monotonic()
         if (type(now) not in (float, int) or not math.isfinite(now) or now < self.previous
-                or now - self.started >= self.seconds or self.check_current() is not True):
+                or now - self.started >= self.seconds):
             raise ValueError("native_guard_fence_or_deadline")
         self.previous = now
         return self.seconds - (now - self.started)

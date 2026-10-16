@@ -248,3 +248,16 @@ def test_deadline_crossed_during_read_never_returns_or_spawns(prepared, monkeypa
     with pytest.raises(guard.NativeGuardError):
         collect(prepared, max_seconds=1)
     assert not prepared.directory.exists()
+
+
+@pytest.mark.parametrize("after", [61.0, -1.0, float("inf"), float("nan")])
+def test_deadline_and_clock_are_rechecked_after_a_slow_configuration_fence(monkeypatch, after):
+    clock = [0.0]
+    monkeypatch.setattr(guard.time, "monotonic", lambda: clock[0])
+
+    def current():
+        clock[0] = after
+        return True
+
+    with pytest.raises(ValueError, match="^native_guard_fence_or_deadline$"):
+        guard._Budget(60, current)

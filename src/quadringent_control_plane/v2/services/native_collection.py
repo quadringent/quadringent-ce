@@ -25,6 +25,12 @@ from quadringent.qualification.verification_collect import (
     collect_verification,
 )
 from quadringent.qualification.verification_guard import collect_native_guards
+from quadringent.qualification.verification_identity import (
+    DestinationIdentityExpectation, observe_destination_identity, validate_destination_identity_pair,
+)
+from quadringent.qualification.verification_receivers import (
+    ReceiverObservationConfig, observe_receiver, validate_receiver_pair,
+)
 from quadringent.qualification.verification_native import (
     load_native_copy_inputs,
     native_journal_processes,
@@ -182,10 +188,16 @@ class StoredNativeCollector:
         source_id: str,
         destination_id: str,
         connection_factory: Callable,
+        destination_identity: DestinationIdentityExpectation | None = None,
+        receiver_config: ReceiverObservationConfig | None = None,
         limits: CollectionLimits = CollectionLimits(),
     ):
         try:
-            if type(storage) is not StorageBackend or type(limits) is not CollectionLimits:
+            if (type(storage) is not StorageBackend or type(limits) is not CollectionLimits
+                    or destination_identity is not None and type(destination_identity) is not DestinationIdentityExpectation):
+                raise ValueError()
+            if (receiver_config is not None and (type(receiver_config) is not ReceiverObservationConfig
+                    or (receiver_config.java, receiver_config.classpath) != (java, classpath))):
                 raise ValueError()
             _validate_object_key(raw_prefix_root)
             for value in (org_id, source_id, destination_id):
@@ -221,6 +233,8 @@ class StoredNativeCollector:
             self._host, self._user = parts[:2]
             self.source_id, self.destination_id = source_id, destination_id
             self._connection_factory, self.limits = connection_factory, limits
+            self._destination_identity = destination_identity
+            self._receiver_config = receiver_config
         except Exception:
             raise NativeCollectionError("invalid_native_collection_configuration") from None
 
@@ -334,6 +348,11 @@ class StoredNativeCollector:
             info = root.stat()
             identity = info.st_dev, info.st_ino
             native_dir = _new_directory(root / "native-inputs")
+            receiver_before = receiver_after = None
+            if self._receiver_config is not None:
+                receiver_before = budget.call(observe_receiver, resolved.scope, phase="before",
+                    directory=native_dir / "receiver-before", config=self._receiver_config,
+                    input_bytes=self._credentials, check_current=budget.admit)
             bundle, guard_path = native_dir / "descriptor.bundle", native_dir / "journal-guard.json"
             budget.call(_private_file, bundle, copy.bundle)
             source, positions = self._processes(resolved.scope, budget.remaining())
@@ -350,13 +369,41 @@ class StoredNativeCollector:
             )
             budget.call(resolved.verify)
             budget.call(captured.verify)
+            destination_observations = {}
 
             def connection_factory():
                 budget.admit()
                 connection = self._connection_factory()
                 try:
                     budget.admit()
-                    return connection
+                    if self._destination_identity is None:
+                        return connection
+                    name = ("history", "mirror")[len(destination_observations)]
+                    before = observe_destination_identity(connection, resolved.scope,
+                        expected=self._destination_identity, check_current=budget.admit,
+                        max_seconds=min(60, budget.remaining()))
+                    destination_observations[name] = {"before": before}
+                    owner = self
+                    class ObservedConnection:
+                        closed = False
+
+                        def __getattr__(self, attribute):
+                            return getattr(connection, attribute)
+
+                        def close(self):
+                            if self.closed:
+                                return
+                            self.closed = True
+                            try:
+                                after = observe_destination_identity(connection, resolved.scope,
+                                    expected=owner._destination_identity, check_current=budget.admit,
+                                    max_seconds=min(60, budget.remaining()))
+                                validate_destination_identity_pair(before, after, scope=resolved.scope,
+                                                                   expected=owner._destination_identity)
+                                destination_observations[name]["after"] = after
+                            finally:
+                                connection.close()
+                    return ObservedConnection()
                 except BaseException:
                     connection.close()
                     raise
@@ -395,6 +442,12 @@ class StoredNativeCollector:
                 check_current=budget.admit,
                 max_seconds=min(60, budget.remaining()),
             )
+            if self._receiver_config is not None:
+                receiver_after = budget.call(observe_receiver, resolved.scope, phase="after",
+                    directory=native_dir / "receiver-after", config=self._receiver_config,
+                    input_bytes=self._credentials, check_current=budget.admit)
+                budget.call(validate_receiver_pair, resolved.scope, receiver_before, receiver_after,
+                            expected_config=self._receiver_config)
             budget.call(resolved.verify)
             budget.call(captured.verify)
             retained = {}
@@ -450,15 +503,35 @@ class StoredNativeCollector:
                 guard_refs[name] = retain(
                     "guard:" + name, reference.path, reference.sha256, reference.byte_count
                 ).to_dict()
+            authority_observations = {}
+            if receiver_before is not None:
+                authority_observations["receiver"] = {
+                    phase: retain("receiver:" + phase, value.original.path, value.original.sha256,
+                                  value.original.byte_count).to_dict()
+                    for phase, value in (("before", receiver_before), ("after", receiver_after))}
+            if self._destination_identity is not None:
+                if set(destination_observations) != {"history", "mirror"}:
+                    raise ValueError("destination_identity_incomplete")
+                destination_refs = {}
+                for name, observations in destination_observations.items():
+                    if set(observations) != {"before", "after"}:
+                        raise ValueError("destination_identity_incomplete")
+                    refs = {}
+                    for phase, observation in observations.items():
+                        path = native_dir / f"destination-{name}-{phase}.json"
+                        budget.call(_private_file, path, observation.original_bytes)
+                        refs[phase] = retain(f"destination:{name}:{phase}", path,
+                                             observation.sha256, observation.byte_count).to_dict()
+                    destination_refs[name] = dict(refs, stream_sha256=result.streams[name].summary.sha256)
+                authority_observations["destination"] = destination_refs
             artifacts = tuple(resolved.artifacts) + (captured.inventory_artifact,) + tuple(retained.values())
             if len({value.name for value in artifacts}) != len(artifacts):
                 raise ValueError("artifact_names_conflict")
             budget.call(archive.verify)
             budget.call(resolved.verify)
             budget.call(captured.verify)
-            manifest_bytes = _encode(
-                {
-                    "format_version": "quadringent-native-server-collection-v1",
+            manifest_document = {
+                    "format_version": "quadringent-native-server-collection-v2" if authority_observations else "quadringent-native-server-collection-v1",
                     "scope_sha256": resolved.scope.sha256,
                     "context_sha256": resolved.context_sha256,
                     "source_id": self.source_id,
@@ -481,7 +554,9 @@ class StoredNativeCollector:
                         for path, value in retained.items()
                     ],
                 }
-            )
+            if authority_observations:
+                manifest_document["authority_observations"] = authority_observations
+            manifest_bytes = _encode(manifest_document)
             manifest = budget.call(archive.retain_bytes, "collection_manifest", manifest_bytes)
             budget.call(archive.verify)
             budget.call(resolved.verify)

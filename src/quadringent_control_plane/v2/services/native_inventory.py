@@ -112,7 +112,6 @@ class StoredRawInventory:
         scope = resolved.scope
         _require(len(scope.receiver_windows) == 1
                  and scope.copy_boundary.receiver_identity == scope.checkpoint.receiver_identity)
-        window = scope.receiver_windows[0]
         prefix = journal_prefix(self.root, scope.source_table)
         budget.check()
         live = self.storage.object_store(prefix)
@@ -135,66 +134,8 @@ class StoredRawInventory:
             budget.check()
         captured = PinnedArchiveStore(self.storage, self.uri, self.prefix, references, budget)
         overlay = _Overlay(resolved.store, captured)
-        scoped_store = _Prefix(captured, prefix)
-        manifests = {k for k in keys if _MANIFEST.fullmatch(k)}
-        payloads = {k for k in keys if _PAYLOAD.fullmatch(k)}
-        receipts = {k for k in keys if _RECEIPT.fullmatch(k)}
-        indexes = {k for k in keys if _INDEX.fullmatch(k)}
-        _require(payloads == {k.removesuffix(".manifest.json") + ".jsonl" for k in manifests})
-        used_manifests, used_indexes = set(), set()
-        batches, observations = [], []
-        for key in sorted(receipts):
-            receipt_raw = scoped_store.get_bounded(key, 65536)
-            _json(receipt_raw)
-            receipt = validate_bound_receipt(scoped_store, key, scope.capture_binding)
-            start, end, previous = (BoundCheckpoint.from_dict(receipt[n]) for n in ("start", "end", "previous"))
-            _require(start.receiver_identity == window.identity == end.receiver_identity)
-            index_key = receipt_index_key(end)
-            _require(index_key in indexes and index_key not in used_indexes)
-            _json(scoped_store.get_bounded(index_key, 4096))
-            used_indexes.add(index_key)
-            if end.sequence < window.start_sequence:
-                selection = "outside_before"
-            elif start.sequence > window.end_sequence:
-                selection = "outside_after"
-            else:
-                _require(window.start_sequence <= start.sequence <= end.sequence <= window.end_sequence)
-                selection = "selected"
-            raw = receipt["raw"]
-            manifest_content = payload_content = None
-            if raw is not None:
-                manifest_key, payload_key = raw["manifest_key"], raw["payload_key"]
-                _require(manifest_key in manifests and manifest_key not in used_manifests and payload_key in payloads)
-                used_manifests.add(manifest_key)
-                manifest_content = scoped_store.get_bounded(manifest_key, self.limits.max_object_bytes)
-                payload_content = scoped_store.get_bounded(payload_key, self.limits.max_object_bytes)
-                _json(manifest_content)
-                _require(hashlib.sha256(manifest_content).hexdigest() == raw["manifest_sha256"]
-                         and hashlib.sha256(payload_content).hexdigest() == raw["payload_sha256"])
-                if selection == "selected":
-                    batches.append(BatchReference(ObjectReference(prefix + "/" + manifest_key, raw["manifest_sha256"]),
-                                                  ObjectReference(prefix + "/" + payload_key, raw["payload_sha256"]),
-                                                  ObjectReference(prefix + "/" + key, hashlib.sha256(receipt_raw).hexdigest())))
-            batch = validate_bound_scan(start=start, end=end, previous=previous, capture_binding=scope.capture_binding,
-                                        manifest_content=manifest_content, payload=payload_content,
-                                        scan_completed_at=datetime.fromisoformat(receipt["scan_completed_at"]))
-            _require(receipt["event_count"] == (len(batch.events) if batch else 0))
-            if batch:
-                _require(batch.manifest.format_version == "as400-raw-v2"
-                         and raw["manifest_key"] == "batch-" + batch.manifest.batch_id + ".manifest.json")
-            observations.append({"key": prefix + "/" + key, "selection": selection, "event_count": receipt["event_count"],
-                                 "start": start.to_dict(), "end": end.to_dict()})
-            budget.check()
-        _require(used_manifests == manifests and used_indexes == indexes)
-        evidence = _json(resolved.store.get_bounded(resolved.initial_copy.key, 65536))
-        snapshot = snapshot_prefix(self.root, scope.source_table)
-        snapshot_batches = []
-        for ref in evidence["snapshot_batches"]:
-            manifest_key, payload_key = snapshot + "/" + ref["manifest_key"], snapshot + "/" + ref["payload_key"]
-            snapshot_batches.append(BatchReference(
-                ObjectReference(manifest_key, resolved.store.references[manifest_key].sha256),
-                ObjectReference(payload_key, resolved.store.references[payload_key].sha256)))
-        read_set = StoredReadSet(scope.sha256, tuple(snapshot_batches + batches))
+        read_set, observations = inspect_raw_originals(
+            resolved, self.root, keys, captured, check_current=budget.check, limits=self.limits)
         _require(listing() == keys)
         for key in keys:
             actual = budget.read(live, key, self.limits.max_object_bytes)
@@ -214,3 +155,83 @@ class StoredRawInventory:
         result = CapturedRawInventory(read_set, overlay, inventory, resolved)
         result.verify()
         return result
+
+
+def inspect_raw_originals(resolved, raw_prefix_root, keys, captured, *, check_current, limits=InventoryLimits()):
+    """Rebuild receipt/index selection from originals; listing coverage stays observed."""
+    _require(type(resolved) is ResolvedPreparation and type(limits) is InventoryLimits)
+    def check():
+        _require(check_current() is True)
+    check()
+    scope = resolved.scope
+    _require(len(scope.receiver_windows) == 1
+             and scope.copy_boundary.receiver_identity == scope.checkpoint.receiver_identity)
+    window = scope.receiver_windows[0]
+    prefix = journal_prefix(raw_prefix_root, scope.source_table)
+    _require(type(keys) is tuple and len(keys) <= limits.max_keys
+             and keys == tuple(sorted(set(keys))))
+    for key in keys:
+        _validate_object_key(key)
+        _require(any(pattern.fullmatch(key) for pattern in (_MANIFEST, _PAYLOAD, _RECEIPT, _INDEX)))
+    scoped_store = _Prefix(captured, prefix)
+    manifests = {k for k in keys if _MANIFEST.fullmatch(k)}
+    payloads = {k for k in keys if _PAYLOAD.fullmatch(k)}
+    receipts = {k for k in keys if _RECEIPT.fullmatch(k)}
+    indexes = {k for k in keys if _INDEX.fullmatch(k)}
+    _require(payloads == {k.removesuffix(".manifest.json") + ".jsonl" for k in manifests})
+    used_manifests, used_indexes = set(), set()
+    batches, observations = [], []
+    for key in sorted(receipts):
+        receipt_raw = scoped_store.get_bounded(key, 65536)
+        _json(receipt_raw)
+        receipt = validate_bound_receipt(scoped_store, key, scope.capture_binding)
+        start, end, previous = (BoundCheckpoint.from_dict(receipt[n]) for n in ("start", "end", "previous"))
+        _require(start.receiver_identity == window.identity == end.receiver_identity)
+        index_key = receipt_index_key(end)
+        _require(index_key in indexes and index_key not in used_indexes)
+        _json(scoped_store.get_bounded(index_key, 4096))
+        used_indexes.add(index_key)
+        if end.sequence < window.start_sequence:
+            selection = "outside_before"
+        elif start.sequence > window.end_sequence:
+            selection = "outside_after"
+        else:
+            _require(window.start_sequence <= start.sequence <= end.sequence <= window.end_sequence)
+            selection = "selected"
+        raw = receipt["raw"]
+        manifest_content = payload_content = None
+        if raw is not None:
+            manifest_key, payload_key = raw["manifest_key"], raw["payload_key"]
+            _require(manifest_key in manifests and manifest_key not in used_manifests and payload_key in payloads)
+            used_manifests.add(manifest_key)
+            manifest_content = scoped_store.get_bounded(manifest_key, limits.max_object_bytes)
+            payload_content = scoped_store.get_bounded(payload_key, limits.max_object_bytes)
+            _json(manifest_content)
+            _require(hashlib.sha256(manifest_content).hexdigest() == raw["manifest_sha256"]
+                     and hashlib.sha256(payload_content).hexdigest() == raw["payload_sha256"])
+            if selection == "selected":
+                batches.append(BatchReference(ObjectReference(prefix + "/" + manifest_key, raw["manifest_sha256"]),
+                                              ObjectReference(prefix + "/" + payload_key, raw["payload_sha256"]),
+                                              ObjectReference(prefix + "/" + key, hashlib.sha256(receipt_raw).hexdigest())))
+        batch = validate_bound_scan(start=start, end=end, previous=previous, capture_binding=scope.capture_binding,
+                                    manifest_content=manifest_content, payload=payload_content,
+                                    scan_completed_at=datetime.fromisoformat(receipt["scan_completed_at"]))
+        _require(receipt["event_count"] == (len(batch.events) if batch else 0))
+        if batch:
+            _require(batch.manifest.format_version == "as400-raw-v2"
+                     and raw["manifest_key"] == "batch-" + batch.manifest.batch_id + ".manifest.json")
+        observations.append({"key": prefix + "/" + key, "selection": selection, "event_count": receipt["event_count"],
+                             "start": start.to_dict(), "end": end.to_dict()})
+        check()
+    _require(used_manifests == manifests and used_indexes == indexes)
+    evidence = _json(resolved.store.get_bounded(resolved.initial_copy.key, 65536))
+    snapshot = snapshot_prefix(raw_prefix_root, scope.source_table)
+    snapshot_batches = []
+    for ref in evidence["snapshot_batches"]:
+        manifest_key, payload_key = snapshot + "/" + ref["manifest_key"], snapshot + "/" + ref["payload_key"]
+        snapshot_batches.append(BatchReference(
+            ObjectReference(manifest_key, resolved.store.references[manifest_key].sha256),
+            ObjectReference(payload_key, resolved.store.references[payload_key].sha256)))
+    read_set = StoredReadSet(scope.sha256, tuple(snapshot_batches + batches))
+    check()
+    return read_set, observations

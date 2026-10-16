@@ -11,6 +11,7 @@ import {
 } from './cockpitDemo.ts';
 import { buildConnections, connectionAggregateState, groupTablesBySource } from '../../domain/cockpit.ts';
 import { controlActionCopy } from '../../domain/operator.ts';
+import { loadTableData } from '../cockpitLoaders.ts';
 
 function client(): ControlPlaneV2Client {
   return new ControlPlaneV2Client({ fetchFn: createCockpitDemoFetch() });
@@ -163,6 +164,64 @@ test('table evidence remains explicitly synthetic and never claims complete reco
   assert.equal(body.evidence_kind, 'simulation');
   assert.equal(body.reconciliation.state, 'absent');
   assert.equal(body.reconciliation.duplicate_count, null);
+});
+
+test('every demo pipeline explicitly has unavailable native verification and no latest result', async () => {
+  const fetch = createCockpitDemoFetch();
+  const c = new ControlPlaneV2Client({ fetchFn: fetch });
+  const pipelines = await c.listPipelines();
+  for (const pipeline of pipelines) {
+    const capabilities = await fetch(`/v2/pipelines/${pipeline.id}/native-verifications/capabilities`);
+    assert.equal(capabilities.status, 200);
+    assert.deepEqual(await capabilities.json(), { available: false, mode: null, reason_code: 'not_configured' });
+    assert.deepEqual(await c.getNativeCapabilities(pipeline.id), {
+      available: false, mode: null, reasonCode: 'not_configured',
+    });
+    assert.equal(await c.getLatestNativeVerification(pipeline.id), null);
+    const latest = await fetch(`/v2/pipelines/${pipeline.id}/native-verifications/latest`);
+    assert.equal(latest.status, 200);
+    assert.equal(await latest.json(), null);
+  }
+  assert.deepEqual(await c.listPipelines(), pipelines);
+});
+
+test('the demo table loader reports absent native proof without availability or read errors', async (t) => {
+  const network = t.mock.method(globalThis, 'fetch', () => { throw new Error('Network forbidden in demonstration'); });
+  const data = await loadTableData(client(), async () => ({
+    sourceIdForPipeline: demoSourceIdForPipeline, nameForPipeline: demoNameForPipeline,
+  }), 'pl_sales_customers', '1h', {});
+  assert.equal(data.nativeCapabilitiesError, false);
+  assert.equal(data.nativeVerificationError, false);
+  assert.deepEqual(data.nativeCapabilities, { available: false, mode: null, reasonCode: 'not_configured' });
+  assert.equal(data.nativeVerification, null);
+  assert.equal(data.evidence?.evidenceKind, 'simulation');
+  assert.equal(network.mock.callCount(), 0);
+});
+
+test('native demo routes keep unknown reads and every native action unavailable without network', async (t) => {
+  const network = t.mock.method(globalThis, 'fetch', () => { throw new Error('Network forbidden in demonstration'); });
+  const fetch = createCockpitDemoFetch();
+  const c = new ControlPlaneV2Client({ fetchFn: fetch });
+  const before = await c.listPipelines();
+  for (const suffix of ['capabilities', 'latest']) {
+    const response = await fetch(`/v2/pipelines/pl_unknown/native-verifications/${suffix}`);
+    assert.equal(response.status, 404);
+    assert.equal((await response.json()).error.code, 'not_found');
+  }
+  for (const suffix of ['unknown', 'history', 'latest/extra']) {
+    assert.equal((await fetch(`/v2/pipelines/pl_sales_customers/native-verifications/${suffix}`)).status, 404);
+  }
+  for (const pipeline of before) {
+    for (const dryRun of [true, false]) {
+      await assert.rejects(() => c.requestNativeVerification(pipeline.id, dryRun),
+        (error: unknown) => (error as { status: number }).status === 404);
+    }
+  }
+  assert.equal((await fetch('/v2/pipelines/pl_sales_customers/native-verifications/capabilities', {
+    method: 'POST', body: '{}',
+  })).status, 404);
+  assert.deepEqual(await c.listPipelines(), before);
+  assert.equal(network.mock.callCount(), 0);
 });
 
 test('table evidence varies by table: stale after an incident, absent during copy, missing when never collected', async () => {

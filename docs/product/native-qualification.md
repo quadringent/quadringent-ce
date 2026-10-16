@@ -101,7 +101,7 @@ The command reuses the original copy observations, checks native layout/member
 identity, and retains lifecycle coverage through forced journal prefixes before
 and after the business-image read and after all seven streams. Keep the sibling
 `<out-dir>-native-inputs` directory with the collection. These are collected
-measurements: independent native admission and the installed API controller
+measurements: independent native admission and the native admission controller
 remain unavailable, and transaction consistency is not verified.
 
 The source also includes server-side preparation from the configured RAW and

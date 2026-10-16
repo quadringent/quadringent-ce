@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 
@@ -116,3 +117,26 @@ def test_image_build_command_generates_identity_inside_the_packaged_tree(tmp_pat
     result = subprocess.run([sys.executable, "-I", "-c", command], capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stderr
     assert read_build_identity(module / "_build_identity.json") == BuildIdentity(REVISION, "0.4.5")
+
+
+def test_image_verifier_stdin_uses_packaged_import_root_beside_the_launcher(tmp_path):
+    from test_docker_build_context import _runtime_python_tree
+
+    root = Path(__file__).resolve().parents[1]
+    src = _runtime_python_tree(root / "docker/control-plane.Dockerfile",
+                               root / "docker/control-plane.Dockerfile.dockerignore", tmp_path / "image")
+    app = src.parent
+    (app / "quadringent_control_plane.py").write_bytes((root / "scripts/quadringent_control_plane.py").read_bytes())
+    write_build_identity(REVISION, project(tmp_path), src / "quadringent_control_plane/v2/_build_identity.json")
+    script = (root / "scripts/test_control_plane_image.sh").read_text()
+    invocation = next(line for line in script.splitlines() if line.startswith("docker exec -i -e "))
+    flags = shlex.split(invocation.split(" python ", 1)[1].split(" <<", 1)[0])
+    code = script.split("<<'PY'\n", 1)[1].split("\nfor attempt in range(100):", 1)[0]
+    code += ("\nimport sys\n"
+             "for name,module in list(sys.modules.items()):\n"
+             "    if name.startswith(('quadringent.', 'quadringent_control_plane')):\n"
+             f"        assert Path(module.__file__).resolve().is_relative_to(Path({str(src)!r})), name\n")
+    result = subprocess.run([sys.executable, *flags], input=code, cwd=app, capture_output=True,
+                            text=True, timeout=15, env={"PATH": os.environ["PATH"],
+                            "PYTHONPATH": str(src), "EXPECTED_BUILD_REVISION": REVISION})
+    assert result.returncode == 0, result.stderr

@@ -5,7 +5,7 @@ image=${1:?Usage: sh scripts/test_control_plane_image.sh IMAGE}
 expected_revision=${2-}
 container=$(docker run -d --rm --env-file examples/local.env --network none --read-only "$image" --source historical:dev-sale:file:///missing-proof.json --environment dev)
 trap 'docker stop "$container" >/dev/null 2>&1 || true' EXIT HUP INT TERM
-docker exec -i -e EXPECTED_BUILD_REVISION="$expected_revision" "$container" python - <<'PY'
+docker exec -i -e EXPECTED_BUILD_REVISION="$expected_revision" "$container" python -P - <<'PY'
 import json
 import os
 import shutil

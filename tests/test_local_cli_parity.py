@@ -187,3 +187,13 @@ def test_the_public_key_is_one_complete_base64_line():
     der = key.public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
     body = _public_key_body(pem)
     assert "\n" not in body and body == base64.b64encode(der).decode("ascii")
+
+
+@pytest.mark.parametrize("middle", ["AAAABEGINAAA", "AAAAENDAAAAA"])
+def test_public_key_body_preserves_base64_containing_pem_label_words(middle):
+    import base64
+
+    body = "QUJD" + middle + "REVG"
+    assert base64.b64encode(base64.b64decode(body, validate=True)).decode("ascii") == body
+    pem = f"-----BEGIN PUBLIC KEY-----\nQUJD\n{middle}\nREVG\n-----END PUBLIC KEY-----\n"
+    assert setup.public_key_body(pem) == body

@@ -233,6 +233,44 @@ def test_control_plane_image_ships_every_quadringent_module_it_imports():
     assert missing == []
 
 
+def test_native_authority_imports_from_the_control_plane_image_filesystem(tmp_path):
+    import os
+    from pathlib import Path
+    import shlex
+    import shutil
+    import subprocess
+    import sys
+
+    allowlist = set(Path("docker/control-plane.Dockerfile.dockerignore").read_text().splitlines())
+    for line in Path("docker/control-plane.Dockerfile").read_text().splitlines():
+        if not line.startswith("COPY src/"):
+            continue
+        fields = shlex.split(line)
+        if not fields[-1].startswith("/app/src/"):
+            continue
+        target = tmp_path / fields[-1].removeprefix("/app/src/")
+        target.mkdir(parents=True, exist_ok=True)
+        for source in fields[1:-1]:
+            if Path(source).is_dir():
+                shutil.copytree(source, target, dirs_exist_ok=True,
+                                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+            else:
+                assert "!" + source in allowlist
+                shutil.copy2(source, target / Path(source).name)
+    result = subprocess.run(
+        [sys.executable, "-I", "-B", "-c",
+         "import sys; from pathlib import Path; sys.path.insert(0, '.'); "
+         "import quadringent_control_plane.v2.services.native_verifications as authority; "
+         "import quadringent.qualification.verification_contract as contract; "
+         "import quadringent.qualification.verification_stream as stream; "
+         "assert all(Path(m.__file__).resolve().is_relative_to(Path.cwd()) "
+         "for m in (authority, contract, stream))"],
+        cwd=tmp_path, capture_output=True, text=True, timeout=15,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    assert result.returncode == 0, result.stderr
+
+
 # Review fixes (D08)
 
 def _many_pipelines(engine, count):

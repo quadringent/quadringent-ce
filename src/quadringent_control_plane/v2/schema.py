@@ -17,17 +17,20 @@ import uuid
 
 from sqlalchemy import (
     BigInteger,
+    CheckConstraint,
     Boolean,
     Column,
     DateTime,
     ForeignKey,
     Integer,
+    Index,
     JSON,
     MetaData,
     String,
     Table,
     Text,
     UniqueConstraint,
+    false,
     func,
 )
 
@@ -48,6 +51,8 @@ organizations = Table(
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     # 0006_source_destination_pause : portée de ``pause_all``/``resume_all``.
     Column("paused_at", DateTime(timezone=True), nullable=True),
+    # No activation path is shipped until native recovery is installed.
+    Column("native_context_enforced", Boolean(), nullable=False, server_default=false()),
 )
 
 sources = Table(
@@ -160,6 +165,10 @@ pipelines = Table(
     # une copie initiale. ``NULL`` pour un pipeline jamais pausé, ou pausé
     # avant ce correctif.
     Column("state_before_pause", String(32), nullable=True),
+    Column("native_context_generation", BigInteger(), nullable=False, server_default="0"),
+    Column("native_context_operation_id", String(32), nullable=True),
+    Column("native_context_observation_json", Text(), nullable=True),
+    Column("latest_native_verification_id", String(32), nullable=True),
 )
 
 # Bail (lease) applicatif unifié — table unique remplaçant depuis la
@@ -328,3 +337,40 @@ webhook_deliveries = Table(
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     UniqueConstraint("webhook_id", "event_id", name="uq_webhook_deliveries_webhook_event"),
 )
+
+
+native_verifications = Table(
+    "native_verifications", metadata,
+    Column("id", String(32), primary_key=True),
+    Column("org_id", String(32), nullable=False),
+    Column("pipeline_id", String(32), nullable=False),
+    Column("table_id", String(32), nullable=False),
+    Column("source_id", String(32), nullable=False),
+    Column("destination_id", String(32), nullable=False),
+    Column("copy_run_id", String(64), nullable=False),
+    Column("context_generation", BigInteger(), nullable=False),
+    Column("context_sha256", String(64), nullable=False),
+    Column("context_json", Text(), nullable=False),
+    Column("scope_json", Text(), nullable=True),
+    Column("scope_sha256", String(64), nullable=True),
+    Column("preparation_json", Text(), nullable=True),
+    Column("requested_by", String(256), nullable=False),
+    Column("idempotency_key", String(256), nullable=False),
+    Column("lifecycle", String(16), nullable=False, server_default='preparing'),
+    Column("revision", Integer(), nullable=False, server_default='0'),
+    Column("controller_holder", String(256), nullable=True),
+    Column("lease_generation", BigInteger(), nullable=False, server_default='0'),
+    Column("lease_expires_at", DateTime(timezone=True), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("finished_at", DateTime(timezone=True), nullable=True),
+    Column("outcome", String(16), nullable=True),
+    Column("reason_code", String(64), nullable=True),
+    Column("result_manifest_json", Text(), nullable=True),
+    Column("result_sha256", String(64), nullable=True),
+    UniqueConstraint("org_id", "requested_by", "idempotency_key", name="uq_native_request_idempotency"),
+    CheckConstraint("lifecycle IN ('preparing','running','finished')", name="ck_native_lifecycle"),
+    CheckConstraint("(lifecycle = 'finished' AND outcome IS NOT NULL AND outcome IN ('verified','divergent','incomplete') AND finished_at IS NOT NULL) OR (lifecycle != 'finished' AND outcome IS NULL AND finished_at IS NULL)", name="ck_native_outcome"),
+    CheckConstraint("(outcome IN ('verified','divergent') AND result_manifest_json IS NOT NULL AND result_sha256 IS NOT NULL AND scope_sha256 IS NOT NULL) OR outcome IS NULL OR outcome = 'incomplete'", name="ck_native_manifest"),
+)
+Index("ix_native_pipeline_history", native_verifications.c.org_id,
+      native_verifications.c.pipeline_id, native_verifications.c.created_at)

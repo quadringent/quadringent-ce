@@ -22,6 +22,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from sqlalchemy import insert, select, update
 from sqlalchemy.engine import Engine
 
+from .native_context import context_transaction, semantic_update
 from .. import schema as v2_schema
 from ..crypto import SecretBox
 from . import validation
@@ -141,7 +142,7 @@ class DestinationsService:
         created_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         destination_id = uuid.uuid4().hex
         ciphertext = self._secret_box.encrypt(private_key_pem)
-        with self._engine.begin() as connection:
+        with context_transaction(self._engine, self._org_id) as connection:
             connection.execute(
                 insert(v2_schema.destinations),
                 {
@@ -260,7 +261,7 @@ class DestinationsService:
             )
         )
         new_state = VERIFICATION_STATE_VERIFIED if result.verified() else VERIFICATION_STATE_FAILED
-        with self._engine.begin() as connection:
+        with context_transaction(self._engine, self._org_id) as connection:
             connection.execute(
                 update(v2_schema.destinations)
                 .where(
@@ -274,28 +275,14 @@ class DestinationsService:
     def pause(self, destination_id: str, *, now: datetime | None = None) -> DestinationRecord:
         self.get(destination_id)  # 404 si inconnue
         paused_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-        with self._engine.begin() as connection:
-            connection.execute(
-                update(v2_schema.destinations)
-                .where(
-                    v2_schema.destinations.c.id == destination_id,
-                    v2_schema.destinations.c.org_id == self._org_id,
-                )
-                .values(paused_at=paused_at)
-            )
+        with context_transaction(self._engine, self._org_id) as connection:
+            semantic_update(connection, v2_schema.destinations, destination_id, dict(paused_at=paused_at))
         return self.get(destination_id)
 
     def resume(self, destination_id: str) -> DestinationRecord:
         self.get(destination_id)
-        with self._engine.begin() as connection:
-            connection.execute(
-                update(v2_schema.destinations)
-                .where(
-                    v2_schema.destinations.c.id == destination_id,
-                    v2_schema.destinations.c.org_id == self._org_id,
-                )
-                .values(paused_at=None)
-            )
+        with context_transaction(self._engine, self._org_id) as connection:
+            semantic_update(connection, v2_schema.destinations, destination_id, dict(paused_at=None))
         return self.get(destination_id)
 
 

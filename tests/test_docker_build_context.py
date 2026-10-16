@@ -217,6 +217,9 @@ def _native_remote_project_imports() -> str:
 @pytest.mark.parametrize("dockerfile,ignore", PAIRS[:2], ids=lambda path: path.name)
 def test_native_remote_imports_work_in_isolated_runtime_tree(dockerfile, ignore, tmp_path):
     python_path = _runtime_python_tree(dockerfile, ignore, tmp_path / "image")
+    expected_qualification = ["__init__.py", "boundary.py"]
+    if dockerfile.name == "control-plane.Dockerfile":
+        expected_qualification.extend(["verification_contract.py", "verification_stream.py"])
     script = f'''import pathlib,sys
 sys.path.insert(0,sys.argv[1])
 {_native_remote_project_imports()}
@@ -225,7 +228,7 @@ root=pathlib.Path(sys.argv[1]).resolve()
 for name,module in list(sys.modules.items()):
     if name == 'quadringent' or name.startswith(('quadringent.','quadringent_control_plane')):
         assert pathlib.Path(module.__file__).resolve().is_relative_to(root),name
-assert sorted(p.name for p in (root/'quadringent'/'qualification').glob('*.py')) == ['__init__.py','boundary.py']
+assert sorted(p.name for p in (root/'quadringent'/'qualification').glob('*.py')) == {expected_qualification!r}
 '''
     result = subprocess.run(
         [sys.executable, "-I", "-S", "-B", "-c", script, str(python_path)],

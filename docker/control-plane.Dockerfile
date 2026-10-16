@@ -57,6 +57,8 @@ COPY java/third-party-sources.sha256 /usr/share/quadringent/
 COPY src/quadringent/__init__.py src/quadringent/site_config.py src/quadringent/slo.py src/quadringent/slo_alerts.py /app/src/quadringent/
 COPY src/quadringent/qualification/__init__.py src/quadringent/qualification/boundary.py /app/src/quadringent/qualification/
 COPY src/quadringent/qualification/verification_contract.py src/quadringent/qualification/verification_stream.py /app/src/quadringent/qualification/
+COPY src/quadringent/qualification/verification_process.py /app/src/quadringent/qualification/
+COPY src/quadringent/copy_observation.py /app/src/quadringent/
 COPY src/quadringent/diagnostics/__init__.py src/quadringent/diagnostics/model.py src/quadringent/diagnostics/export.py /app/src/quadringent/diagnostics/
 COPY src/quadringent/infrastructure_costs.py src/quadringent/storage_backend.py src/quadringent/gcs_backend.py src/quadringent/checkpoint.py src/quadringent/receiver_identity.py src/quadringent/capture_binding.py src/quadringent/receiver_registry.py /app/src/quadringent/
 COPY src/quadringent/proof_windows.py src/quadringent/contract.py src/quadringent/object_store.py src/quadringent/raw.py src/quadringent/observability_snapshot.py src/quadringent/destination_proof.py src/quadringent/destination_sync.py /app/src/quadringent/

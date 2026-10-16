@@ -334,3 +334,28 @@ def test_noncanonical_authority_is_refused_before_storage_access(authority):
     with pytest.raises(ValueError):
         ReceiverAuthorityBackup(store, authority=authority)
     assert not store.mock_calls
+
+
+def test_new_copy_observation_originals_survive_authority_backup_and_missing_dependency_refuses():
+    from quadringent.capture_binding import CaptureBinding
+    from test_copy_observation import context, published
+
+    originals, reference = published()
+    current = context()
+    binding = CaptureBinding.from_dict(current['boundary']['capture_binding'])
+    store = MemoryAuthority(originals.objects)
+    registry = ReceiverNameRegistry(store, authority=binding.registry_authority, source_system='ibmi', journal=binding.journal)
+    store.put_once(registry.binding_key(binding.scope_id), encoded(binding.to_dict()))
+    registry._claim_point(binding, binding.bootstrap)
+    store.put_once(copy_intent_key(current['pipeline_id'], current['table_id'], current['run_id']), encoded({
+        'format_version': 'quadringent-copy-intent-v1', 'pipeline_id': current['pipeline_id'],
+        'table_id': current['table_id'], 'run_id': current['run_id'], 'boundary': current['boundary']}))
+    backup = ReceiverAuthorityBackup(store, authority=binding.registry_authority)
+    data = backup.export_inventory(writers_suspended=True)
+    assert backup.validate_inventory(data, expected_sha256=sha(data)) == store.objects
+    manifest = json.loads(store.objects[reference.key])
+    del store.objects[manifest['after']['key']]
+    before = dict(store.objects)
+    with pytest.raises(ValueError):
+        backup.export_inventory(writers_suspended=True)
+    assert store.objects == before

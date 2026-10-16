@@ -77,8 +77,8 @@ the code and the authorities of the profile you give it. The snapshot and
 catalog classes do set their connections read-only.
 <!-- source: java/src/main/java/io/quadringent/as400/JournalSession.java, java/src/main/java/io/quadringent/as400/ReadOnlyTableSnapshot.java, java/src/main/java/io/quadringent/as400/FleetCatalogProbe.java -->
 
-`ReadOnlyMemberIdentity` is an Unreleased verification tool with no product
-entry point. Besides metadata `SELECT` queries, it uses JTOpen `ProgramCall`
+`ReadOnlyMemberIdentity` is an Unreleased verification tool used by opt-in
+copy observations. Besides metadata `SELECT` queries, it uses JTOpen `ProgramCall`
 for two IBM retrieval APIs:
 [`QUSRMBRD`](https://www.ibm.com/docs/en/i/7.5.0?topic=ssw_ibm_i_75%2Fapis%2Fqusrmbrd.html)
 (`MBRD0200`, exact member, overrides disabled) and
@@ -96,21 +96,43 @@ Runtime behavior and minimum-profile authorities: Not tested.
 (`FILD0200`, exact file and format, overrides disabled). Its bounded
 `ProgramCall` adapter is reviewed separately. It retains the native 13-character
 format level ID and original response; it does not establish member generation,
-the format of historical rows or continuity throughout a copy. No copy or reader
-entry point uses it, and native admission remains unavailable.
+the format of historical rows or continuity throughout a copy. Opt-in copy
+observations use this probe; native admission remains unavailable.
 Runtime behavior and minimum-profile authorities: Not tested.
 <!-- source: java/src/main/java/io/quadringent/as400/ReadOnlyFormatIdentity.java, tests/test_trust_claims.py -->
+
+`NativeCopyObservationExport` combines those reads with `FILD0100` and `FILD0500`
+from `QDBRTVFD`. It retains the original bytes, physical data-file/single-member
+checks, format, access-control state and program-server job CCSID before and
+after a new copy. `Job`, `AS400JDBCConnection` and `SocketProperties` read job
+identity/CCSID and bound connection timeouts; `Trace` must be disabled. Its
+closed native adapter is reviewed separately. The copy Job uses a bounded local
+process transport; credentials stay on stdin. Full observation path and minimum
+profile: Not tested.
+
+The Unreleased native collection plan also calls `NativeJournalPrefixForce`.
+It checks a local active journal through `QSYS2.JOURNAL_INFO`, then calls
+[`QJOSJRNE`](https://www.ibm.com/docs/en/i/7.5.0?topic=q-send-journal-entry-qjosjrne)
+with only force key 4, value `2`, zero entry-data length and `SJNE0100` output.
+This forces existing journal data to storage without adding a journal entry;
+it can cause disk I/O. `AS400ZonedDecimal` decodes the returned sequence.
+IBM documents journal `*OBJOPR`/`*ADD` and library `*EXECUTE` authority for this
+API. The exact adapter and parameters are pinned by the trust gate, without a
+general `ProgramCall` allowance. No row/object DML or CL command is added by
+this path. Full collection and minimum profile: Not tested. A forced prefix
+alone does not establish a transaction cut or native admission.
 
 ## Which authorities each component needs
 
 Start from [IBM i authorities](compatibility.md#ibm-i-authorities). That table
 lists, per operation, the authority that IBM documents. It has not been tested at
-runtime with a minimal profile. Two reads in the code are not in that table:
+runtime with a minimal profile. Additional reads used by verification tools:
 
 | Read | Authority |
 |---|---|
 | `QSYS2.IFS_OBJECT_STATISTICS` (receiver identity, `ReadOnlyReceiverIdentity.java`) | No IBM page checked. Not tested with a minimal profile. |
 | `SELECT CURRENT_TIMESTAMP, CURRENT_TIMEZONE FROM SYSIBM.SYSDUMMY1` (clock check, `JournalTimestamps.java`) | No specific authority found. Not tested. |
+| `QSYS2.JOURNAL_INFO` (native collection) | IBM documents library `*EXECUTE`, journal `*OBJOPR` and data authority other than `*EXECUTE`. Not tested with a minimal profile. [IBM reference](https://www.ibm.com/docs/ssw_ibm_i_76/rzajq/rzajqviewjournalinfo.htm). |
 
 Which component uses which reads:
 
@@ -165,7 +187,8 @@ any new Java file.
   `ALTER` on the IBM i from the Java reader classes, except the class named
   below.
 - The product path does not run a CL command or `QCMDEXC`. Direct JTOpen
-  program calls are limited to the two reviewed retrieval APIs above.
+  program calls use the reviewed retrieval adapters and, for opt-in native
+  collection, the force-only `QJOSJRNE` adapter described above.
   The journal-parsing library calls IBM journal APIs; that is covered by the
   authorities table, not by this scan.
 - It does not write to the IBM i IFS.

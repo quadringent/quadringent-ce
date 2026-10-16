@@ -581,3 +581,60 @@ def test_flush_failure_is_sanitized_and_never_returns_a_success(published):
     assert 'SYNTHETIC_PRIVATE_FLUSH_CANARY' not in str(failure.value)
     assert failure.value.__cause__ is None
     assert b'"kind":"end"' in output.getvalue()
+
+
+def observed_copy(published):
+    from quadringent.copy_observation import build_context, publish_copy_observations
+    from test_copy_observation import request, observation, encode
+
+    store, scope, copy, intent, read_set, first, second = published
+    evidence = InitialCopyEvidence.from_dict(json.loads(store.get_bounded(copy.key, 65536)))
+    req = request()
+    req['witness_window'].update(receiver_name='RCV1', end='20')
+    current = build_context(pipeline_id=scope.pipeline_id, table_id=scope.table_id, run_id=scope.copy_run_id,
+                            boundary=evidence.boundary, request=req)
+    snapshot = read_set.batches[0]
+    inventory = [{'prefix': ROOT + '/items/snapshot', 'payload_key': Path(snapshot.payload.key).name,
+                  'manifest_key': Path(snapshot.manifest.key).name,
+                  'payload_sha256': snapshot.payload.sha256, 'manifest_sha256': snapshot.manifest.sha256,
+                  'payload_bytes': len(store.get_bounded(snapshot.payload.key, 65536)),
+                  'manifest_bytes': len(store.get_bounded(snapshot.manifest.key, 65536))}]
+    authority = FileObjectStore(store.root / 'receiver-authority-v1')
+    reference = publish_copy_observations(authority, context=current,
+                                          before_bytes=encode(observation(current=current)),
+                                          after_bytes=encode(observation('after', current)),
+                                          snapshot_inventory=inventory, rows_copied=1, evidence_key=copy.key)
+    evidence = replace(evidence, copy_observations=reference)
+    content = encode(evidence.to_dict())
+    (store.root / copy.key).write_bytes(content)
+    return (store, scope, ObjectReference(copy.key, hashlib.sha256(content).hexdigest()), intent, read_set, first, second), reference
+
+
+def test_v3_stored_export_reloads_exact_observations_and_fails_without_after(published):
+    current, reference = observed_copy(published)
+    rows, _ = export(current, dataset='snapshot')
+    assert len(rows) == 1
+    store = current[0]
+    manifest = json.loads(store.get_bounded('receiver-authority-v1/' + reference.key, 1048576))
+    (store.root / 'receiver-authority-v1' / manifest['after']['key']).unlink()
+    with pytest.raises(StoredExportError):
+        export(current, dataset='snapshot')
+
+
+
+def test_v3_snapshot_rechecks_the_bytes_consumed_after_inventory_preflight(published, monkeypatch):
+    current, _ = observed_copy(published)
+    store, _, _, _, read_set, *_ = current
+    manifest_key = read_set.batches[0].manifest.key
+    get = store.get_bounded
+    reads = []
+    def racing_read(key, maximum):
+        value = get(key, maximum)
+        if key == manifest_key:
+            reads.append(key)
+            if len(reads) == 2:
+                return value + b' '
+        return value
+    monkeypatch.setattr(store, 'get_bounded', racing_read)
+    with pytest.raises(StoredExportError):
+        export(current, dataset='snapshot')

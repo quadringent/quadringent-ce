@@ -456,3 +456,93 @@ def test_large_real_raw_manifest_roundtrip_honors_configured_object_budget(tmp_p
                                writers_suspended=True, budgets=limited)
     with pytest.raises(ValueError, match="(budget|byte count)"):
         verify_recovery_bundle(directory, expected_sha256=sha, budgets=limited)
+
+
+def observed_recovery(tmp_path):
+    from quadringent.copy_observation import build_context, publish_copy_observations
+    from quadringent_control_plane.v2.executor.evidence import InitialCopyEvidence, SnapshotBatchRef
+    from test_copy_observation import request, observation
+
+    storage, registry, binding = populated(tmp_path)
+    boundary = JournalBoundary('LIB', 'RCV1', 5, NOW, IDENTITY).with_binding(binding)
+    req = request()
+    req['source'].update(library='LIB', file='TABLE', member='TABLE', format='TABLEFMT')
+    req['witness_window'].update(receiver_library='LIB', receiver_name='RCV1', start='1', end='5')
+    current = build_context(pipeline_id='pipeline', table_id='table', run_id=RUN, boundary=boundary, request=req)
+    store = storage.object_store('raw/table')
+    key = next(key for key in store.list_keys(100) if key.endswith('.manifest.json')
+               and json.loads(store.get(key))['format_version'] == 'as400-snapshot-v2')
+    payload_key = key.replace('.manifest.json', '.jsonl')
+    item = {'prefix': 'raw/table', 'payload_key': payload_key, 'manifest_key': key,
+            'payload_sha256': digest(store.get(payload_key)), 'manifest_sha256': digest(store.get(key)),
+            'payload_bytes': len(store.get(payload_key)), 'manifest_bytes': len(store.get(key))}
+    reference = publish_copy_observations(storage.object_store('receiver-authority-v1'), context=current,
+                                          before_bytes=encoded(observation(current=current)),
+                                          after_bytes=encoded(observation('after', current)),
+                                          snapshot_inventory=[item], rows_copied=1,
+                                          evidence_key='raw/evidence/run.json')
+    proof = InitialCopyEvidence('pipeline', 'table', RUN, boundary, 1, NOW,
+                                (SnapshotBatchRef(payload_key, key),), reference)
+    storage.object_store('raw/evidence').put_once('run.json', encoded(proof.to_dict()))
+    return storage
+
+
+def test_recovery_requires_v3_evidence_and_all_native_observation_dependencies(tmp_path):
+    storage = observed_recovery(tmp_path)
+    with pytest.raises(ValueError):
+        export_recovery_bundle(tmp_path / 'missing', storage=storage, selection=SELECTION,
+                               writers_suspended=True, cut_at=NOW)
+    selection = replace(SELECTION, raw_prefixes=(*SELECTION.raw_prefixes, 'raw/evidence'))
+    receipt = export_recovery_bundle(tmp_path / 'complete', storage=storage, selection=selection,
+                                     writers_suspended=True, cut_at=NOW)
+    target = LocalStorage(tmp_path / 'target')
+    restore_recovery_bundle(tmp_path / 'complete', expected_sha256=receipt['manifest_sha256'],
+                            storage=target, selection=selection, writers_suspended=True)
+    assert inventory(target) == inventory(storage)
+
+
+
+@pytest.mark.parametrize('escaped_version', [False, True])
+def test_recovery_export_refuses_when_entire_observation_family_disappears(tmp_path, escaped_version):
+    storage = observed_recovery(tmp_path)
+    authority = storage.object_store('receiver-authority-v1')
+    for key in authority.list_keys(100):
+        if key.startswith('copy-observations-v1/'):
+            (authority.root / key).unlink()
+    if escaped_version:
+        path = storage.object_store('raw/evidence').root / 'run.json'
+        path.write_bytes(path.read_bytes().replace(b'quadringent-initial-copy-evidence-v3', b'\\u0071uadringent-initial-copy-evidence-v3'))
+    selection = replace(SELECTION, raw_prefixes=(*SELECTION.raw_prefixes, 'raw/evidence'))
+    destination = tmp_path / 'must-not-export'
+    with pytest.raises(ValueError, match='copy_observation'):
+        export_recovery_bundle(destination, storage=storage, selection=selection, writers_suspended=True, cut_at=NOW)
+    assert not destination.exists()
+
+
+@pytest.mark.parametrize('operation', ['verify', 'restore'])
+def test_rehashed_bundle_cannot_omit_all_v3_observation_dependencies(tmp_path, operation):
+    storage = observed_recovery(tmp_path)
+    selection = replace(SELECTION, raw_prefixes=(*SELECTION.raw_prefixes, 'raw/evidence'))
+    directory = tmp_path / 'bundle'
+    export_recovery_bundle(directory, storage=storage, selection=selection, writers_suspended=True, cut_at=NOW)
+    path = directory / 'manifest.json'
+    manifest = json.loads(path.read_bytes())
+    original = directory / 'blobs' / manifest['authority_inventory']['sha256']
+    authority = json.loads(original.read_bytes())
+    authority['objects'] = [item for item in authority['objects'] if not item['key'].startswith('copy-observations-v1/')]
+    data = encoded(authority)
+    replacement = directory / 'blobs' / digest(data)
+    replacement.write_bytes(data)
+    replacement.chmod(0o600)
+    original.unlink()
+    manifest['authority_inventory'] = {'sha256': digest(data), 'bytes': len(data)}
+    data = encoded(manifest)
+    path.write_bytes(data)
+    target = LocalStorage(tmp_path / 'target')
+    with pytest.raises(ValueError, match='copy_observation'):
+        if operation == 'verify':
+            verify_recovery_bundle(directory, expected_sha256=digest(data))
+        else:
+            restore_recovery_bundle(directory, expected_sha256=digest(data), storage=target,
+                                    selection=selection, writers_suspended=True)
+    assert target.objects == {} and target.checkpoints == {}

@@ -52,6 +52,22 @@ def test_valid_footer_does_not_admit_nonzero_process_exit(tmp_path):
     assert not list((tmp_path / "collection").iterdir())
 
 
+def test_success_stops_descendants_after_parent_exit_and_eof(tmp_path):
+    marker = tmp_path / "escaped-descendant"
+    script = ("import os,sys,time\n"
+              "if os.fork()==0:\n"
+              " os.close(0); os.close(1); os.close(2)\n"
+              " time.sleep(0.4)\n"
+              f" open({str(marker)!r},'w').write('still-running')\n"
+              " open('original.ndjson','ab').write(b' ')\n"
+              " os._exit(0)\n"
+              f"sys.stdout.buffer.write({frames()!r})\n")
+    result = collect(tmp_path, script)
+    time.sleep(0.6)
+    assert not marker.exists()
+    assert result.path.read_bytes() == frames()
+
+
 @pytest.mark.parametrize("data", [frames()[:-1], frames() + b"extra\n", b"", b"secret-value\n",
                                    frames().replace(SCOPE.encode(), b"b" * 64),
                                    frames().replace(b'"source"', b'"mirror"')])

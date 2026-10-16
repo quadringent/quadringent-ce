@@ -387,3 +387,99 @@ def test_initial_copy_revalidates_readable_native_storage_before_publication(sta
     else:
         with pytest.raises(copy_job.InitialCopyJobError):
             copy_job.validate_native_boundary(config, base_environ=env, catalog_factory=lambda **kwargs: Catalog())
+
+
+def test_observation_mode_wraps_real_snapshot_and_never_publishes_on_after_failure(tmp_path, monkeypatch):
+    import quadringent_initial_copy_job as job
+    from test_copy_observation import context as make_context, encode, observation, request
+    from quadringent.qualification.verification_process import CollectedProcessDocument, ProcessCollectionError
+    import hashlib
+
+    env = _container_env(build_initial_copy_job(_copy_spec(boundary=boundary())))
+    env.update(ISERIES_PASSWORD='offline-only', AS400_JAVA_CLASSPATH='offline.jar',
+               ISERIES_TABLE='ITEMS', AS400_SNAPSHOT_OUTPUT_DIR=str(tmp_path / 'snapshot'),
+               AS400_COPY_OBSERVATION_REQUEST_JSON=json.dumps(request()))
+    config = job.InitialCopyConfig.from_environment(env)
+    assert config.copy_observation_request == request()
+    calls = []
+
+    def collect(command, *, directory, input_bytes, environment, validate, limits):
+        phase = command[4]
+        assert input_bytes.splitlines()[-1] == b'offline-only'
+        assert 'ISERIES_PASSWORD' not in environment
+        assert 'offline-only' not in repr(command)
+        calls.append(phase)
+        current = make_context()
+        current.update(pipeline_id=config.pipeline_id, table_id=config.table_id, run_id=config.run_id)
+        value = observation(phase, current)
+        validate(value)
+        directory.mkdir(parents=True)
+        path = directory / 'original.json'
+        data = encode(value)
+        path.write_bytes(data)
+        path.chmod(0o600)
+        return CollectedProcessDocument(path, value, hashlib.sha256(data).hexdigest(), len(data))
+
+    monkeypatch.setattr(job, 'collect_process_document', collect)
+    monkeypatch.setattr(job, 'run_snapshot', lambda *a, **kw: calls.append('snapshot') or 0)
+    result = job.run_observed_snapshot(config, base_environ=env)
+    assert result[0] == 0 and calls == ['before', 'snapshot', 'after']
+
+    def failed(*args, **kwargs):
+        if args[0][4] == 'after':
+            raise ProcessCollectionError('invalid_document')
+        return collect(*args, **kwargs)
+
+    calls.clear()
+    monkeypatch.setattr(job, 'collect_process_document', failed)
+    with pytest.raises(job.InitialCopyJobError, match='observation'):
+        job.run_observed_snapshot(config, base_environ=env)
+    assert calls == ['before', 'snapshot']
+
+
+def test_observation_request_cannot_silently_target_another_source():
+    import quadringent_initial_copy_job as job
+    from test_copy_observation import request
+
+    env = _container_env(build_initial_copy_job(_copy_spec(boundary=boundary())))
+    env.update(ISERIES_PASSWORD='offline-only', AS400_JAVA_CLASSPATH='offline.jar',
+               AS400_COPY_OBSERVATION_REQUEST_JSON=json.dumps(request()))
+    with pytest.raises(job.InitialCopyJobError):
+        job.InitialCopyConfig.from_environment(env)
+
+
+def test_cluster_manifest_carries_the_explicit_observation_request():
+    from test_copy_observation import request
+
+    current = request()
+    current['source']['file'] = 'QDC_ORDERS'
+    manifest = build_initial_copy_job(_copy_spec(boundary=boundary(), copy_observation_request=current))
+    value = json.loads(_container_env(manifest)['AS400_COPY_OBSERVATION_REQUEST_JSON'])
+    assert value == current
+    assert _container_env(build_initial_copy_job(_copy_spec(boundary=boundary()))).get('AS400_COPY_OBSERVATION_REQUEST_JSON') is None
+
+
+@pytest.mark.parametrize('foreign', [False, True])
+def test_executor_observation_factory_is_applied_before_any_copy_job(executor_case, foreign):
+    from quadringent_control_plane.v2.executor.kubernetes import ExecutorError
+    from test_copy_observation import request
+
+    executor, _storage, jobs, _reader = executor_case
+    current = request()
+    current['source']['file'] = 'OTHER' if foreign else 'QDC_ORDERS'
+    observed = []
+
+    def factory(context):
+        observed.append((context.pipeline_id, context.table_id, context.source_id))
+        return current
+
+    executor._config = replace(executor._config, copy_observation_request_factory=factory)
+    if foreign:
+        with pytest.raises(ExecutorError):
+            executor.execute(pipeline_id='pipe-1', event='start')
+        assert not jobs.created
+    else:
+        executor.execute(pipeline_id='pipe-1', event='start')
+        env = _container_env(next(iter(jobs.created.values())))
+        assert json.loads(env['AS400_COPY_OBSERVATION_REQUEST_JSON']) == current
+    assert observed == [('pipe-1', 'tbl-orders', 'src-1')]

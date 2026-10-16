@@ -23,6 +23,8 @@ src/quadringent/**
 !src/quadringent/qualification/boundary.py
 !src/quadringent/qualification/verification_contract.py
 !src/quadringent/qualification/verification_stream.py
+!src/quadringent/qualification/verification_process.py
+!src/quadringent/copy_observation.py
 !src/quadringent/diagnostics/
 !src/quadringent/diagnostics/__init__.py
 !src/quadringent/diagnostics/model.py

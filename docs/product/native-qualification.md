@@ -74,8 +74,35 @@ object hashes and unchanged local inputs. Exit 0 records an equal comparison;
 exit 2 records a divergent comparison; exit 1 means collection failed.
 It always reports `native_admission: not_evaluated`: operator-supplied commands
 and a RAW read-set do not prove native format history, complete physical
-inventory or a stable cut. A native business-image producer is not bundled
-with this command. No historical copy acquires native admission from it.
+inventory or a stable cut. No historical copy acquires native admission from it.
+
+For a new copy, the source checkout also includes a fixed-format native journal
+producer. Before starting the copy, configure the control plane's
+`QUADRINGENT_V2_COPY_OBSERVATIONS_JSON` with
+`format_version: quadringent-copy-observation-settings-v1` and a `pipelines`
+map keyed by pipeline ID. Each value is a
+`quadringent-copy-observation-request-v1`: `mode` is
+`fixed-single-member-format-v1`; `source` names the exact native `library`,
+`file`, `member` and `format`; `witness_window` names the receiver library/name
+and canonical string sequences `start`/`end`. Set `max_metadata_bytes` to at
+most 1048576 and `max_seconds` to at most 60. Invalid settings fail before a Job
+starts. The copy retains observations before and after reading, their original
+native bytes and the exact RAW snapshot inventory in v3 copy evidence.
+
+Then use `quadringent-collection-plan-v2`. Its `journal` field is an object
+with `producer: ibmi-fixed-copy-v1`, an absolute `java` path, `classpath`,
+private credential `input_path` and explicit `environment`. Other fields keep
+the v1 contract. The credentials file contains host, user and password on three
+lines; enable verified TLS in the child environment. This producer accepts one
+receiver, one fixed member/format, no defined access controls, non-null integer,
+packed decimal and fixed character fields. It refuses unsupported layouts.
+
+The command reuses the original copy observations, checks native layout/member
+identity, and retains lifecycle coverage through forced journal prefixes before
+and after the business-image read and after all seven streams. Keep the sibling
+`<out-dir>-native-inputs` directory with the collection. These are collected
+measurements: independent native admission and the installed API controller
+remain unavailable, and transaction consistency is not verified.
 
 ## Fresh release admission
 

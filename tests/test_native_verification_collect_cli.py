@@ -7,6 +7,7 @@ import pytest
 
 from quadringent.installer.cli import run
 from test_native_verification_collect import inputs, published  # noqa: F401
+from test_native_verification_native import native_inputs  # noqa: F401
 
 
 def plan(tmp_path, inputs):
@@ -117,3 +118,131 @@ def test_divergent_inputs_are_recorded_without_a_native_verdict(inputs, tmp_path
     assert status == 2 and output['comparison_state'] == 'divergent'
     assert output['native_cdc_qualified'] is False
     assert (tmp_path / 'collected' / 'collection.json').is_file()
+
+
+def test_native_plan_requires_the_original_copy_observations_before_providers(inputs, tmp_path, monkeypatch):
+    from quadringent.qualification import verification_collect_cli as cli
+    path, _, _ = plan(tmp_path, inputs)
+    document = json.loads(path.read_text())
+    document['format_version'] = 'quadringent-collection-plan-v2'
+    document['journal'] = dict(producer='ibmi-fixed-copy-v1', java='/fixture/java', classpath='/fixture/classes',
+                               input_path=str(tmp_path / 'journal-0.stdin'), environment={})
+    path.write_text(json.dumps(document))
+    monkeypatch.setattr(cli, 'collect_verification', lambda *_args, **_kwargs: pytest.fail('old copy must refuse'))
+    monkeypatch.setattr(cli, '_connect', lambda *_args: pytest.fail('must not open a destination connection'))
+    status, output = invoke(path, tmp_path)
+    assert status == 1 and output['native_cdc_qualified'] is False
+    assert not (tmp_path / 'collected').exists()
+
+
+def test_native_plan_materializes_and_fences_the_pinned_v3_descriptors(native_inputs, tmp_path):
+    import hashlib
+    from quadringent.qualification import verification_collect_cli as cli
+    from quadringent.qualification.verification_stored import ObjectReference
+
+    authority, scope, raw = native_inputs
+    class RootStore:
+        def get_bounded(self, key, maximum):
+            if key == 'proof':
+                return raw
+            return authority.get_bounded(key.removeprefix('receiver-authority-v1/'), maximum)
+    credentials = tmp_path / 'native.stdin'
+    credentials.write_bytes(b'host\nuser\nprivate-native-secret\n')
+    credentials.chmod(0o600)
+    config = dict(producer='ibmi-fixed-copy-v1', java='/fixture/java', classpath='/fixture/classes',
+                  input_path=str(credentials), environment={})
+    local = cli._Inputs()
+    processes, receipt = cli._native_journal(config, scope, RootStore(),
+                                            ObjectReference('proof',hashlib.sha256(raw).hexdigest()),
+                                            tmp_path/'collected', local, 60)
+    assert processes[0].process.command[3] == 'io.quadringent.as400.NativeBusinessImageExport'
+    assert processes[0].process.input_bytes == credentials.read_bytes()
+    assert receipt['scope_sha256'] == scope.sha256
+    assert receipt['native_admission'] == 'not_evaluated'
+    bundle = cli._absolute(receipt['bundle_path'])
+    assert hashlib.sha256(bundle.read_bytes()).hexdigest() == receipt['bundle_sha256']
+    assert local.current() is True
+    bundle.write_bytes(b'changed')
+    assert local.current() is False
+
+
+@pytest.mark.parametrize('failure', [None, 'incomplete', 'wrong_phase', 'file_differs', 'exit'])
+def test_native_final_guard_runs_after_all_seven_streams(inputs, tmp_path, monkeypatch, failure):
+    from pathlib import Path
+    from quadringent.qualification import verification_collect_cli as cli
+    from quadringent.qualification.verification_process import CollectedProcessDocument
+    from quadringent.qualification.verification_collect import ProcessSpec
+
+    path, values, connections = plan(tmp_path, inputs)
+    document = json.loads(path.read_text())
+    document['format_version'] = 'quadringent-collection-plan-v2'
+    path.write_text(json.dumps(document))
+    native_dir = tmp_path / 'native'
+    native_dir.mkdir(mode=0o700)
+    native = dict(
+        scope_sha256=values['scope'].sha256, context_sha256='a'*64,
+        capture_binding_sha256='b'*64, copy_boundary_sha256='c'*64,
+        copy_run_id=values['scope'].copy_run_id, bundle_sha256='d'*64,
+        guard_receipt_path=str(native_dir/'journal-guard.json'), native_admission='not_evaluated',
+    )
+
+    def guard(mode):
+        return dict(
+            format_version='quadringent-native-journal-guard-v1', mode=mode, state='complete',
+            **{key: value for key, value in native.items() if key.endswith('sha256') or key == 'copy_run_id'},
+            native_admission='not_evaluated', transaction_consistency_verified=False,
+            error_code=None, guards=[dict(phase=phase) for phase in (
+                ('before_business', 'after_business') if mode == 'journal' else ('after_all_streams',))],
+        )
+
+    def save(target, data):
+        raw = (json.dumps(data) + '\n').encode()
+        target.write_bytes(raw)
+        target.chmod(0o600)
+        return raw
+
+    save(Path(native['guard_receipt_path']), guard('journal'))
+    command = ('/fixture/java', '-cp', '/fixture/classes', 'io.quadringent.as400.NativeBusinessImageExport',
+               *('fixture' for _ in range(27)))
+    native['_producer'] = ProcessSpec(command, b'host\nuser\nNATIVE_SECRET_CANARY\n', {})
+
+    monkeypatch.setattr(cli, '_native_journal', lambda *_: (values['journal'], native))
+    monkeypatch.setattr(cli, '_connect', lambda *_: values['connection_factory']())
+    calls = []
+
+    def collect(command, *, directory, input_bytes, environment, validate, limits):
+        calls.append(command)
+        assert command[3] == 'io.quadringent.as400.NativeLifecycleGuard'
+        assert len(command) == 31 and 1 <= int(command[-1]) <= 60
+        assert input_bytes == b'host\nuser\nNATIVE_SECRET_CANARY\n'
+        assert len(connections) == 2 and all(value.closed for value in connections)
+        assert (tmp_path/'collected'/'comparison.json').is_file()
+        assert all((tmp_path/'collected'/dataset).is_dir() for dataset in (
+            'source', 'journal', 'positions', 'snapshot', 'raw', 'history', 'mirror'))
+        if failure == 'exit':
+            raise ValueError('guard_process_exit')
+        data = guard('after_all_streams')
+        if failure == 'incomplete':
+            data['state'] = 'incomplete'
+        elif failure == 'wrong_phase':
+            data['guards'][0]['phase'] = 'before_business'
+        validate(data)
+        directory.mkdir(mode=0o700)
+        original = directory/'original.json'
+        raw = save(original, data)
+        save(Path(command[27]), {**data, 'state':'incomplete'} if failure == 'file_differs' else data)
+        import hashlib
+        return CollectedProcessDocument(original, data, hashlib.sha256(raw).hexdigest(), len(raw))
+
+    monkeypatch.setattr(cli, 'collect_process_document', collect, raising=False)
+    status, output = invoke(path, tmp_path)
+    assert len(calls) == 1
+    assert status == (0 if failure is None else 1)
+    assert output['native_cdc_qualified'] is False
+    assert 'NATIVE_SECRET_CANARY' not in json.dumps(output)
+    if failure is None:
+        receipt = json.loads(Path(output['native_copy_inputs_path']).read_text())
+        assert receipt['final_guard']['sha256']
+        assert receipt['final_guard']['mode'] == 'after_all_streams'
+        assert receipt['native_admission'] == 'not_evaluated'
+        assert '_producer' not in receipt

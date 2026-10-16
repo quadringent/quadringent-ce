@@ -20,7 +20,7 @@ from copy import deepcopy
 import datetime as _dt
 import json
 import uuid
-from typing import Mapping, Protocol, Sequence
+from typing import Callable, Mapping, Protocol, Sequence
 
 from sqlalchemy import select, update
 from sqlalchemy.engine import Engine
@@ -162,6 +162,7 @@ class ExecutorConfig:
     raw_bucket: str = ""
     checkpoint_location: str = ""
     aws_region: str = ""
+    copy_observation_request_factory: Callable[[_PipelineContext], Mapping[str, object] | None] | None = None
 
     def __post_init__(self) -> None:
         if not 0 < self.reader_poll_seconds <= 60 or not 0 < self.loader_poll_seconds <= 60:
@@ -293,6 +294,13 @@ class KubernetesPipelineExecutor:
         key = evidence_key(self._config.raw_prefix_root, context.table_id, run_id)
         evidence = self._evidence_reader.read(key)
         if evidence is not None:
+            if evidence.copy_observations is not None:
+                from quadringent.copy_observation import read_copy_observations
+
+                manifest = read_copy_observations(self._capture_storage().object_store('receiver-authority-v1'), evidence.copy_observations)
+                source = manifest['context']['request']['source']
+                if (source['library'], source['file']) != (context.schema_name, context.table_name):
+                    raise ExecutorError('capability_unavailable', 'copy observation source differs from the requested table')
             if (evidence.pipeline_id, evidence.table_id, evidence.run_id) != (pipeline_id, context.table_id, run_id):
                 raise ExecutorError("capability_unavailable", "initial-copy evidence belongs to another run")
             original = self._copy_intent_boundary(context, run_id)
@@ -444,6 +452,18 @@ class KubernetesPipelineExecutor:
         )
 
     def _start(self, context: _PipelineContext, *, override: Mapping[str, str]) -> None:
+        observation_request = None
+        if self._config.copy_observation_request_factory is not None:
+            from quadringent.copy_observation import validate_request
+
+            try:
+                request = self._config.copy_observation_request_factory(context)
+                if request is not None:
+                    observation_request = validate_request(dict(request))
+                    if (observation_request['source']['library'], observation_request['source']['file']) != (context.schema_name, context.table_name):
+                        raise ValueError('source mismatch')
+            except (ValueError, TypeError):
+                raise ExecutorError('capability_unavailable', 'invalid explicit copy observation request') from None
         check_operation(self._engine, context.pipeline_id)
         if self._config.loader_image:
             # Une configuration invalide reste un refus avant création de
@@ -472,6 +492,7 @@ class KubernetesPipelineExecutor:
                     table_name=context.table_name,
                     source_id=context.source_id,
                     image=self._config.copy_image,
+                    copy_observation_request=observation_request,
                     namespace=self._config.namespace,
                     storage_backend=self._config.storage_backend,
                     source_time_zone=context.source_time_zone,

@@ -26,6 +26,8 @@ Variables d'environnement consommées :
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
+import json
 import logging
 import os
 from typing import Mapping
@@ -71,6 +73,7 @@ ENV_CAPTURE_IMAGE = "QUADRINGENT_V2_CAPTURE_IMAGE"
 ENV_CAPTURE_SERVICE_ACCOUNT = "QUADRINGENT_V2_CAPTURE_SERVICE_ACCOUNT"
 ENV_READER_TIMEOUT_SECONDS = "QUADRINGENT_V2_READER_TIMEOUT_SECONDS"
 ENV_RECONCILIATION_INTERVAL_SECONDS = "QUADRINGENT_V2_RECONCILIATION_INTERVAL_SECONDS"
+ENV_COPY_OBSERVATIONS = "QUADRINGENT_V2_COPY_OBSERVATIONS_JSON"
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8845
@@ -193,6 +196,45 @@ def _executor_clients_from_environment(
     return jobs_client, deployments_client, secrets_client
 
 
+def _copy_observation_request_factory(values):
+    raw = values.get(ENV_COPY_OBSERVATIONS)
+    if raw is None or raw == "":
+        return None
+    try:
+        from quadringent.checkpoint import _unique_json_pairs
+        from quadringent.copy_observation import validate_request
+
+        def reject_constant(_value):
+            raise ValueError("invalid_number")
+
+        if type(raw) is not str or len(raw.encode("utf-8")) > 65536:
+            raise ValueError("invalid_settings")
+        document = json.loads(raw, object_pairs_hook=_unique_json_pairs, parse_constant=reject_constant)
+        if (type(document) is not dict or set(document) != {"format_version", "pipelines"}
+                or document["format_version"] != "quadringent-copy-observation-settings-v1"
+                or type(document["pipelines"]) is not dict or len(document["pipelines"]) > 100):
+            raise ValueError("invalid_settings")
+        requests = {}
+        for pipeline_id, request in document["pipelines"].items():
+            if (type(pipeline_id) is not str or not 1 <= len(pipeline_id) <= 256
+                    or pipeline_id.strip() != pipeline_id or any(ord(c) < 32 for c in pipeline_id)):
+                raise ValueError("invalid_pipeline")
+            requests[pipeline_id] = validate_request(request)
+    except Exception:
+        raise ConfigurationError("Invalid copy observation operator configuration") from None
+
+    def configured(context):
+        request = requests.get(context.pipeline_id)
+        if request is None:
+            return None
+        if ((request["source"]["library"], request["source"]["file"])
+                != (context.schema_name, context.table_name)):
+            raise ConfigurationError("Configured copy observation does not match the pipeline table")
+        return deepcopy(request)
+
+    return configured
+
+
 def build_pipeline_executor(
     values: Mapping[str, str], engine: Engine, secret_box: SecretBox
 ) -> tuple[object | None, object | None]:
@@ -213,6 +255,7 @@ def build_pipeline_executor(
     ``executor/boundary_reader.py`` pour la justification du choix.
     """
 
+    observation_requests = _copy_observation_request_factory(values)
     if not in_cluster():
         return None, None
     image = (values.get(ENV_CAPTURE_IMAGE) or "").strip()
@@ -270,6 +313,7 @@ def build_pipeline_executor(
         raw_bucket=raw_bucket,
         checkpoint_location=checkpoint_location,
         aws_region=aws_region if storage_backend == "aws" else "",
+        copy_observation_request_factory=observation_requests,
     )
     secrets_provisioner = SecretsProvisioner(engine, secret_box, secrets_client=secrets_client)
     executor = KubernetesPipelineExecutor(

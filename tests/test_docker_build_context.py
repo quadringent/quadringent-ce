@@ -219,6 +219,8 @@ def test_native_remote_imports_work_in_isolated_runtime_tree(dockerfile, ignore,
     python_path = _runtime_python_tree(dockerfile, ignore, tmp_path / "image")
     expected_qualification = ["__init__.py", "boundary.py", "verification_contract.py",
                               "verification_process.py", "verification_stream.py"]
+    if dockerfile.name == "control-plane.Dockerfile":
+        expected_qualification.insert(-1, "verification_stored.py")
     script = f'''import pathlib,sys
 sys.path.insert(0,sys.argv[1])
 {_native_remote_project_imports()}

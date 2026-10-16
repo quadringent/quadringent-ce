@@ -2,9 +2,10 @@
 # Real packaged HTTP server, no network, credentials, host ports or source mount.
 set -eu
 image=${1:?Usage: sh scripts/test_control_plane_image.sh IMAGE}
+expected_revision=${2-}
 container=$(docker run -d --rm --env-file examples/local.env --network none --read-only "$image" --source historical:dev-sale:file:///missing-proof.json --environment dev)
 trap 'docker stop "$container" >/dev/null 2>&1 || true' EXIT HUP INT TERM
-docker exec -i "$container" python - <<'PY'
+docker exec -i -e EXPECTED_BUILD_REVISION="$expected_revision" "$container" python - <<'PY'
 import json
 import os
 import shutil
@@ -15,6 +16,19 @@ from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
 base = "http://127.0.0.1:8844"
+from quadringent_control_plane.v2.build_identity import read_build_identity
+identity = read_build_identity()
+if os.environ['EXPECTED_BUILD_REVISION']:
+    assert identity is not None and identity.source_revision == os.environ['EXPECTED_BUILD_REVISION']
+if identity is not None:
+    from quadringent_control_plane.v2.entrypoint import build_native_preparer_factory
+    from quadringent_control_plane.v2.services.native_preparation import StoredNativePreparer
+    factory = build_native_preparer_factory({
+        'QUADRINGENT_STORAGE_BACKEND': 'local', 'QUADRINGENT_RAW_BUCKET': 'synthetic-proof',
+        'QUADRINGENT_RAW_PREFIX_ROOT': 'raw/test', 'AS400_LOCAL_DATA_DIR': '/missing-native-data',
+    }, org_id='image-test')
+    assert factory('different-org') is None
+    assert type(factory('image-test')) is StoredNativePreparer
 for attempt in range(100):
     try:
         with urlopen(base + "/", timeout=1) as response:

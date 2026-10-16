@@ -8,7 +8,10 @@ import os
 from pathlib import Path
 import tempfile
 import time
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from .checkpoint import CheckpointObservation
 
 from .contract import ChangeEvent, JournalPosition
 from .capture_binding import CaptureBinding
@@ -87,6 +90,9 @@ class CheckpointStore(Protocol):
 
     def load_bound(self) -> BoundCheckpoint | None: ...
 
+    def observe_bound(self) -> CheckpointObservation | None:
+        """Read one bound checkpoint together with its original content and provenance."""
+
     def compare_and_set_bound(self, previous: BoundCheckpoint | None,
                               position: BoundCheckpoint) -> None: ...
 
@@ -110,8 +116,7 @@ class FileObjectStore:
     def put_once(self, key: str, content: bytes) -> bool:
         path = self._path_for(key)
         if path.exists():
-            if path.read_bytes() != content:
-                raise ValueError(f"object collision with different content: {key}")
+            self._require_same_file(path, key, content)
             _sync_directory(path.parent)
             return False
         _ensure_durable_directory(path.parent)
@@ -127,8 +132,7 @@ class FileObjectStore:
                 # concurrent winner after the existence check above.
                 os.link(temporary_path, path)
             except FileExistsError:
-                if path.read_bytes() != content:
-                    raise ValueError(f"object collision with different content: {key}")
+                self._require_same_file(path, key, content)
                 _sync_directory(path.parent)
                 return False
             _sync_directory(path.parent)
@@ -136,6 +140,12 @@ class FileObjectStore:
         finally:
             if temporary_path.exists():
                 temporary_path.unlink()
+
+    @staticmethod
+    def _require_same_file(path: Path, key: str, content: bytes) -> None:
+        with path.open("rb") as handle:
+            if not _same_collision_content(handle, content):
+                raise ValueError(f"object collision with different content: {key}")
 
     def get(self, key: str) -> bytes:
         return self._path_for(key).read_bytes()
@@ -228,6 +238,18 @@ def _read_bounded(handle, max_bytes: int) -> bytes:
     return payload
 
 
+def _same_collision_content(handle, content: bytes) -> bool:
+    observed = bytearray()
+    while len(observed) <= len(content):
+        chunk = handle.read(len(content) + 1 - len(observed))
+        if type(chunk) is not bytes:
+            raise ValueError("invalid object collision response")
+        observed.extend(chunk)
+        if not chunk:
+            break
+    return bytes(observed) == content
+
+
 def _ensure_durable_directory(path: Path) -> None:
     """Sync each parent entry, even if a concurrent creator made it visible."""
     if path == path.parent:
@@ -281,13 +303,7 @@ class S3ObjectStore:
             if not _is_not_found(error):
                 raise
         else:
-            metadata = {str(k).lower(): str(v) for k, v in existing.get("Metadata", {}).items()}
-            if metadata.get("sha256") == digest:
-                return False
-            existing_content = self.client.get_object(Bucket=self.bucket, Key=full_key)["Body"].read()
-            if existing_content != content:
-                raise ValueError(f"object collision with different content: {full_key}")
-            return False
+            return self._same_existing(existing, full_key, content, digest)
 
         try:
             self.client.put_object(
@@ -304,13 +320,27 @@ class S3ObjectStore:
             # A concurrent writer won. Re-read and apply the same content
             # check rather than silently accepting a conflicting artifact.
             existing = self.client.head_object(Bucket=self.bucket, Key=full_key)
-            metadata = {str(k).lower(): str(v) for k, v in existing.get("Metadata", {}).items()}
-            if metadata.get("sha256") == digest:
-                return False
-            existing_content = self.client.get_object(Bucket=self.bucket, Key=full_key)["Body"].read()
-            if existing_content != content:
-                raise ValueError(f"object collision with different content: {full_key}")
+            return self._same_existing(existing, full_key, content, digest)
+
+    def _same_existing(self, existing: dict[str, Any], full_key: str, content: bytes, digest: str) -> bool:
+        self._require_size(existing.get("ContentLength"), content, full_key)
+        metadata = {str(k).lower(): str(v) for k, v in existing.get("Metadata", {}).items()}
+        if metadata.get("sha256") == digest:
             return False
+        response = self.client.get_object(Bucket=self.bucket, Key=full_key)
+        body = response["Body"]
+        try:
+            self._require_size(response.get("ContentLength"), content, full_key)
+            if not _same_collision_content(body, content):
+                raise ValueError(f"object collision with different content: {full_key}")
+        finally:
+            body.close()
+        return False
+
+    @staticmethod
+    def _require_size(size: object, content: bytes, full_key: str) -> None:
+        if size is not None and (type(size) is not int or size != len(content)):
+            raise ValueError(f"object collision with different size: {full_key}")
 
     def get(self, key: str) -> bytes:
         return self.client.get_object(Bucket=self.bucket, Key=self._key(key))["Body"].read()

@@ -104,6 +104,18 @@ and after the business-image read and after all seven streams. Keep the sibling
 measurements: independent native admission and the installed API controller
 remain unavailable, and transaction consistency is not verified.
 
+The source also includes server-side preparation from the configured RAW and
+checkpoint stores. It preserves the original copy intent, v3 evidence and its
+dependencies, receiver claims, and the checkpoint observed in one read. The
+archived preparation is bounded, hashed and read back before use. Receiver
+rotation without an original proven chain remains unsupported.
+
+CI and release builds bake their selected source revision and package version
+into the control plane image. Unstamped development builds leave preparation
+unavailable. This build identity is installation metadata; independent platform
+admission and a collection controller are still required before an API result
+can become verified. These changes are not in the published 0.4.5 images.
+
 ## Fresh release admission
 
 admit-release accepts a configuration containing only release. Through an

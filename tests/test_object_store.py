@@ -248,9 +248,16 @@ class FakeS3Client:
 class MemoryBody:
     def __init__(self, content: bytes) -> None:
         self.content = content
+        self.offset = 0
+        self.closed = False
 
-    def read(self) -> bytes:
-        return self.content
+    def read(self, size: int = -1) -> bytes:
+        result = self.content[self.offset:] if size < 0 else self.content[self.offset:self.offset + size]
+        self.offset += len(result)
+        return result
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class FailingObjectStore:

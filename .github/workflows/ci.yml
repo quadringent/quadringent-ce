@@ -239,6 +239,7 @@ jobs:
         with:
           context: .
           file: docker/control-plane.Dockerfile
+          build-args: QUADRINGENT_BUILD_REVISION=${{ github.sha }}
           platforms: linux/amd64
           tags: ${{ env.COCKPIT_IMAGE }}
           load: true
@@ -248,7 +249,7 @@ jobs:
           # Keep repository cache within 10 GB; do not enable paid expansion.
           cache-to: ${{ github.event_name != 'pull_request' && runner.environment != 'self-hosted' && 'type=gha,version=2,scope=ci-cockpit-amd64,mode=min,ignore-error=true,timeout=2m' || '' }}
       - name: Verify HTML, assets and API without network or credentials
-        run: sh scripts/test_control_plane_image.sh "$COCKPIT_IMAGE"
+        run: sh scripts/test_control_plane_image.sh "$COCKPIT_IMAGE" "${{ github.sha }}"
 
   verifier-runtime:
     if: ${{ success() && (!(github.event.repository.private && vars.PRIVATE_RUNNER_LABELS != '') || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.workflow_ref == format('{0}/.github/workflows/ci.yml@refs/heads/main', github.repository) && github.sha == vars.PRIVATE_APPROVED_SHA)) }}

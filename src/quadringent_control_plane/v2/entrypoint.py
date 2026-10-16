@@ -38,6 +38,7 @@ from sqlalchemy.engine import Engine
 
 from . import db, schema
 from .app import create_v2_app
+from .build_identity import read_build_identity
 from .crypto import SecretBox, load_token_pepper
 from .executor.boundary_reader import JavaBoundaryReader
 from .executor.diagnostic_jobs import (
@@ -48,6 +49,7 @@ from .executor.diagnostic_jobs import (
     in_cluster,
 )
 from .services.destination_verifier import SnowflakeKeyPairVerifier
+from .services.native_preparation import StoredNativePreparer
 from .services.loader_telemetry import KubernetesLoaderTelemetry, resolve_loader_identity
 from ..k8s_jobs import JobsApiError
 
@@ -354,6 +356,34 @@ def build_loader_telemetry(engine: Engine) -> KubernetesLoaderTelemetry | None:
     return KubernetesLoaderTelemetry(pods, resolve=lambda pipeline_id: resolve_loader_identity(engine, pipeline_id))
 
 
+def build_native_preparer_factory(values: Mapping[str, str], *, org_id: str):
+    """Configure preparation from the installed image and server-owned stores."""
+    from quadringent.storage_backend import StorageBackend, backend_from_environment
+
+    try:
+        identity = read_build_identity()
+        if identity is None:
+            return None
+        kind = backend_from_environment(values)
+        bucket = (values.get("QUADRINGENT_RAW_BUCKET") or "").strip()
+        root = (values.get("QUADRINGENT_RAW_PREFIX_ROOT") or "").strip()
+        location = (values.get({"aws": "QUADRINGENT_CHECKPOINT_TABLE", "gcs": "QUADRINGENT_CHECKPOINT_BUCKET",
+                                "local": "AS400_LOCAL_DATA_DIR"}[kind]) or "").strip()
+        if not bucket or not root or not location:
+            return None
+        storage = StorageBackend(kind=kind, raw_bucket=bucket, state_location=location)
+    except (ValueError, TypeError, OSError):
+        raise ConfigurationError("Native preparation requires valid installed build and storage metadata") from None
+
+    def factory(requested_org_id):
+        if requested_org_id != org_id:
+            return None
+        return StoredNativePreparer(storage=storage, raw_prefix_root=root, org_id=org_id,
+                                    producer_revision=identity.source_revision, producer_version=identity.version)
+
+    return factory
+
+
 def build_app(environ: Mapping[str, str] | None = None) -> tuple[FastAPI, Engine]:
     """Applique les migrations (verrouillées) puis construit l'application v2.
 
@@ -373,6 +403,7 @@ def build_app(environ: Mapping[str, str] | None = None) -> tuple[FastAPI, Engine
         source_probe, table_discovery_client = build_diagnostic_adapters(values, engine, secret_box)
         pipeline_executor, reconciliation_executor = build_pipeline_executor(values, engine, secret_box)
         loader_telemetry = build_loader_telemetry(engine)
+        native_preparer_factory = build_native_preparer_factory(values, org_id=org_id)
         app = create_v2_app(
             engine=engine,
             secret_box=secret_box,
@@ -392,6 +423,7 @@ def build_app(environ: Mapping[str, str] | None = None) -> tuple[FastAPI, Engine
             # Public setup/auth routes remain available for initial activation.
             require_authentication=True,
             destination_verifier=_build_destination_verifier(),
+            native_verification_preparer_factory=native_preparer_factory,
         )
         return app, engine
     except BaseException:

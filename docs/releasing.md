@@ -2,11 +2,11 @@
 
 project.version in pyproject.toml is the only editable version.
 python scripts/sync_version.py derives chart version/appVersion, Java and UI
-versions and the npm lockfile. CI requires --check. Source 0.4.7 is an Unreleased
+versions and the npm lockfile. CI requires --check. Source 0.4.8 is an Unreleased
 candidate; 0.4.5 remains the latest published prerelease. For this candidate:
 
 ```sh
-python scripts/sync_version.py --check --release v0.4.7
+python scripts/sync_version.py --check --release v0.4.8
 ```
 
 /v1/version reads installed package metadata; images read the same pyproject

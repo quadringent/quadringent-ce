@@ -7,7 +7,7 @@ We build open-source change data capture from IBM i (formerly AS/400 and iSeries
 <!-- The thesis line also opens docs/pypi.md; tests/test_pypi_metadata.py checks that they match. -->
 <!-- source: docs/architecture.md, docs/licensing.md, docs/evidence.md, docs/product/your-data.md, docs/product/quadringent-destination-proof-contract.md, docs/product/synthetic-demo.md, docs/product/operator-guide.md, docs/product/try-it-local.md, site/qualification-0.4.5.json, site/runtime-0.3.5.json, site/recovery-0.3.4.json, site/qualification-0.3.4.json, CHANGELOG.md, pyproject.toml -->
 
-Version 0.4 · Apache-2.0. Source 0.4.7 with Unreleased changes; latest published prerelease 0.4.5.
+Version 0.4 · Apache-2.0. Source 0.4.8 with Unreleased changes; latest published prerelease 0.4.5.
 
 The [0.4.5 prerelease](https://github.com/quadringent/quadringent-ce/releases/tag/v0.4.5) has [October 15 observed results](site/qualification-0.4.5.json): an independent initial comparison matched one million rows across SOURCE, RAW, HISTORY and MIRROR on AWS VM. Reader-recovery checks passed within their recorded scopes on AWS VM, EKS and GCP VM. At that dated snapshot the 24-hour run was in progress; GKE and general qualification remained incomplete, and the 10 s observation target had not passed. These are scoped results, with no P95 or SLA.
 
@@ -28,7 +28,7 @@ What a proof of concept touches:
   <img src="site/assets/cockpit-evidence-light.png" alt="Synthetic demo of the cockpit Evidence tab for one table: journal capture 120 events, Snowflake delivery 118 events, destination reconciliation Not measured. A banner reads Synthetic demo." width="720">
 </picture>
 
-Synthetic demo, Evidence tab: 120 read, 118 delivered, reconciliation Not measured. Every value is generated.
+Synthetic demo, source 0.4.7, Evidence tab: 120 read, 118 delivered, reconciliation Not measured. Every value is generated.
 
 ## Try it
 

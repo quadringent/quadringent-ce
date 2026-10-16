@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from sqlalchemy import update
 from sqlalchemy.engine import Engine
 
+from .native_context import context_transaction, semantic_update
 from .. import schema as v2_schema
 from .destinations import DestinationsService
 from .pipelines import PipelineExecutorProtocol, PipelinesService
@@ -68,12 +69,8 @@ class BulkActionsService:
         pipeline_result = self._pipelines.apply_scope_action(
             pipeline_ids, "pause", executor=self._executor, now=paused_at
         )
-        with self._engine.begin() as connection:
-            connection.execute(
-                update(v2_schema.organizations)
-                .where(v2_schema.organizations.c.id == self._org_id)
-                .values(paused_at=paused_at)
-            )
+        with context_transaction(self._engine, self._org_id) as connection:
+            semantic_update(connection, v2_schema.organizations, self._org_id, dict(paused_at=paused_at))
         return BulkPauseResult(
             paused_sources=source_ids, paused_destinations=destination_ids, pipelines=pipeline_result
         )
@@ -90,12 +87,8 @@ class BulkActionsService:
         pipeline_result = self._pipelines.apply_scope_action(
             pipeline_ids, "resume", executor=self._executor, now=moment
         )
-        with self._engine.begin() as connection:
-            connection.execute(
-                update(v2_schema.organizations)
-                .where(v2_schema.organizations.c.id == self._org_id)
-                .values(paused_at=None)
-            )
+        with context_transaction(self._engine, self._org_id) as connection:
+            semantic_update(connection, v2_schema.organizations, self._org_id, dict(paused_at=None))
         return BulkPauseResult(
             paused_sources=source_ids, paused_destinations=destination_ids, pipelines=pipeline_result
         )

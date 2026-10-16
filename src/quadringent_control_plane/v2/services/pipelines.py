@@ -10,6 +10,7 @@ tables, tâche 4) : ce service part d'un pipeline déjà persisté.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Protocol
@@ -19,6 +20,9 @@ import uuid
 from sqlalchemy import insert, select, update, true
 from sqlalchemy.engine import Engine
 
+from .native_context import (
+    NativeContextConflict, context_transaction, external_operation, operation_update, mark_operation_unresolved,
+)
 from .. import schema as v2_schema
 from .observation import NullObservationProvider, PipelineObservation, PipelineObservationProviderProtocol
 from .state_machine import DECLARED_STATES, ForbiddenTransitionError, transition
@@ -61,6 +65,15 @@ class PipelineAlreadyExistsError(ValueError):
 
 class PipelineExecutorUnavailableError(RuntimeError):
     """Aucun exécuteur injecté — 503 ``executor_unavailable``."""
+
+
+@contextmanager
+def _pipeline_operation(engine, pipeline_id):
+    try:
+        with external_operation(engine, (pipeline_id,)):
+            yield
+    except NativeContextConflict as error:
+        raise PipelineExecutorUnavailableError("A native context operation requires observation before retry") from error
 
 
 class PipelineCopyAcceptedError(RuntimeError):
@@ -316,42 +329,34 @@ class PipelinesService:
         self._require_table(table_id)
         if executor is None:
             raise PipelineExecutorUnavailableError("no pipeline executor injected")
-        existing = self._existing_pipeline_for_table(table_id)
         moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-        if existing is None:
-            resolved_destination_id = self._resolve_destination_id(destination_id)
-            pipeline_id = uuid.uuid4().hex
-            with self._engine.begin() as connection:
-                connection.execute(
-                    insert(v2_schema.pipelines),
-                    {
-                        "id": pipeline_id,
-                        "table_id": table_id,
-                        "destination_id": resolved_destination_id,
-                        "declared_state": "not_started",
-                        "created_at": moment,
-                        "updated_at": moment,
-                    },
-                )
-            before = None
-        else:
-            pipeline_id = existing.id
-            before = existing
+        with context_transaction(self._engine, self._org_id) as connection:
+            self._require_table(table_id)
+            existing = self._existing_pipeline_for_table(table_id)
+            if existing is None:
+                resolved_destination_id = self._resolve_destination_id(destination_id)
+                pipeline_id = uuid.uuid4().hex
+                connection.execute(insert(v2_schema.pipelines), dict(
+                    id=pipeline_id, table_id=table_id, destination_id=resolved_destination_id,
+                    declared_state="not_started", created_at=moment, updated_at=moment,
+                ))
+                before = None
+            else:
+                pipeline_id, before = existing.id, existing
         next_state = transition(
             "not_started" if before is None else before.declared_state, "start"
         )
-        accepted_copy_reason = None
-        try:
-            executor.execute(pipeline_id=pipeline_id, event="start")
-        except PipelineCopyAcceptedError as error:
-            accepted_copy_reason = str(error)
-        with self._engine.begin() as connection:
-            connection.execute(
-                update(v2_schema.pipelines)
-                .where(v2_schema.pipelines.c.id == pipeline_id)
-                .values(declared_state=next_state, updated_at=moment, attention_reason=accepted_copy_reason)
-            )
-        return before, self.get(pipeline_id)
+        with _pipeline_operation(self._engine, pipeline_id):
+            accepted_copy_reason = None
+            try:
+                executor.execute(pipeline_id=pipeline_id, event="start")
+            except PipelineCopyAcceptedError as error:
+                mark_operation_unresolved()
+                accepted_copy_reason = str(error)
+            operation_update(self._engine, pipeline_id, dict(
+                declared_state=next_state, updated_at=moment, attention_reason=accepted_copy_reason,
+            ), expected={"declared_state": "not_started" if before is None else before.declared_state})
+            return before, self.get(pipeline_id)
 
     def plan_action(self, pipeline_id: str, action: str) -> dict[str, object]:
         """Calcule la transition sans effet de bord — support de ``dry_run``."""
@@ -389,36 +394,35 @@ class PipelinesService:
             return before, self.get(pipeline_id)
         event = _event_for_action(action, before.declared_state, before.state_before_pause)
         next_state = transition(before.declared_state, event)
-        accepted_copy_reason = None
-        try:
-            executor.execute(pipeline_id=pipeline_id, event=event)
-        except PipelineCopyAcceptedError as error:
-            if event not in ("start", "restart_initial_copy"):
-                raise
-            accepted_copy_reason = str(error)
-        updated_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-        # ``pause`` mémorise l'état déclaré d'avant pause (``copying``/``live``)
-        # pour que ``resume`` sache où reprendre — voir
-        # ``0014_pipeline_state_before_pause``/``_event_for_action``. Tout
-        # événement de reprise (``resume``/``resume_copying``/``resume_live``)
-        # efface la mémoire : elle a été consommée. ``restart_initial_copy``
-        # remet le pipeline en ``copying`` (nouvelle copie explicite) : un
-        # ``pause`` ultérieur mémorisera de nouveau ``copying``, jamais
-        # l'ancienne valeur.
-        state_before_pause_update: dict[str, object] = {}
-        if accepted_copy_reason is not None:
-            state_before_pause_update["attention_reason"] = accepted_copy_reason
-        if event == "pause":
-            state_before_pause_update["state_before_pause"] = before.declared_state
-        elif event in ("resume", "resume_copying", "resume_live"):
-            state_before_pause_update["state_before_pause"] = None
-        with self._engine.begin() as connection:
-            connection.execute(
-                update(v2_schema.pipelines)
-                .where(v2_schema.pipelines.c.id == pipeline_id)
-                .values(declared_state=next_state, updated_at=updated_at, **state_before_pause_update)
-            )
-        return before, self.get(pipeline_id)
+        with _pipeline_operation(self._engine, pipeline_id):
+            accepted_copy_reason = None
+            try:
+                executor.execute(pipeline_id=pipeline_id, event=event)
+            except PipelineCopyAcceptedError as error:
+                if event not in ("start", "restart_initial_copy"):
+                    raise
+                mark_operation_unresolved()
+                accepted_copy_reason = str(error)
+            updated_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+            # ``pause`` mémorise l'état déclaré d'avant pause (``copying``/``live``)
+            # pour que ``resume`` sache où reprendre — voir
+            # ``0014_pipeline_state_before_pause``/``_event_for_action``. Tout
+            # événement de reprise (``resume``/``resume_copying``/``resume_live``)
+            # efface la mémoire : elle a été consommée. ``restart_initial_copy``
+            # remet le pipeline en ``copying`` (nouvelle copie explicite) : un
+            # ``pause`` ultérieur mémorisera de nouveau ``copying``, jamais
+            # l'ancienne valeur.
+            state_before_pause_update: dict[str, object] = {}
+            if accepted_copy_reason is not None:
+                state_before_pause_update["attention_reason"] = accepted_copy_reason
+            if event == "pause":
+                state_before_pause_update["state_before_pause"] = before.declared_state
+            elif event in ("resume", "resume_copying", "resume_live"):
+                state_before_pause_update["state_before_pause"] = None
+            operation_update(self._engine, pipeline_id, dict(
+                declared_state=next_state, updated_at=updated_at, **state_before_pause_update,
+            ), expected={"declared_state": before.declared_state})
+            return before, self.get(pipeline_id)
 
     # -- Actions de portée (source/destination/tout — design §3) ---------------
 
@@ -460,7 +464,7 @@ class PipelinesService:
         return bool(row and row[0])
 
     def _set_scope_paused(self, pipeline_id: str, value: bool, *, now: datetime) -> None:
-        with self._engine.begin() as connection:
+        with context_transaction(self._engine, self._org_id) as connection:
             connection.execute(
                 update(v2_schema.pipelines)
                 .where(v2_schema.pipelines.c.id == pipeline_id)

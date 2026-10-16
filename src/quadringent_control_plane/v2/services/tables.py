@@ -28,6 +28,7 @@ from quadringent.table_discovery import (
     discovered_column_to_type_kwargs,
 )
 
+from .native_context import context_transaction, semantic_update
 from .. import schema as v2_schema
 
 KEY_STRATEGIES = ("primary", "unique_index", "rrn")
@@ -187,7 +188,7 @@ class TablesService:
         discovered = discovery_client.discover(libraries=libraries, limit=limit, search=search)
         journals = library_journals(discovered)
         moment = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-        with self._engine.begin() as connection:
+        with context_transaction(self._engine, self._org_id) as connection:
             for table in discovered:
                 readiness_result = classify_table(
                     table,
@@ -243,9 +244,7 @@ class TablesService:
                         },
                     )
                 else:
-                    connection.execute(
-                        update(v2_schema.tables).where(v2_schema.tables.c.id == existing["id"]).values(**values)
-                    )
+                    semantic_update(connection, v2_schema.tables, existing["id"], values)
         return self.list(source_id)
 
     def choose_key(
@@ -283,7 +282,7 @@ class TablesService:
             ):
                 raise TableValidationError("key_columns must be a nonempty list of column names")
             columns = tuple(key_columns)
-        with self._engine.begin() as connection:
+        with context_transaction(self._engine, self._org_id) as connection:
             row = (
                 connection.execute(self._scoped_tables(select(v2_schema.tables).where(v2_schema.tables.c.id == table_id)))
                 .mappings()
@@ -309,15 +308,11 @@ class TablesService:
                 omitted=False,
             )
             readiness_result = classify_table(synthetic, has_journal_in_library=True)
-            connection.execute(
-                update(v2_schema.tables)
-                .where(v2_schema.tables.c.id == table_id)
-                .values(
-                    key_strategy=key_strategy,
-                    key_columns=",".join(columns) if columns else None,
-                    readiness=readiness_result.state,
-                )
-            )
+            semantic_update(connection, v2_schema.tables, table_id, dict(
+                key_strategy=key_strategy,
+                key_columns=",".join(columns) if columns else None,
+                readiness=readiness_result.state,
+            ))
         return self.get(table_id)
 
     def set_discovered_columns(self, table_id: str, *, columns: object) -> TableRecord:
@@ -334,13 +329,12 @@ class TablesService:
         """
 
         validated = _validate_discovered_columns(columns)
-        with self._engine.begin() as connection:
-            result = connection.execute(
-                self._scoped_tables(update(v2_schema.tables).where(v2_schema.tables.c.id == table_id))
-                .values(discovered_columns=validated)
-            )
-            if result.rowcount == 0:
+        with context_transaction(self._engine, self._org_id) as connection:
+            existing = connection.execute(self._scoped_tables(
+                select(v2_schema.tables.c.id).where(v2_schema.tables.c.id == table_id))).first()
+            if existing is None:
                 raise TableNotFoundError(table_id)
+            semantic_update(connection, v2_schema.tables, table_id, dict(discovered_columns=validated))
         return self.get(table_id)
 
 

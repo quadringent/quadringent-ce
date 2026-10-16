@@ -25,6 +25,10 @@ from typing import Mapping, Protocol, Sequence
 from sqlalchemy import select, update
 from sqlalchemy.engine import Engine
 
+from ..services.native_context import (
+    check_operation, external_operation, mark_operation_unresolved, operation_update, pipeline_effect, workload_pipelines,
+)
+
 from quadringent.capture_binding import CaptureBinding
 from quadringent.checkpoint import _decode_checkpoint_json
 from quadringent.reader_scope import reader_checkpoint_stream_key
@@ -222,6 +226,7 @@ class KubernetesPipelineExecutor:
 
     # -- PipelineExecutorProtocol -------------------------------------------------
 
+    @pipeline_effect
     def execute(self, *, pipeline_id: str, event: str) -> None:
         """Traduit l'évènement déjà validé par la machine à états (tâche 5).
 
@@ -249,6 +254,7 @@ class KubernetesPipelineExecutor:
 
     # -- Actions de haut niveau ----------------------------------------------------
 
+    @pipeline_effect
     def replay_range(self, pipeline_id: str, *, from_sequence: int, to_sequence: int) -> Mapping[str, object]:
         context = self._load_context(pipeline_id)
         if context.journal_library is None or context.journal_name is None:
@@ -279,6 +285,7 @@ class KubernetesPipelineExecutor:
             )
         )
         self._create_job_idempotent(manifest)
+        mark_operation_unresolved()
         return manifest
 
     def copying_evidence(self, pipeline_id: str, run_id: str) -> InitialCopyEvidence | None:
@@ -437,6 +444,7 @@ class KubernetesPipelineExecutor:
         )
 
     def _start(self, context: _PipelineContext, *, override: Mapping[str, str]) -> None:
+        check_operation(self._engine, context.pipeline_id)
         if self._config.loader_image:
             # Une configuration invalide reste un refus avant création de
             # copie ; seules les réconciliations après acceptation sont différées.
@@ -483,12 +491,8 @@ class KubernetesPipelineExecutor:
             )
         )
         self._create_job_idempotent(manifest)
-        with self._engine.begin() as connection:
-            connection.execute(
-                update(v2_schema.pipelines)
-                .where(v2_schema.pipelines.c.id == context.pipeline_id)
-                .values(active_run_id=run_id, attention_reason=None)
-            )
+        operation_update(self._engine, context.pipeline_id,
+                         dict(active_run_id=run_id, attention_reason=None), original_run=True)
         deferred = False
         for reconcile, resource_id in (
             (self._reconcile_reader_for_source, context.source_id),
@@ -621,17 +625,28 @@ class KubernetesPipelineExecutor:
             action = reconcile_deployment(desired, observed)
             if action is None:
                 continue
+            self._apply_context_deployment(action, desired, workload_pipelines(
+                self._engine, source_id=source_id, journal=journal))
+
+    def _apply_context_deployment(self, action, desired, pipeline_ids):
+        with external_operation(self._engine, pipeline_ids):
             try:
                 if action.kind == ACTION_CREATE:
                     self._deployments.create_deployment(action.manifest)
                 elif action.kind == ACTION_UPDATE:
                     self._deployments.replace_deployment(action.name, action.manifest)
-                else:  # ACTION_DELETE — plus de table live sur ce journal
+                else:
                     self._deployments.delete_deployment(action.name)
             except DeploymentAlreadyExists:
                 pass
             except DeploymentsApiError as error:
                 raise ExecutorError("executor_unavailable", "Deployment apply refused") from error
+            try:
+                observed = self._deployments.read_deployment(action.name)
+                if reconcile_deployment(desired, observed) is not None:
+                    mark_operation_unresolved()
+            except DeploymentsApiError:
+                mark_operation_unresolved()
 
     def _reader_name(self, source_id: str, journal: tuple[str, str]) -> str:
         from .manifests import reader_deployment_name
@@ -839,10 +854,15 @@ class KubernetesPipelineExecutor:
             if observed["spec"].get("replicas", 1) != 0:
                 stopped = deepcopy(observed)
                 stopped["spec"]["replicas"] = 0
-                try:
-                    self._deployments.replace_deployment(name, stopped)
-                except DeploymentsApiError as error:
-                    raise ExecutorError("executor_unavailable", "cannot stop the loader before migration") from error
+                with external_operation(self._engine, workload_pipelines(
+                        self._engine, destination_id=destination_id)):
+                    try:
+                        self._deployments.replace_deployment(name, stopped)
+                        readback = self._deployments.read_deployment(name)
+                        if readback is None or readback["spec"].get("replicas", 1) != 0:
+                            mark_operation_unresolved()
+                    except DeploymentsApiError as error:
+                        raise ExecutorError("executor_unavailable", "cannot stop the loader before migration") from error
             raise ExecutorError(
                 "capability_unavailable",
                 "Snowflake scope changed: data migration or a new initial copy required before resume",
@@ -850,17 +870,8 @@ class KubernetesPipelineExecutor:
         action = reconcile_deployment(desired, observed)
         if action is None:
             return
-        try:
-            if action.kind == ACTION_CREATE:
-                self._deployments.create_deployment(action.manifest)
-            elif action.kind == ACTION_UPDATE:
-                self._deployments.replace_deployment(action.name, action.manifest)
-            else:  # ACTION_DELETE — plus de table live/copying sur cette destination
-                self._deployments.delete_deployment(action.name)
-        except DeploymentAlreadyExists:
-            pass
-        except DeploymentsApiError as error:
-            raise ExecutorError("executor_unavailable", "loader Deployment apply refused") from error
+        self._apply_context_deployment(action, desired, workload_pipelines(
+            self._engine, destination_id=destination_id))
 
     def _desired_loader_manifest(
         self, destination_id: str, *, override: Mapping[str, str], provision_secret: bool = True,

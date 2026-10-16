@@ -18,6 +18,7 @@ import uuid
 from sqlalchemy import insert, select, update
 from sqlalchemy.engine import Engine
 
+from .native_context import context_transaction, semantic_update
 from .. import schema as v2_schema
 from ..crypto import SecretBox
 from . import validation
@@ -97,7 +98,7 @@ class SourcesService:
         created_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         source_id = uuid.uuid4().hex
         ciphertext = self._secret_box.encrypt(secret_value)
-        with self._engine.begin() as connection:
+        with context_transaction(self._engine, self._org_id) as connection:
             connection.execute(
                 insert(v2_schema.sources),
                 {
@@ -243,10 +244,8 @@ class SourcesService:
             values["tls_pinned_pem"] = effective_pem if result.tls_trust == "pinned" else None
         if values:
             values["updated_at"] = datetime.now(timezone.utc)
-            with self._engine.begin() as connection:
-                connection.execute(
-                    update(v2_schema.sources).where(v2_schema.sources.c.id == source_id).values(**values)
-                )
+            with context_transaction(self._engine, self._org_id) as connection:
+                semantic_update(connection, v2_schema.sources, source_id, values)
         return {"source_id": record.id, **result.to_dict()}
 
     def pause(self, source_id: str, *, now: datetime | None = None) -> SourceRecord:
@@ -254,23 +253,15 @@ class SourcesService:
 
         self.get(source_id)  # 404 si inconnue
         paused_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-        with self._engine.begin() as connection:
-            connection.execute(
-                update(v2_schema.sources).where(v2_schema.sources.c.id == source_id).values(
-                    paused_at=paused_at, updated_at=paused_at
-                )
-            )
+        with context_transaction(self._engine, self._org_id) as connection:
+            semantic_update(connection, v2_schema.sources, source_id, dict(paused_at=paused_at, updated_at=paused_at))
         return self.get(source_id)
 
     def resume(self, source_id: str, *, now: datetime | None = None) -> SourceRecord:
         self.get(source_id)
         updated_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-        with self._engine.begin() as connection:
-            connection.execute(
-                update(v2_schema.sources).where(v2_schema.sources.c.id == source_id).values(
-                    paused_at=None, updated_at=updated_at
-                )
-            )
+        with context_transaction(self._engine, self._org_id) as connection:
+            semantic_update(connection, v2_schema.sources, source_id, dict(paused_at=None, updated_at=updated_at))
         return self.get(source_id)
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request, Response
 
-from ..auth import Identity, require_scope
+from ..auth import Identity, enforce_presented_source_scope, require_scope
 from ..errors import ApiError, invalid_request, not_found
 from ..http import AuditContext, envelope, idempotent_write, parse_json_body
 from ..services.confirmations import (
@@ -74,6 +74,7 @@ async def approve_confirmation(
 ) -> dict[str, object]:
     service = _service(request)
     path = f"/v2/confirmations/{confirmation_id}/approve"
+    enforce_presented_source_scope(request)
     payload = parse_json_body(await request.body())
     approval_token = payload.get("token")
     signed_link = isinstance(approval_token, str) and bool(approval_token)

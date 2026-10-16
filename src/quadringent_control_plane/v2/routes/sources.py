@@ -22,7 +22,8 @@ def _service(request: Request) -> SourcesService:
 @router.get("")
 async def list_sources(request: Request, identity=Depends(require_scope("read"))) -> dict[str, object]:
     service = _service(request)
-    return {"items": [record.to_dict() for record in service.list()], "next_cursor": None}
+    return {"items": [record.to_dict() for record in service.list() if identity.source_allowed(record.id)],
+            "next_cursor": None}
 
 
 @router.get("/{source_id}")

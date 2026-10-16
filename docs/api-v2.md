@@ -86,13 +86,19 @@ Identity is resolved in this order:
 
 1. Authorization: Bearer qdt_<rd|op|ad>_<b62> agent token. Only its SHA256
    hash plus server pepper is stored. Scopes are read, operate and admin;
-   source_restriction may narrow access. Expiration is required unless
+   source_restriction declares a source allowlist. Expiration is required unless
    never_expires: true is explicitly declared. Rotation invalidates the old
    value; revocation is permanent.
 2. User session from POST /v2/auth/login. Passwords are scrypt-hashed.
    The signed cookie is HttpOnly, SameSite=Strict and Secure in the native
    entrypoint. Roles are admin and reader; reader never exceeds read scope.
 3. Explicitly configured trusted v1 authentication proxy.
+
+Unreleased source enforces that allowlist on sources, tables, pipelines and
+their confirmations, and filters source/pipeline lists before pagination.
+Operations without a safe source target return 403 `wrong_environment`,
+including global, destination, diagnostic, event and administration routes.
+This enforcement is not included in the 0.4.5 images.
 
 The native entrypoint sets require_authentication=True. Unauthenticated
 protected routes return 401 invalid_request. Direct create_v2_app calls default

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request, Response
 
-from ..auth import require_scope
+from ..auth import enforce_presented_source_scope, require_scope
 from ..errors import ApiError, invalid_request, not_found
 from ..http import AuditContext, envelope, idempotent_write
 from ..services.users import (
@@ -40,6 +40,7 @@ def _service(request: Request) -> UsersService:
 
 @router.post("/v2/setup/first-admin", status_code=201)
 async def create_first_admin(request: Request, response: Response) -> dict[str, object]:
+    enforce_presented_source_scope(request)
     service = _service(request)
     path = "/v2/setup/first-admin"
 
@@ -159,6 +160,7 @@ async def reissue_first_admin_activation(
 async def activate_user_by_token(request: Request, response: Response) -> dict[str, object]:
     """Activation par le seul jeton : c'est la forme du lien remis par
     l'installeur (``/activate?token=…``), qui ne connaît pas l'identifiant."""
+    enforce_presented_source_scope(request)
     service = _service(request)
     path = "/v2/users/activate"
 
@@ -188,6 +190,7 @@ async def activate_user_by_token(request: Request, response: Response) -> dict[s
 
 @router.post("/v2/users/{user_id}/activate")
 async def activate_user(user_id: str, request: Request, response: Response) -> dict[str, object]:
+    enforce_presented_source_scope(request)
     service = _service(request)
     path = f"/v2/users/{user_id}/activate"
 

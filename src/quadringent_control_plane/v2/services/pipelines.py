@@ -159,6 +159,7 @@ class PipelinesService:
         *,
         state: str | None = None,
         source_id: str | None = None,
+        source_ids: tuple[str, ...] | None = None,
         destination_id: str | None = None,
         limit: int = 50,
         cursor: str | None = None,
@@ -194,6 +195,8 @@ class PipelinesService:
             statement = statement.where(pipelines.c.declared_state == state)
         if source_id is not None:
             statement = statement.where(tables.c.source_id == source_id)
+        if source_ids is not None:
+            statement = statement.where(tables.c.source_id.in_(source_ids))
         if destination_id is not None:
             statement = statement.where(pipelines.c.destination_id == destination_id)
         if cursor is not None:

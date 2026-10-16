@@ -74,6 +74,7 @@ async def list_pipelines(
         records, next_cursor = service.list(
             state=state,
             source_id=source_id,
+            source_ids=identity.source_restriction or None,
             destination_id=destination_id,
             limit=limit,
             cursor=cursor,

@@ -86,6 +86,14 @@ export function createCockpitDemoFetch(): (input: string, init?: RequestInit) =>
       return json(200, pipelineDict(pipeline));
     }
 
+    const nativeMatch = /^\/pipelines\/([^/]+)\/native-verifications\/(capabilities|latest)$/.exec(path);
+    if (method === 'GET' && nativeMatch) {
+      if (!pipelines.some((item) => item.id === nativeMatch[1])) return notFound(path);
+      return json(200, nativeMatch[2] === 'capabilities'
+        ? { available: false, mode: null, reason_code: 'not_configured' }
+        : null);
+    }
+
     const evidenceMatch = /^\/pipelines\/([^/]+)\/evidence$/.exec(path);
     if (method === 'GET' && evidenceMatch) {
       const pipeline = pipelines.find((item) => item.id === evidenceMatch[1]);

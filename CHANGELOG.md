@@ -2,16 +2,18 @@
 
 ## Unreleased
 
-Changes not yet in a published release.
+Source candidate 0.4.6; changes not yet in a published release.
+
+- Wire native table observations into the configured Linux control plane and cockpit. A supervised worker bounds blocked SDK calls and cleans up native descendants; archived collection and replay results remain Incomplete without native admission.
 
 - Prepare native verification from server-owned storage, preserving original copy evidence, receiver claims and the checkpoint observed in one read. Archive the complete preparation with hashes and readbacks. The installed image supplies the producer revision; preparation does not grant native admission.
 - Bind opt-in new-copy format, member and access-control observations to v3 evidence and exact RAW bytes; retain them through loading, backup and recovery. Add a fixed-format native journal producer with lifecycle checks before/after its read and after the seven-stream collection. Independent native admission remains unavailable.
 - Add an operator-owned seven-stream collection command with hashed originals, a persistent inventory and strict row-chain comparisons. Collection does not grant native admission.
 - Add a bounded read-only native format identity probe. Its level ID and raw response are metadata observations; historical continuity and native admission remain unavailable.
 - Keep delivery counts separate from surviving-row commit ages, including after deletes. Loader logs do not establish delivery latency, which stays unmeasured.
-- Add SQL authority and authenticated API dispatch for native verification, with context generations, fenced requests and immutable historical results. Strict enforcement is disabled by default; the installed entrypoint has no native admission adapters, and cockpit integration remains unavailable.
+- Add SQL authority and authenticated API dispatch for native verification, with context generations, fenced requests and immutable historical results. Fresh organizations enable context tracking; older installations with tracking disabled require explicit server opt-in. The installed entrypoint exposes observations when configured; native admission remains unavailable.
 - Enforce agent tokens' source restrictions on v2 reads, actions, confirmations and paginated lists. Refuse global operations without a safe source scope before providers or cached responses run. This fix is not included in the 0.4.5 images.
-- Add bounded native reconciliation helpers: typed row streams, disk-backed comparisons, and read-only IBM i and Snowflake exports. Native provenance, a stable collection boundary and cockpit integration remain required; these helpers do not establish transaction consistency or runtime qualification.
+- Add bounded native reconciliation helpers: typed row streams, disk-backed comparisons, and read-only IBM i and Snowflake exports. Native provenance, complete inventory and a stable collection boundary still require admission; these helpers do not establish transaction consistency or runtime qualification.
 - Export pinned snapshot/RAW originals and explicit native journal positions for those comparisons. Complete inventory, receiver identity and historical record formats still require admission by the controller.
 - Add `quadringent local` (init, snowflake-script, check, start, stop, status, reset) to run one table on a single machine with Docker, without a cloud account or Kubernetes, using a local storage backend (`QUADRINGENT_STORAGE_BACKEND=local`, `local://` registry authority). It needs images from a release that includes it and has not been validated end to end against an IBM i and Snowflake. See [Try it locally](docs/product/try-it-local.md).
 - Add `quadringent doctor`, which builds one versioned diagnostic report (`quadringent.diagnostic.v1`) as text or JSON. Local checks always run; network calls (`--check-ibmi`, `--tls`, `--control-plane`) run only on request. Exit codes: 0 ready, 1 blocked, 2 usage error, 3 incomplete. `--from-report` and `--save` read and write a report offline.
@@ -29,8 +31,8 @@ Changes not yet in a published release.
 - Prepare PyPI package metadata and a package description. The package is not published on PyPI.
 - Add a local synthetic laboratory for the operator journey. It is a test tool, outside the distributed wheel.
 
-The control plane image does not yet include the diagnostics module, so
-diagnostics routes answer 503 `capability_unavailable` there.
+The control plane image includes diagnostics. Its routes require administrator
+access and read the local control-plane SQL snapshot.
 
 ## 0.4.2 — Native capture and recovery preview
 

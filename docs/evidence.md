@@ -1,10 +1,10 @@
 # Evidence
 
-Source version **0.4.7** with Unreleased changes; the latest published prerelease is **0.4.5**. The 0.4.5 [October 15 observed results](../site/qualification-0.4.5.json) are a dated partial snapshot, bound to the published release source, not to the new doctor or local-mode helpers. Historical 0.3.x results retain their own versions and scopes. Production: not qualified. Native CDC writes on 0.3.5 are Not tested.
+Source version **0.4.8** with Unreleased changes; the latest published prerelease is **0.4.5**. The 0.4.5 [October 15 observed results](../site/qualification-0.4.5.json) are a dated partial snapshot, bound to the published release source, not to the new doctor or local-mode helpers. Historical 0.3.x results retain their own versions and scopes. Production: not qualified. Native CDC writes on 0.3.5 are Not tested.
 
 We use four words for evidence, here and everywhere else: Measured (we have a number, with its scope), Not measured (we have no number), Not tested (we ran nothing) and Not supported (it does not work, or we do not intend it to). Every result stays bound to the version, targets and clock it was observed with. A result on 0.3.4 does not qualify 0.4.5 or the Unreleased changes.
 
-## Unreleased source candidate 0.4.7
+## Unreleased source candidate 0.4.8
 
 Configured Linux control planes can collect, archive and replay native table
 observations through the cockpit. The worker bounds blocked SDK calls and

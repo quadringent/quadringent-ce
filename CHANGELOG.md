@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-Source candidate 0.4.7; changes not yet in a published release.
+Source candidate 0.4.8; changes not yet in a published release.
+
+- Include the linked roadmap and support documents in source distributions.
 
 - Compile the portable Java reader on the native build platform when producing multi-architecture images; keep each runtime on its target architecture.
 

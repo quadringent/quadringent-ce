@@ -3,6 +3,7 @@
 Wave W3: value first, status right after it, and a FAQ whose every answer carries
 one of four statuses and a source that exists in this repository.
 """
+import hashlib
 import json
 import posixpath
 import re
@@ -79,7 +80,10 @@ def test_readme_states_version_and_licence_once_and_points_to_the_evidence_page(
     source_version = project["version"]
     published = re.search(r"latest published prerelease (\d+\.\d+\.\d+)", top)[1]
     assert f"Source {source_version} with Unreleased changes; latest published prerelease {published}" in top
-    assert set(re.findall(r"\b0\.4\.\d+\b", text)) <= {source_version, published}, "no stale source version"
+    capture_caption = "Synthetic demo, source 0.4.7, Evidence tab:"
+    assert text.count(capture_caption) == 1
+    outside_capture = text.replace(capture_caption, "Synthetic demo, Evidence tab:", 1)
+    assert set(re.findall(r"\b0\.4\.\d+\b", outside_capture)) <= {source_version, published}, "no stale source version"
     runtime = json.loads(read("site/runtime-0.3.5.json"))
     recovery = json.loads(read("site/recovery-0.3.4.json"))
     assert f'(release {runtime["version"]}, {runtime["date_utc"]})' in top
@@ -343,7 +347,7 @@ def changelog_unreleased() -> str:
     return match[1]
 
 
-def test_hero_shows_the_current_cockpit_captioned_as_synthetic():
+def test_hero_keeps_the_historical_cockpit_captioned_as_synthetic():
     section = hero()
     figure = re.search(r"<figure.*?</figure>", section, re.S)[0]
     # The displayed image is a 1x crop of the three readings, legible on the fold; the full capture is one click away.
@@ -358,7 +362,17 @@ def test_hero_shows_the_current_cockpit_captioned_as_synthetic():
     text = text_of_home(figure)
     assert "Demonstration" in text and "synthetic data" in text
     caption = text_of_home(re.search(r"<figcaption>(.*?)</figcaption>", figure, re.S)[1])
-    assert source_version() in caption, "the screenshot is of the current source version"
+    capture_version = re.search(r'data-capture-version="([^"]+)"', figure)[1]
+    assert capture_version == "0.4.7" and capture_version != source_version()
+    assert f"source {capture_version}." in caption
+    capture_hashes = {
+        "cockpit-evidence-dark.png": "7c76f7e41cef9a7f97d8ab5c445c3024948a91d51117e83af2aaa51e1de00131",
+        "cockpit-evidence-light.png": "8ab7bda3238ed5f2d2a119286c2ffd0c896805189e7997058abcd355a5fec02f",
+        "cockpit-evidence-strip-dark.png": "a5d966efa6ef9828fe1c55ccc1a059559e2890ec98d7b6925f3d7805224c4057",
+        "cockpit-evidence-strip-light.png": "810e1c0e4ff3bf6ac233105e5e8546389c4edbe75e6976324901405d8415945a",
+    }
+    for name, expected in capture_hashes.items():
+        assert hashlib.sha256((ROOT / "site/assets" / name).read_bytes()).hexdigest() == expected
     assert "synthetic" in caption
     alt = re.search(r'alt="([^"]+)"', figure)[1]
     for value in ("120 events", "118 events", "Not measured"):

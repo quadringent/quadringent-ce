@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import re
+import stat
 import tempfile
 from typing import Any
 
@@ -17,6 +18,155 @@ from .receiver_identity import BOUND_CHECKPOINT_FORMAT_VERSION, BoundCheckpoint
 LEGACY_CHECKPOINT_FORMAT_VERSION = "as400-checkpoint-v1"
 _LEGACY_AUDIT_FIELDS = {"anchor_actor", "anchor_at", "anchor_reason"}
 _ANCHOR_ACTOR = re.compile(r"[A-Za-z0-9][A-Za-z0-9._ -]{0,63}")
+_OBSERVATION_MAX_BYTES = 65536
+
+
+def _content_version(content: bytes) -> str:
+    return "sha256:" + hashlib.sha256(content).hexdigest()
+
+
+@dataclass(frozen=True)
+class CheckpointObservation:
+    """One checkpoint read, with its original content and explicit encoding."""
+
+    position: BoundCheckpoint
+    content: bytes
+    encoding: str
+    version: str
+
+    def __post_init__(self) -> None:
+        if (type(self.position) is not BoundCheckpoint or type(self.content) is not bytes
+                or not 1 <= len(self.content) <= _OBSERVATION_MAX_BYTES
+                or type(self.encoding) is not str
+                or self.encoding not in {"checkpoint-json-v2", "dynamodb-attribute-item-v1"}
+                or type(self.version) is not str):
+            raise ValueError("invalid checkpoint observation")
+        if self.version.startswith("sha256:"):
+            if self.version != _content_version(self.content):
+                raise ValueError("checkpoint observation content digest differs")
+        elif (self.encoding != "checkpoint-json-v2"
+              or re.fullmatch(r"gcs-generation:[1-9][0-9]{0,63}", self.version) is None):
+            raise ValueError("invalid checkpoint observation version")
+        if _observation_position(self.content, self.encoding) != self.position:
+            raise ValueError("checkpoint observation position differs from its content")
+
+    def require_stream(self, stream_key: str) -> BoundCheckpoint:
+        """Check an embedded provider stream; local scope remains bound by its file path."""
+        if type(stream_key) is not str or not stream_key.strip():
+            raise ValueError("invalid checkpoint observation stream")
+        position = _observation_position(self.content, self.encoding, stream_key=stream_key)
+        if position != self.position:
+            raise ValueError("checkpoint observation position differs from its content")
+        return position
+
+
+def _observed_record(content: bytes) -> dict[str, Any]:
+    if type(content) is not bytes or not 1 <= len(content) <= _OBSERVATION_MAX_BYTES:
+        raise ValueError("checkpoint observation exceeds byte budget")
+    return _decode_checkpoint_json(content.decode("utf-8"))
+
+
+def _observed_json_record(record: dict[str, Any], stream_key: str | None) -> BoundCheckpoint:
+    if stream_key is not None:
+        if type(record.get("stream_id")) is not str or record.pop("stream_id") != stream_key:
+            raise ValueError("checkpoint observation stream differs")
+    position = BoundCheckpoint.from_dict(record)
+    # Reject escaped lone surrogates as well as malformed input encodings.
+    json.dumps(position.to_dict(), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    return position
+
+
+def _observed_json(content: bytes, *, stream_key: str | None = None) -> BoundCheckpoint:
+    return _observed_json_record(_observed_record(content), stream_key)
+
+
+def _observed_dynamo(content: bytes, *, stream_key: str | None = None,
+                     partition_key: str | None = None) -> BoundCheckpoint:
+    item = _observed_record(content)
+    if partition_key is None:
+        keys = {"pk", "stream_id"}.intersection(item)
+        if len(keys) != 1:
+            raise ValueError("invalid checkpoint observation partition key")
+        partition_key = keys.pop()
+    if set(item) != {partition_key, "format_version", "scope_id", "capture_epoch", "receiver_identity",
+                     "receiver", "sequence", "checkpoint_digest"}:
+        raise ValueError("invalid bound checkpoint attributes")
+    actual_stream = _dynamo_string(item[partition_key])
+    if (not actual_stream.strip() or stream_key is not None and actual_stream != stream_key
+            or _dynamo_string(item["format_version"]) != BOUND_CHECKPOINT_FORMAT_VERSION):
+        raise ValueError("invalid bound checkpoint stream or version")
+    sequence = item["sequence"]
+    identity = item["receiver_identity"]
+    if (type(sequence) is not dict or set(sequence) != {"N"} or type(sequence["N"]) is not str
+            or re.fullmatch(r"0|[1-9][0-9]*", sequence["N"]) is None
+            or type(identity) is not dict or set(identity) != {"M"} or type(identity["M"]) is not dict):
+        raise ValueError("invalid bound checkpoint typed attributes")
+    position = BoundCheckpoint.from_dict({"format_version": BOUND_CHECKPOINT_FORMAT_VERSION,
+        "scope_id": _dynamo_string(item["scope_id"]), "capture_epoch": _dynamo_string(item["capture_epoch"]),
+        "receiver_identity": {key: _dynamo_string(value) for key, value in identity["M"].items()},
+        "sequence": int(sequence["N"])})
+    json.dumps(position.to_dict(), ensure_ascii=False, allow_nan=False).encode("utf-8")
+    if (_dynamo_string(item["receiver"]) != position.position.receiver
+            or _dynamo_string(item["checkpoint_digest"]) != _checkpoint_digest(position)):
+        raise ValueError("bound checkpoint digest or receiver does not match")
+    return position
+
+
+def _observation_position(content: bytes, encoding: str, *, stream_key: str | None = None) -> BoundCheckpoint:
+    if encoding == "dynamodb-attribute-item-v1":
+        return _observed_dynamo(content, stream_key=stream_key)
+    record = _observed_record(content)
+    embedded_stream = record.get("stream_id")
+    if "stream_id" in record:
+        if type(embedded_stream) is not str or not embedded_stream.strip():
+            raise ValueError("invalid checkpoint observation stream")
+        return _observed_json_record(record, stream_key if stream_key is not None else embedded_stream)
+    return _observed_json_record(record, None)
+
+
+def _read_observed_file(path: Path) -> bytes | None:
+    parts = Path(path).absolute().parts
+    if any(part in {".", ".."} for part in parts[1:]) or len(parts) < 2:
+        raise ValueError("invalid checkpoint observation path")
+    directory = descriptor = None
+    try:
+        directory = os.open(parts[0], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        for part in parts[1:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+            os.close(directory)
+            directory = child
+        descriptor = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode) or not 1 <= before.st_size <= _OBSERVATION_MAX_BYTES:
+            raise ValueError("invalid checkpoint observation file or byte budget")
+        content = bytearray()
+        while len(content) <= _OBSERVATION_MAX_BYTES:
+            chunk = os.read(descriptor, _OBSERVATION_MAX_BYTES + 1 - len(content))
+            if not chunk:
+                break
+            content.extend(chunk)
+        after = os.fstat(descriptor)
+        current = os.stat(parts[-1], dir_fd=directory, follow_symlinks=False)
+
+        def identity(metadata):
+            return (metadata.st_dev, metadata.st_ino, metadata.st_mode, metadata.st_size,
+                    metadata.st_mtime_ns, metadata.st_ctime_ns)
+
+        if (identity(before) != identity(after) or identity(after) != identity(current)
+                or len(content) != before.st_size or len(content) > _OBSERVATION_MAX_BYTES):
+            raise ValueError("checkpoint changed during observation")
+        return bytes(content)
+    except FileNotFoundError as error:
+        if descriptor is None:
+            return None
+        raise ValueError("checkpoint changed during observation") from error
+    except OSError as error:
+        raise ValueError("invalid checkpoint observation file") from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if directory is not None:
+            os.close(directory)
 
 
 def _unique_json_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -119,6 +269,12 @@ class JsonCheckpointStore:
 
     def load_bound(self) -> BoundCheckpoint | None:
         return _bound_record(self._read_checkpoint())
+
+    def observe_bound(self) -> CheckpointObservation | None:
+        content = _read_observed_file(self.path)
+        if content is None:
+            return None
+        return CheckpointObservation(_observed_json(content), content, "checkpoint-json-v2", _content_version(content))
 
     def commit(self, position: JournalPosition) -> None:
         previous = self.load()
@@ -289,6 +445,27 @@ class DynamoDbCheckpointStore:
 
     def load_bound(self) -> BoundCheckpoint | None:
         return _bound_record(self._read_checkpoint())
+
+    def observe_bound(self) -> CheckpointObservation | None:
+        response = self.client.get_item(TableName=self.table_name, Key={self.partition_key: {"S": self.stream_key}},
+                                        ConsistentRead=True)
+        if type(response) is not dict:
+            raise ValueError("invalid DynamoDB checkpoint response")
+        if "Item" not in response:
+            return None
+        try:
+            encoder = json.JSONEncoder(sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+            content = bytearray()
+            for part in encoder.iterencode(response["Item"]):
+                chunk = part.encode("ascii")
+                if len(content) + len(chunk) > _OBSERVATION_MAX_BYTES:
+                    raise ValueError("checkpoint observation exceeds byte budget")
+                content.extend(chunk)
+            original = bytes(content)
+            position = _observed_dynamo(original, partition_key=self.partition_key, stream_key=self.stream_key)
+            return CheckpointObservation(position, original, "dynamodb-attribute-item-v1", _content_version(original))
+        except (KeyError, TypeError, ValueError, RuntimeError) as error:
+            raise ValueError("invalid DynamoDB checkpoint observation") from error
 
     def commit(self, position: JournalPosition) -> None:
         previous = self.load()

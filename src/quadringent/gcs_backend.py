@@ -18,10 +18,14 @@ import re
 from typing import Any
 
 from .checkpoint import (
+    CheckpointObservation,
+    _OBSERVATION_MAX_BYTES,
     _bound_record,
     _checkpoint_position,
+    _content_version,
     _decode_checkpoint_json,
     _legacy_record,
+    _observed_json,
     _parse_checkpoint_record,
     _validate_bound_update,
 )
@@ -102,10 +106,22 @@ class GcsObjectStore:
         return self._same_existing(existing, full_key, content, digest)
 
     def _same_existing(self, blob: Any, full_key: str, content: bytes, digest: str) -> bool:
+        size = getattr(blob, "size", None)
+        if size is not None and (type(size) is not int or size != len(content)):
+            raise ValueError(f"object collision with different size: {full_key}")
+        if size == 0:
+            # Native metadata proves an empty body; no byte range is needed.
+            return False
         metadata = {str(k).lower(): str(v) for k, v in (blob.metadata or {}).items()}
         if metadata.get("sha256") == digest:
             return False
-        if blob.download_as_bytes(if_generation_match=blob.generation) != content:
+        generation = blob.generation
+        if (type(generation) not in {str, int}
+                or re.fullmatch(r"[1-9][0-9]{0,63}", str(generation)) is None):
+            raise ValueError(f"invalid object collision generation: {full_key}")
+        observed = blob.download_as_bytes(start=0, end=len(content), if_generation_match=int(generation))
+        if (type(observed) is not bytes or observed != content
+                or str(blob.generation) != str(generation)):
             raise ValueError(f"object collision with different content: {full_key}")
         return False
 
@@ -273,6 +289,30 @@ class GcsCheckpointStore:
 
     def load_bound(self) -> BoundCheckpoint | None:
         return _bound_record(self._read_checkpoint()[0])
+
+    def observe_bound(self) -> CheckpointObservation | None:
+        blob = self._record._bucket.get_blob(self._record.name)
+        if blob is None:
+            return None
+        generation = getattr(blob, "generation", None)
+        arguments = {"start": 0, "end": _OBSERVATION_MAX_BYTES}
+        if generation is not None:
+            if (type(generation) not in {str, int}
+                    or re.fullmatch(r"[1-9][0-9]{0,63}", str(generation)) is None):
+                raise ValueError("invalid checkpoint observation generation")
+            generation = int(generation)
+            arguments["if_generation_match"] = generation
+        try:
+            content = blob.download_as_bytes(**arguments)
+        except Exception as error:
+            if _is_precondition_failed(error) or _is_not_found(error):
+                raise ValueError("checkpoint changed during observation") from error
+            raise
+        if generation is not None and str(blob.generation) != str(generation):
+            raise ValueError("checkpoint generation changed during observation")
+        position = _observed_json(content, stream_key=self.stream_key)
+        version = _content_version(content) if generation is None else f"gcs-generation:{generation}"
+        return CheckpointObservation(position, content, "checkpoint-json-v2", version)
 
     def commit(self, position: JournalPosition) -> None:
         previous = self.load()

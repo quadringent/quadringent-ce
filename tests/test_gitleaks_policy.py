@@ -150,7 +150,9 @@ def test_a_changed_fixture_in_the_same_assignment_is_detected(scanner, tmp_path,
 def test_another_secret_in_the_same_file_is_detected(scanner, tmp_path, case):
     root = stage(tmp_path)
     path = root / case.path
-    text = "\napi_key = " + repr(secrets.token_hex(32)) + "\n"
+    # Balance the canary alphabet to make entropy filtering deterministic.
+    canary = "".join(format(index, "x") for index in range(16)) * 4
+    text = "\napi_key = " + repr(canary) + "\n"
     control = root / "unapproved-control.txt"
     control.write_text(text)
     assert {"rule": "generic-api-key", "file": control.name} in scan(scanner, root)

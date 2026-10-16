@@ -25,6 +25,7 @@ RUN mvn -q -f java/pom.xml -DskipTests package dependency:copy-dependencies \
 FROM eclipse-temurin:21-jre-jammy@sha256:eebd356ad7358b7094758e5787a6726f332917cfd56feab6457c56dab895cdbf AS jre
 
 FROM python:3.14-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f
+ARG QUADRINGENT_BUILD_REVISION=""
 RUN apt-get update \
     && apt-get upgrade --yes \
     && apt-get install --no-install-recommends --yes libpcre2-8-0 \
@@ -58,6 +59,7 @@ COPY src/quadringent/__init__.py src/quadringent/site_config.py src/quadringent/
 COPY src/quadringent/qualification/__init__.py src/quadringent/qualification/boundary.py /app/src/quadringent/qualification/
 COPY src/quadringent/qualification/verification_contract.py src/quadringent/qualification/verification_stream.py /app/src/quadringent/qualification/
 COPY src/quadringent/qualification/verification_process.py /app/src/quadringent/qualification/
+COPY src/quadringent/qualification/verification_stored.py /app/src/quadringent/qualification/
 COPY src/quadringent/copy_observation.py /app/src/quadringent/
 COPY src/quadringent/diagnostics/__init__.py src/quadringent/diagnostics/model.py src/quadringent/diagnostics/export.py /app/src/quadringent/diagnostics/
 COPY src/quadringent/infrastructure_costs.py src/quadringent/storage_backend.py src/quadringent/gcs_backend.py src/quadringent/checkpoint.py src/quadringent/receiver_identity.py src/quadringent/capture_binding.py src/quadringent/receiver_registry.py /app/src/quadringent/
@@ -67,6 +69,7 @@ COPY src/quadringent/stage_timings.py /app/src/quadringent/
 COPY src/quadringent/fleet_capture.py src/quadringent/fleet_certify_probe.py src/quadringent/table_discovery.py /app/src/quadringent/
 COPY src/quadringent/snowflake_destination.py src/quadringent/snowflake_streaming_loader.py src/quadringent/snowflake_sql_loader.py src/quadringent/storage_layout.py src/quadringent/reader_scope.py /app/src/quadringent/
 COPY src/quadringent_control_plane /app/src/quadringent_control_plane
+RUN python -m quadringent_control_plane.v2.build_identity --revision "$QUADRINGENT_BUILD_REVISION"
 COPY scripts/quadringent_control_plane.py /app/quadringent_control_plane.py
 COPY scripts/quadringent_control_plane_v2.py /app/quadringent_control_plane_v2.py
 COPY scripts/quadringent_postgres_backup.py /app/quadringent_postgres_backup.py

@@ -24,6 +24,7 @@ src/quadringent/**
 !src/quadringent/qualification/verification_contract.py
 !src/quadringent/qualification/verification_stream.py
 !src/quadringent/qualification/verification_process.py
+!src/quadringent/qualification/verification_stored.py
 !src/quadringent/copy_observation.py
 !src/quadringent/diagnostics/
 !src/quadringent/diagnostics/__init__.py
@@ -116,3 +117,4 @@ ui/scripts/**
 **/*.kdb
 **/*.crt
 **/*.cer
+**/_build_identity.json

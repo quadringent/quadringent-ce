@@ -4,6 +4,7 @@
 
 Changes not yet in a published release.
 
+- Prepare native verification from server-owned storage, preserving original copy evidence, receiver claims and the checkpoint observed in one read. Archive the complete preparation with hashes and readbacks. The installed image supplies the producer revision; preparation does not grant native admission.
 - Bind opt-in new-copy format, member and access-control observations to v3 evidence and exact RAW bytes; retain them through loading, backup and recovery. Add a fixed-format native journal producer with lifecycle checks before/after its read and after the seven-stream collection. Independent native admission remains unavailable.
 - Add an operator-owned seven-stream collection command with hashed originals, a persistent inventory and strict row-chain comparisons. Collection does not grant native admission.
 - Add a bounded read-only native format identity probe. Its level ID and raw response are metadata observations; historical continuity and native admission remain unavailable.

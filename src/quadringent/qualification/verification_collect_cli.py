@@ -13,8 +13,9 @@ import time
 
 from .verification_collect import ProcessSpec, WindowProcess, collect_verification
 from .verification_contract import VerificationScope
+from .verification_guard import _collect_native_receipts
 from .verification_native import load_native_copy_inputs, native_journal_processes
-from .verification_process import DocumentLimits, collect_process_document
+from .verification_process import collect_process_document
 from .verification_stored import BatchReference, ObjectReference, StoredReadSet
 
 
@@ -189,51 +190,20 @@ def _native_journal(config, scope, store, initial_copy, out_dir, inputs, max_sec
     )
 
 
-def _guard_document(native, document, mode):
-    phases = ['before_business', 'after_business'] if mode == 'journal' else ['after_all_streams']
-    if (type(document) is not dict
-            or document.get('format_version') != 'quadringent-native-journal-guard-v1'
-            or document.get('mode') != mode or document.get('state') != 'complete'
-            or document.get('error_code') is not None
-            or type(document.get('guards')) is not list
-            or any(type(value) is not dict for value in document['guards'])
-            or [value.get('phase') for value in document['guards']] != phases
-            or document.get('native_admission') != 'not_evaluated'
-            or document.get('transaction_consistency_verified') is not False
-            or any(document.get(name) != native[name] for name in (
-                'scope_sha256', 'context_sha256', 'capture_binding_sha256', 'copy_boundary_sha256',
-                'copy_run_id', 'bundle_sha256'))):
-        raise ValueError('native_guard_reference_mismatch')
-    return document
-
-
 def _native_receipt(native, inputs, max_seconds):
     guard = _absolute(native['guard_receipt_path'])
-    raw = inputs.read(str(guard), 4 * 1024**2)
-    _guard_document(native, json.loads(raw, object_pairs_hook=_pairs), 'journal')
-    producer = native['_producer']
-    if len(producer.command) != 31 or producer.command[3] != 'io.quadringent.as400.NativeBusinessImageExport':
-        raise ValueError('invalid_native_producer')
-    command = list(producer.command)
-    command[3] = 'io.quadringent.as400.NativeLifecycleGuard'
-    final_receipt = guard.parent / 'after-all-streams-guard.json'
-    command[27] = str(final_receipt)
-    command[30] = str(min(60, max_seconds))
-    result = collect_process_document(
-        tuple(command), directory=guard.parent/'after-all-streams', input_bytes=producer.input_bytes,
-        environment=producer.environment,
-        validate=lambda value: _guard_document(native, value, 'after_all_streams'),
-        limits=DocumentLimits(max_bytes=4*1024**2, max_seconds=min(60, max_seconds)),
-    )
-    final_raw = inputs.read(str(final_receipt), 4*1024**2)
-    if (len(final_raw) != result.byte_count or hashlib.sha256(final_raw).hexdigest() != result.sha256
-            or result.return_code != 0 or inputs.current() is not True):
-        raise ValueError('native_final_guard_differs')
+    result = _collect_native_receipts(native, native['_producer'], guard_receipt_path=guard,
+        directory=guard.parent/'after-all-streams', check_current=inputs.current,
+        max_seconds=min(60, max_seconds), collect_document=collect_process_document)
+    for reference in (result.journal_original, result.final_original):
+        raw = inputs.read(str(reference.path), 4*1024**2)
+        if len(raw) != reference.byte_count or hashlib.sha256(raw).hexdigest() != reference.sha256:
+            raise ValueError('native_final_guard_differs')
+    if inputs.current() is not True:
+        raise ValueError('changed_native_input')
     # This preserves a producer measurement, not an independently admitted proof.
     native = {**{key: value for key, value in native.items() if key != '_producer'},
-              'guard_receipt_sha256': hashlib.sha256(raw).hexdigest(), 'guard_receipt_bytes': len(raw),
-              'final_guard': dict(mode='after_all_streams', path=str(final_receipt),
-                                 original_path=str(result.path), sha256=result.sha256, byte_count=result.byte_count)}
+              **result.metadata}
     path = guard.parent / 'native-copy-inputs.json'
     _save_private(path, (json.dumps(native, sort_keys=True, separators=(',', ':')) + '\n').encode())
     return path

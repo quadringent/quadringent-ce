@@ -31,6 +31,15 @@ storage integration and external stage. The v1 S3 console/proof/notification
 examples remain AWS-specific. See [autonomous Snowflake](autonomous-snowflake-dev.md).
 
 Review IAM templates for the actual site; do not apply synthetic policies as-is.
+The offline native collection component is not an installed admission controller.
+If explicitly integrated at a site, its S3 identity needs `GetObject` and
+`PutObject` on that organization's `native-collections-v1/<org-sha256>/objects/*`,
+plus `AbortMultipartUpload` there to clean up interrupted large-file transfers.
+Bucket-level `ListBucket` must also allow the initial `HeadObject` check to
+distinguish an absent archive object from a denied read.
+Read access to the corresponding `native-preparations-v1` archive and list/read
+access to the table's journal prefix are separate scoped permissions. Collection
+alone grants no native qualification or stable-cut proof.
 
 ## Prepare values and secrets
 

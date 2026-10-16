@@ -13,9 +13,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Callable
 
 from .checkpoint import (
     CheckpointObservation,
@@ -30,7 +31,17 @@ from .checkpoint import (
     _validate_bound_update,
 )
 from .contract import JournalPosition
-from .object_store import _read_bounded, _validate_object_key, _validate_read_budget
+from .object_store import (
+    _ArchiveReader,
+    _FILE_ARCHIVE_CHUNK,
+    _archive_arguments,
+    _archive_fence,
+    _archive_snapshot,
+    _archive_verify,
+    _read_bounded,
+    _validate_object_key,
+    _validate_read_budget,
+)
 from .receiver_identity import BoundCheckpoint
 from .source_gate import GATE_FORMAT_VERSION, SourceGatePolicy, _RevisionedSourceGate, _empty_record
 
@@ -104,6 +115,78 @@ class GcsObjectStore:
         if existing is None:
             raise RuntimeError(f"object precondition failed but object is absent: {full_key}")
         return self._same_existing(existing, full_key, content, digest)
+
+    def put_file_once(
+        self,
+        key: str,
+        path: os.PathLike[str],
+        *,
+        expected_sha256: str,
+        byte_count: int,
+        check_current: Callable[[], bool] = lambda: True,
+    ) -> bool:
+        full_key = self._key(_validate_object_key(key))
+        with _archive_snapshot(path, expected_sha256, byte_count, check_current) as snapshot:
+            _archive_fence(check_current)
+            existing = self._bucket.get_blob(full_key, timeout=60, retry=None)
+            _archive_fence(check_current)
+            if existing is not None:
+                self._verify_file_archive(existing, snapshot, expected_sha256, byte_count, check_current)
+                return False
+            blob = self._bucket.blob(full_key)
+            blob.chunk_size = _FILE_ARCHIVE_CHUNK
+            blob.metadata = {"sha256": expected_sha256}
+            _archive_fence(check_current)
+            try:
+                # Explicit size bounds the SDK's small multipart buffer; our readback checks SHA-256.
+                blob.upload_from_file(
+                    _ArchiveReader(snapshot, check_current, 0, byte_count),
+                    size=byte_count,
+                    rewind=True,
+                    if_generation_match=0,
+                    checksum=None,
+                    timeout=60,
+                    retry=None,
+                )
+                created = True
+            except Exception as error:
+                if not _is_precondition_failed(error):
+                    raise
+                _archive_fence(check_current)
+                blob = self._bucket.get_blob(full_key, timeout=60, retry=None)
+                created = False
+                if blob is None:
+                    raise ValueError("file archive race winner is unavailable") from error
+            _archive_fence(check_current)
+            self._verify_file_archive(blob, snapshot, expected_sha256, byte_count, check_current)
+            _archive_fence(check_current)
+            return created
+
+    def verify_file(
+        self, key: str, *, expected_sha256: str, byte_count: int, check_current: Callable[[], bool] = lambda: True
+    ) -> None:
+        _archive_arguments(expected_sha256, byte_count, check_current)
+        _archive_fence(check_current)
+        full_key = self._key(_validate_object_key(key))
+        blob = self._bucket.get_blob(full_key, timeout=60, retry=None)
+        _archive_fence(check_current)
+        if blob is None:
+            raise FileNotFoundError(key)
+        self._verify_file_archive(blob, None, expected_sha256, byte_count, check_current)
+
+    @staticmethod
+    def _verify_file_archive(blob, snapshot, expected_sha256, byte_count, check_current):
+        generation = getattr(blob, "generation", None)
+        if (
+            type(generation) not in {str, int}
+            or re.fullmatch(r"[1-9][0-9]{0,63}", str(generation)) is None
+            or type(blob.size) is not int
+            or blob.size != byte_count
+        ):
+            raise ValueError("file archive object length or generation differs")
+        source = _GcsArchiveReader(blob, int(generation), byte_count, check_current)
+        _archive_verify(source, snapshot, expected_sha256, byte_count, check_current)
+        _archive_fence(check_current)
 
     def _same_existing(self, blob: Any, full_key: str, content: bytes, digest: str) -> bool:
         size = getattr(blob, "size", None)
@@ -193,6 +276,39 @@ class GcsObjectStore:
             raise ValueError("object key must not escape the configured prefix")
         relative_key = str(relative).replace("\\", "/")
         return f"{self.prefix}/{relative_key}" if self.prefix else relative_key
+
+
+class _GcsArchiveReader:
+    def __init__(self, blob, generation, size, check_current):
+        self.blob, self.generation, self.size = blob, generation, size
+        self.check_current, self.offset = check_current, 0
+
+    def read(self, size):
+        _archive_fence(self.check_current)
+        if type(size) is not int or not 0 < size <= _FILE_ARCHIVE_CHUNK:
+            raise ValueError("file archive range must be bounded")
+        if self.offset == self.size:
+            # Generation-bound size supplies EOF, including empty objects (no invalid empty range).
+            return b""
+        count = min(size, self.size - self.offset)
+        data = self.blob.download_as_bytes(
+            start=self.offset,
+            end=self.offset + count - 1,
+            if_generation_match=self.generation,
+            raw_download=True,
+            timeout=60,
+            retry=None,
+        )
+        _archive_fence(self.check_current)
+        if (
+            type(data) is not bytes
+            or len(data) != count
+            or str(self.blob.generation) != str(self.generation)
+            or self.blob.size != self.size
+        ):
+            raise ValueError("file archive generation or range response differs")
+        self.offset += len(data)
+        return data
 
 
 class _Buffer:

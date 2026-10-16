@@ -17,6 +17,13 @@ from urllib.request import urlopen
 
 base = "http://127.0.0.1:8844"
 from quadringent_control_plane.v2.build_identity import read_build_identity
+from quadringent_control_plane.v2.services.native_collection import StoredNativeCollector, CollectionLimits
+from quadringent.qualification.verification_guard import collect_native_guards
+from botocore.session import get_session
+assert callable(StoredNativeCollector) and callable(collect_native_guards)
+assert CollectionLimits().max_seconds == 3600
+multipart = get_session().get_service_model('s3').operation_model('CompleteMultipartUpload')
+assert 'IfNoneMatch' in multipart.input_shape.members, 'conditional archive completion requires SDK support'
 identity = read_build_identity()
 if os.environ['EXPECTED_BUILD_REVISION']:
     assert identity is not None and identity.source_revision == os.environ['EXPECTED_BUILD_REVISION']

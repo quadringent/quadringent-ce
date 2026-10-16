@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
 import json
 import os
+import re
+import secrets
+import stat
 from pathlib import Path
 import tempfile
 import time
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 if TYPE_CHECKING:
     from .checkpoint import CheckpointObservation
@@ -68,6 +72,22 @@ class ObjectStore(Protocol):
 
     def put_once(self, key: str, content: bytes) -> bool:
         """Store an object once; return False for an identical existing object."""
+
+    def put_file_once(
+        self,
+        key: str,
+        path: os.PathLike[str],
+        *,
+        expected_sha256: str,
+        byte_count: int,
+        check_current: Callable[[], bool] = lambda: True,
+    ) -> bool:
+        """Conditionally archive and fully verify one bounded-memory file snapshot."""
+
+    def verify_file(
+        self, key: str, *, expected_sha256: str, byte_count: int, check_current: Callable[[], bool] = lambda: True
+    ) -> None:
+        """Verify the entire archived file without requiring its local source."""
 
     def get(self, key: str) -> bytes:
         """Read one previously published object for integrity validation/replay."""
@@ -140,6 +160,69 @@ class FileObjectStore:
         finally:
             if temporary_path.exists():
                 temporary_path.unlink()
+
+    def put_file_once(
+        self,
+        key: str,
+        path: os.PathLike[str],
+        *,
+        expected_sha256: str,
+        byte_count: int,
+        check_current: Callable[[], bool] = lambda: True,
+    ) -> bool:
+        key = _validate_object_key(key)
+        with _archive_snapshot(path, expected_sha256, byte_count, check_current) as snapshot:
+            with _archive_parent(self.root, key, check_current, create=True) as (directory, name, validate):
+                temporary = ".archive-" + secrets.token_hex(16) + ".tmp"
+                validate()
+                descriptor = os.open(temporary, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+                try:
+                    with open(descriptor, "w+b", closefd=True) as output:
+                        validate()
+                        snapshot.seek(0)
+                        while True:
+                            _archive_fence(check_current)
+                            chunk = snapshot.read(_FILE_ARCHIVE_CHUNK)
+                            if not chunk:
+                                break
+                            _archive_write(output, chunk, check_current)
+                        output.flush()
+                        os.fsync(output.fileno())
+                        _archive_fence(check_current)
+                        output.seek(0)
+                        _archive_verify(output, snapshot, expected_sha256, byte_count, check_current)
+                        validate()
+                        if _archive_identity(os.fstat(output.fileno())) != _archive_identity(
+                            os.stat(temporary, dir_fd=directory, follow_symlinks=False)
+                        ):
+                            raise ValueError("file archive temporary identity changed")
+                        try:
+                            os.link(temporary, name, src_dir_fd=directory, dst_dir_fd=directory, follow_symlinks=False)
+                            created = True
+                        except FileExistsError:
+                            created = False
+                        validate()
+                        os.fsync(directory)
+                        _archive_verify_local(
+                            name, snapshot, expected_sha256, byte_count, check_current, parent_descriptor=directory
+                        )
+                        validate()
+                        return created
+                finally:
+                    os.unlink(temporary, dir_fd=directory)
+
+    def verify_file(
+        self, key: str, *, expected_sha256: str, byte_count: int, check_current: Callable[[], bool] = lambda: True
+    ) -> None:
+        _archive_arguments(expected_sha256, byte_count, check_current)
+        _archive_fence(check_current)
+        with _archive_parent(self.root, _validate_object_key(key), check_current, create=False) as (
+            directory,
+            name,
+            validate,
+        ):
+            _archive_verify_local(name, None, expected_sha256, byte_count, check_current, parent_descriptor=directory)
+            validate()
 
     @staticmethod
     def _require_same_file(path: Path, key: str, content: bytes) -> None:
@@ -250,6 +333,246 @@ def _same_collision_content(handle, content: bytes) -> bool:
     return bytes(observed) == content
 
 
+_FILE_ARCHIVE_CHUNK = 1024 * 1024
+_FILE_ARCHIVE_MAX_READ = 8 * 1024 * 1024
+_S3_ARCHIVE_MIN_PART = 5 * 1024 * 1024
+
+
+def _archive_fence(check_current: Callable[[], bool]) -> None:
+    if check_current() is not True:
+        raise ValueError("file archive context is no longer current")
+
+
+def _archive_identity(metadata):
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_mode,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
+@contextmanager
+def _archive_parent(root: Path, key: str, check_current, *, create: bool):
+    """Keep a checked directory chain open for descriptor-relative archive operations."""
+    root_parts = root.absolute().parts
+    if any(part in {".", ".."} for part in root_parts[1:]):
+        raise ValueError("invalid file archive root")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    descriptors, links = [], []
+
+    def validate():
+        _archive_fence(check_current)
+        for parent, name, child in links:
+            current = os.stat(name, dir_fd=parent, follow_symlinks=False)
+            opened = os.fstat(child)
+            if not stat.S_ISDIR(current.st_mode) or (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino):
+                raise ValueError("file archive destination parent changed")
+        _archive_fence(check_current)
+
+    try:
+        _archive_fence(check_current)
+        directory = os.open(root_parts[0], flags)
+        descriptors.append(directory)
+        components = [(part, False) for part in root_parts[1:]]
+        components.extend((part, create) for part in key.split("/")[:-1])
+        for name, may_create in components:
+            validate()
+            try:
+                child = os.open(name, flags, dir_fd=directory)
+            except FileNotFoundError:
+                if not may_create:
+                    raise
+                validate()
+                try:
+                    os.mkdir(name, 0o700, dir_fd=directory)
+                except FileExistsError:
+                    pass
+                validate()
+                os.fsync(directory)
+                child = os.open(name, flags, dir_fd=directory)
+            descriptors.append(child)
+            links.append((directory, name, child))
+            if create:
+                validate()
+                os.fsync(directory)
+            directory = child
+        validate()
+        yield directory, key.split("/")[-1], validate
+        validate()
+    except OSError as error:
+        raise ValueError("file archive destination is unavailable or unsafe") from error
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
+
+
+@contextmanager
+def _archive_regular(path: os.PathLike[str], *, parent_descriptor=None):
+    parts = Path(path).absolute().parts if parent_descriptor is None else (os.fspath(path),)
+    if (
+        (parent_descriptor is None and len(parts) < 2)
+        or any(part in {".", ".."} for part in parts[1:])
+        or (parent_descriptor is not None and ("/" in parts[0] or parts[0] in {"", ".", ".."}))
+    ):
+        raise ValueError("invalid file archive source path")
+    directory = descriptor = None
+    try:
+        directory = (
+            os.open(parts[0], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            if parent_descriptor is None
+            else os.dup(parent_descriptor)
+        )
+        for part in parts[1:-1] if parent_descriptor is None else ():
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+            os.close(directory)
+            directory = child
+        descriptor = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError("file archive requires a regular file")
+        with open(descriptor, "rb", buffering=0, closefd=False) as source:
+            yield source, before
+        after = os.fstat(descriptor)
+        current = os.stat(parts[-1], dir_fd=directory, follow_symlinks=False)
+        if _archive_identity(before) != _archive_identity(after) or _archive_identity(after) != _archive_identity(
+            current
+        ):
+            raise ValueError("file archive source changed during observation")
+    except OSError as error:
+        raise ValueError("file archive source is unavailable or unsafe") from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        if directory is not None:
+            os.close(directory)
+
+
+def _archive_write(output, data: bytes, check_current) -> None:
+    pending = memoryview(data)
+    while pending:
+        _archive_fence(check_current)
+        written = output.write(pending)
+        if type(written) is not int or not 0 < written <= len(pending):
+            raise ValueError("file archive snapshot write incomplete")
+        pending = pending[written:]
+        _archive_fence(check_current)
+
+
+def _archive_arguments(expected_sha256: str, byte_count: int, check_current) -> None:
+    if (
+        type(expected_sha256) is not str
+        or re.fullmatch(r"[0-9a-f]{64}", expected_sha256) is None
+        or type(byte_count) is not int
+        or byte_count < 0
+        or not callable(check_current)
+    ):
+        raise ValueError("invalid file archive identity")
+
+
+@contextmanager
+def _archive_snapshot(path, expected_sha256: str, byte_count: int, check_current):
+    _archive_arguments(expected_sha256, byte_count, check_current)
+    _archive_fence(check_current)
+    with tempfile.TemporaryFile(mode="w+b") as snapshot:
+        measured, count = hashlib.sha256(), 0
+        with _archive_regular(path) as (source, metadata):
+            if metadata.st_size != byte_count:
+                raise ValueError("file archive source length differs")
+            while True:
+                _archive_fence(check_current)
+                chunk = source.read(min(_FILE_ARCHIVE_CHUNK, byte_count + 1 - count))
+                _archive_fence(check_current)
+                if not chunk:
+                    break
+                count += len(chunk)
+                if count > byte_count:
+                    raise ValueError("file archive source exceeds expected length")
+                measured.update(chunk)
+                _archive_write(snapshot, chunk, check_current)
+        if count != byte_count or measured.hexdigest() != expected_sha256:
+            raise ValueError("file archive source hash or length differs")
+        _archive_fence(check_current)
+        snapshot.flush()
+        os.fsync(snapshot.fileno())
+        _archive_fence(check_current)
+        snapshot.seek(0)
+        yield snapshot
+
+
+class _ArchiveReader:
+    """A seekable, fenced view of an immutable anonymous snapshot."""
+
+    def __init__(self, snapshot, check_current, start: int, size: int):
+        self.snapshot, self.check_current = snapshot, check_current
+        self.start, self.size, self.offset = start, size, 0
+        self.seek(0)
+
+    @property
+    def closed(self):
+        return self.snapshot.closed
+
+    def tell(self):
+        return self.offset
+
+    def seek(self, offset, whence=os.SEEK_SET):
+        _archive_fence(self.check_current)
+        target = (
+            offset if whence == os.SEEK_SET else self.offset + offset if whence == os.SEEK_CUR else self.size + offset
+        )
+        if whence not in {os.SEEK_SET, os.SEEK_CUR, os.SEEK_END} or not 0 <= target <= self.size:
+            raise ValueError("file archive reader seek escaped its part")
+        self.snapshot.seek(self.start + target)
+        self.offset = target
+        _archive_fence(self.check_current)
+        return target
+
+    def read(self, size=-1):
+        _archive_fence(self.check_current)
+        if type(size) is not int or size < 0:
+            raise ValueError("file archive reader requires a bounded read")
+        requested = min(size, self.size - self.offset, _FILE_ARCHIVE_MAX_READ)
+        self.snapshot.seek(self.start + self.offset)
+        data = self.snapshot.read(requested)
+        if len(data) != requested:
+            raise ValueError("file archive snapshot was truncated")
+        self.offset += len(data)
+        _archive_fence(self.check_current)
+        return data
+
+
+def _archive_verify(source, snapshot, expected_sha256, byte_count, check_current):
+    _archive_fence(check_current)
+    if snapshot is not None:
+        snapshot.seek(0)
+    measured, count = hashlib.sha256(), 0
+    while True:
+        _archive_fence(check_current)
+        chunk = source.read(min(_FILE_ARCHIVE_CHUNK, byte_count + 1 - count))
+        _archive_fence(check_current)
+        if type(chunk) is not bytes or len(chunk) > _FILE_ARCHIVE_CHUNK:
+            raise ValueError("invalid file archive readback")
+        if not chunk:
+            break
+        count += len(chunk)
+        if count > byte_count or (snapshot is not None and snapshot.read(len(chunk)) != chunk):
+            raise ValueError("file archive readback differs")
+        measured.update(chunk)
+    if count != byte_count or measured.hexdigest() != expected_sha256:
+        raise ValueError("file archive readback hash or length differs")
+    _archive_fence(check_current)
+
+
+def _archive_verify_local(path, snapshot, expected_sha256, byte_count, check_current, *, parent_descriptor=None):
+    with _archive_regular(path, parent_descriptor=parent_descriptor) as (source, metadata):
+        if metadata.st_size != byte_count:
+            raise ValueError("file archive collision has a different length")
+        _archive_verify(source, snapshot, expected_sha256, byte_count, check_current)
+    _archive_fence(check_current)
+
+
 def _ensure_durable_directory(path: Path) -> None:
     """Sync each parent entry, even if a concurrent creator made it visible."""
     if path == path.parent:
@@ -280,7 +603,8 @@ class S3ObjectStore:
     dependency-free. The runtime role needs GetObject/PutObject for the
     configured prefix and ListBucket on that prefix: S3 uses the latter to
     distinguish a missing object from an object the caller is not allowed to
-    observe during the idempotence check.
+    observe during the idempotence check. File archives also need
+    AbortMultipartUpload to clean up incomplete multipart uploads.
     """
 
     def __init__(self, bucket: str, prefix: str = "", *, client: Any | None = None) -> None:
@@ -321,6 +645,132 @@ class S3ObjectStore:
             # check rather than silently accepting a conflicting artifact.
             existing = self.client.head_object(Bucket=self.bucket, Key=full_key)
             return self._same_existing(existing, full_key, content, digest)
+
+    def put_file_once(
+        self,
+        key: str,
+        path: os.PathLike[str],
+        *,
+        expected_sha256: str,
+        byte_count: int,
+        check_current: Callable[[], bool] = lambda: True,
+    ) -> bool:
+        full_key = self._key(_validate_object_key(key))
+        with _archive_snapshot(path, expected_sha256, byte_count, check_current) as snapshot:
+            _archive_fence(check_current)
+            try:
+                existing = self.client.head_object(Bucket=self.bucket, Key=full_key)
+            except Exception as error:
+                if not _is_not_found(error):
+                    raise
+            else:
+                _archive_fence(check_current)
+                self._verify_file_archive(full_key, existing, snapshot, expected_sha256, byte_count, check_current)
+                return False
+            _archive_fence(check_current)
+            try:
+                if byte_count <= _S3_ARCHIVE_MIN_PART:
+                    response = self.client.put_object(
+                        Bucket=self.bucket,
+                        Key=full_key,
+                        Body=_ArchiveReader(snapshot, check_current, 0, byte_count),
+                        ContentLength=byte_count,
+                        Metadata={"sha256": expected_sha256},
+                        IfNoneMatch="*",
+                    )
+                else:
+                    response = self._multipart_file_archive(full_key, snapshot, expected_sha256, byte_count, check_current)
+                created = True
+            except Exception as error:
+                if not _is_precondition_failed(error):
+                    raise
+                _archive_fence(check_current)
+                response = self.client.head_object(Bucket=self.bucket, Key=full_key)
+                created = False
+            _archive_fence(check_current)
+            self._verify_file_archive(full_key, response, snapshot, expected_sha256, byte_count, check_current)
+            _archive_fence(check_current)
+            return created
+
+    def _multipart_file_archive(self, key, snapshot, expected_sha256, byte_count, check_current):
+        _archive_fence(check_current)
+        initiated = self.client.create_multipart_upload(Bucket=self.bucket, Key=key, Metadata={"sha256": expected_sha256})
+        upload_id = initiated.get("UploadId")
+        if type(upload_id) is not str or not upload_id:
+            raise ValueError("multipart upload identity unavailable")
+        completed = False
+        try:
+            _archive_fence(check_current)
+            part_size = max(_S3_ARCHIVE_MIN_PART, (byte_count + 9999) // 10000)
+            parts = []
+            for index, offset in enumerate(range(0, byte_count, part_size), 1):
+                _archive_fence(check_current)
+                length = min(part_size, byte_count - offset)
+                response = self.client.upload_part(
+                    Bucket=self.bucket,
+                    Key=key,
+                    UploadId=upload_id,
+                    PartNumber=index,
+                    Body=_ArchiveReader(snapshot, check_current, offset, length),
+                    ContentLength=length,
+                )
+                _archive_fence(check_current)
+                tag = response.get("ETag")
+                if type(tag) is not str or not tag:
+                    raise ValueError("multipart part identity unavailable")
+                parts.append({"PartNumber": index, "ETag": tag})
+            _archive_fence(check_current)
+            response = self.client.complete_multipart_upload(
+                Bucket=self.bucket, Key=key, UploadId=upload_id, MultipartUpload={"Parts": parts}, IfNoneMatch="*"
+            )
+            if type(response) is not dict or not response.get("ETag"):
+                raise ValueError("multipart completion identity unavailable")
+            completed = True
+            return response
+        finally:
+            if not completed:
+                self.client.abort_multipart_upload(Bucket=self.bucket, Key=key, UploadId=upload_id)
+
+    def verify_file(
+        self, key: str, *, expected_sha256: str, byte_count: int, check_current: Callable[[], bool] = lambda: True
+    ) -> None:
+        _archive_arguments(expected_sha256, byte_count, check_current)
+        _archive_fence(check_current)
+        full_key = self._key(_validate_object_key(key))
+        try:
+            identity = self.client.head_object(Bucket=self.bucket, Key=full_key)
+        except Exception as error:
+            if _is_not_found(error):
+                raise FileNotFoundError(key) from error
+            raise
+        _archive_fence(check_current)
+        self._verify_file_archive(full_key, identity, None, expected_sha256, byte_count, check_current)
+
+    def _verify_file_archive(self, key, identity, snapshot, expected_sha256, byte_count, check_current):
+        _archive_fence(check_current)
+        tag = identity.get("ETag")
+        if type(tag) is not str or not tag:
+            raise ValueError("file archive object identity unavailable")
+        arguments = {"Bucket": self.bucket, "Key": key, "IfMatch": tag}
+        if identity.get("VersionId") is not None:
+            if type(identity["VersionId"]) is not str or not identity["VersionId"]:
+                raise ValueError("file archive object version invalid")
+            arguments["VersionId"] = identity["VersionId"]
+        response = self.client.get_object(**arguments)
+        body = response["Body"]
+        try:
+            _archive_fence(check_current)
+            if (
+                type(response.get("ContentLength")) is not int
+                or response["ContentLength"] != byte_count
+                or response.get("ETag") != tag
+                or ("VersionId" in arguments and response.get("VersionId") != arguments["VersionId"])
+            ):
+                raise ValueError("file archive object length or identity differs")
+            _archive_verify(body, snapshot, expected_sha256, byte_count, check_current)
+        finally:
+            body.close()
+        _archive_fence(check_current)
 
     def _same_existing(self, existing: dict[str, Any], full_key: str, content: bytes, digest: str) -> bool:
         self._require_size(existing.get("ContentLength"), content, full_key)

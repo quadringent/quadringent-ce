@@ -79,6 +79,14 @@ MEMBER_IDENTITY_BLOCKS = {
     "    private static NativeReply call(": "ba20e11e6345c1f08131d444751e2d041c454e71d7817734ca94175cab8842ea",
 }
 
+FORMAT_IDENTITY_CLASS = "ReadOnlyFormatIdentity.java"
+FORMAT_IDENTITY_IMPORTS = frozenset({"ProgramCall", "ProgramParameter"})
+FORMAT_IDENTITY_BLOCKS = {
+    "    public static final class ProgramRequest {": "14399b710cb10de765c84d6c6ff9c9ec5e9db1f1db0397fd1c5c14ef70e6f728",
+    "    public static NativeProgram program(AS400 system) {": "d39d3ba5809afbf0e90ecd0ab8086fecdc8b6e25b132f28410ff93efa84fa7ea",
+    "    private static void requireTls() throws IdentityFailure {": "90d632ff18115e16fc2cd6d416ad6d1a9934627b18e9024da6dfb9ef33fbf8be",
+}
+
 # --------------------------------------------------------------------------
 # Detectors
 # --------------------------------------------------------------------------
@@ -216,9 +224,9 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def reviewed_member_blocks(source: str) -> list[str] | None:
+def _reviewed_native_blocks(source: str, expected_blocks: dict[str, str]) -> list[str] | None:
     blocks = []
-    for signature, expected in MEMBER_IDENTITY_BLOCKS.items():
+    for signature, expected in expected_blocks.items():
         if source.count(signature) != 1:
             return None
         start = source.index(signature)
@@ -230,6 +238,14 @@ def reviewed_member_blocks(source: str) -> list[str] | None:
             return None
         blocks.append(block)
     return blocks
+
+
+def reviewed_member_blocks(source: str) -> list[str] | None:
+    return _reviewed_native_blocks(source, MEMBER_IDENTITY_BLOCKS)
+
+
+def reviewed_format_blocks(source: str) -> list[str] | None:
+    return _reviewed_native_blocks(source, FORMAT_IDENTITY_BLOCKS)
 
 
 # --------------------------------------------------------------------------
@@ -249,6 +265,14 @@ def reader_source_findings(source: str, *, file_name: str | None = None) -> list
         else:
             allowed_imports |= MEMBER_IDENTITY_IMPORTS
             source = source.replace(blocks[-1], "").replace(program_import, "")
+    if file_name == FORMAT_IDENTITY_CLASS:
+        blocks = reviewed_format_blocks(source)
+        program_import = "import com.ibm.as400.access.ProgramCall;"
+        if blocks is None or source.count(program_import) != 1:
+            review_findings.append("unreviewed_format_native_surface")
+        else:
+            allowed_imports |= FORMAT_IDENTITY_IMPORTS
+            source = source.replace(blocks[1], "").replace(program_import, "")
     code, literals = strip_java(source)
     jtopen = [
         f"com.ibm.as400.{package}.{name}"
@@ -382,6 +406,68 @@ def test_member_native_interfaces_are_documented_and_not_product_entrypoints() -
                 assert "ReadOnlyMemberIdentity" not in _read(path), path
 
 
+def test_format_native_reads_require_the_reviewed_class_and_narrow_imports() -> None:
+    source = _read(JAVA_MAIN / FORMAT_IDENTITY_CLASS)
+    assert reader_source_findings(source, file_name=FORMAT_IDENTITY_CLASS) == []
+    assert reader_source_findings(source, file_name="AnotherReader.java")
+    assert reader_source_findings(source)
+    assert not FORMAT_IDENTITY_IMPORTS & ALLOWED_JTOPEN_IMPORTS
+
+
+@pytest.mark.parametrize(
+    "before,after",
+    [
+        ('"/QSYS.LIB/QDBRTVFD.PGM"', '"/QSYS.LIB/QCMDEXC.PGM"'),
+        ('"/QSYS.LIB/QDBRTVFD.PGM"', '"/OTHER.LIB/QDBRTVFD.PGM"'),
+        ('encode("FILD0200", 8, encoding)', 'encode("FILD0100", 8, encoding)'),
+        ('encode("0", 1, encoding)', 'encode("1", 1, encoding)'),
+        ('encode("*LCL", 10, encoding)', 'encode("REMOTE", 10, encoding)'),
+        ('if (!(system instanceof SecureAS400))', 'if (false)'),
+        ('if (i == 0) parameters[i]', 'if (i == 1) parameters[i]'),
+        ('if (i == 2) parameters[i]', 'if (i == 3) parameters[i]'),
+        ('else if (i == 9) parameters[i]', 'else if (i == 8) parameters[i]'),
+        ('call.setTimeOut(timeoutSeconds);', 'call.setTimeOut(0);'),
+        ('throw new IdentityFailure("tls_required")', 'throw new IdentityFailure("ignored")'),
+        ('import com.ibm.as400.access.ProgramParameter;', 'import com.ibm.as400.access.*;'),
+    ],
+    ids=["command-api", "changed-library", "changed-format", "overrides", "remote-system", "tls-transport",
+         "receiver-output", "target-output", "error-output", "timeout", "tls-guard", "wildcard"],
+)
+def test_format_native_review_rejects_changed_parameters_or_adapter(before: str, after: str) -> None:
+    source = _read(JAVA_MAIN / FORMAT_IDENTITY_CLASS)
+    assert source.count(before) == 1
+    assert reader_source_findings(source.replace(before, after), file_name=FORMAT_IDENTITY_CLASS)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        'new ProgramCall(system, "/QSYS.LIB/QDBRTVFD.PGM", parameters);',
+        'new com.ibm.as400.access.ProgramCall(system, "/QSYS.LIB/QDBRTVFD.PGM", parameters);',
+        'Class.forName("com.ibm.as400.access.ProgramCall");',
+        's.executeUpdate("x");',
+        's.executeQuery("CALL QSYS2.QCMDEXC(?, ?)");',
+        'new com.ibm.as400.access.IFSFileOutputStream(system, "/x");',
+        'X509TrustManager trust;',
+    ],
+)
+def test_format_native_review_does_not_hide_other_calls_or_writes(body: str) -> None:
+    source = _read(JAVA_MAIN / FORMAT_IDENTITY_CLASS)
+    mutated = source.rstrip()[:-1] + f"\n    void unreviewed() {{ {body} }}\n}}\n"
+    assert reader_source_findings(mutated, file_name=FORMAT_IDENTITY_CLASS)
+
+
+def test_format_native_interface_is_documented_and_not_a_product_entrypoint() -> None:
+    page = _read(FOOTPRINT)
+    for text in ("Unreleased", "`ReadOnlyFormatIdentity`", "`ProgramCall`", "`QDBRTVFD`", "FILD0200",
+                 "qdbrtvfd.htm", "Not tested", "native admission remains unavailable"):
+        assert text in page
+    for base in ("src", "scripts", "chart", "docker", "deploy"):
+        for path in (ROOT / base).rglob("*"):
+            if path.is_file() and path.suffix in {".py", ".sh", ".yaml", ".yml", ".tpl", ""}:
+                assert "ReadOnlyFormatIdentity" not in _read(path), path
+
+
 def test_java_reader_classes_import_only_reviewed_jtopen_classes() -> None:
     imported: set[str] = set()
     for path in reader_java_files():
@@ -391,6 +477,9 @@ def test_java_reader_classes_import_only_reviewed_jtopen_classes() -> None:
         if path.name == MEMBER_IDENTITY_CLASS:
             assert reviewed_member_blocks(source) is not None
             allowed |= MEMBER_IDENTITY_IMPORTS
+        if path.name == FORMAT_IDENTITY_CLASS:
+            assert reviewed_format_blocks(source) is not None
+            allowed |= FORMAT_IDENTITY_IMPORTS
         references = set(_JTOPEN_REFERENCE.findall(code))
         assert all(package == "access" and name in allowed for package, name in references), path.name
         imported.update(name for _, name in references)

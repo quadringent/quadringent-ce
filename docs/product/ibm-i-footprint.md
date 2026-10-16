@@ -91,6 +91,16 @@ observations do not prove historical format, generation or a stable cut.
 Runtime behavior and minimum-profile authorities: Not tested.
 <!-- source: java/src/main/java/io/quadringent/as400/ReadOnlyMemberIdentity.java, tests/test_trust_claims.py -->
 
+`ReadOnlyFormatIdentity` is a separate Unreleased metadata probe using
+[`QDBRTVFD`](https://www.ibm.com/docs/en/i/7.5.0?topic=ssw_ibm_i_75/apis/qdbrtvfd.htm)
+(`FILD0200`, exact file and format, overrides disabled). Its bounded
+`ProgramCall` adapter is reviewed separately. It retains the native 13-character
+format level ID and original response; it does not establish member generation,
+the format of historical rows or continuity throughout a copy. No copy or reader
+entry point uses it, and native admission remains unavailable.
+Runtime behavior and minimum-profile authorities: Not tested.
+<!-- source: java/src/main/java/io/quadringent/as400/ReadOnlyFormatIdentity.java, tests/test_trust_claims.py -->
+
 ## Which authorities each component needs
 
 Start from [IBM i authorities](compatibility.md#ibm-i-authorities). That table
@@ -239,7 +249,8 @@ machine; they do not touch your IBM i.
 2. Read the statements. They are in `java/src/main/java/io/quadringent/as400/`.
    This search lists the places where a statement could change data or call a
    command. `QualificationSourceDriver.java` contains the write exception;
-   `ReadOnlyMemberIdentity.java` contains the reviewed native retrieval adapter:
+   `ReadOnlyMemberIdentity.java` and `ReadOnlyFormatIdentity.java` contain the
+   separately reviewed native retrieval adapters:
 
    ```sh
    grep -nE "executeUpdate|executeBatch|addBatch|\.execute\(|prepareCall|CommandCall|ProgramCall|QCMDEXC|IFS[A-Za-z]|insertRow|updateRow|deleteRow|CONCUR_UPDATABLE|com\.ibm\.as400\.access\.\*" \

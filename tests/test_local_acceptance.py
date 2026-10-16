@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
+import pytest
+
 from scripts.local_acceptance import (
     CheckResult,
     completion_status,
@@ -109,7 +111,7 @@ class LocalAcceptanceContractTests(unittest.TestCase):
 
         self.assertTrue(image.startswith("maven:3.9-eclipse-temurin-21@sha256:"))
         dockerfile = (root / "docker" / "Dockerfile").read_text(encoding="utf-8")
-        self.assertIn(f"FROM {image}", dockerfile)
+        self.assertIn(f"{image} AS build", dockerfile)
 
     def test_docker_maven_package_args_compile_current_source_without_tests(self) -> None:
         from scripts.local_acceptance import docker_maven_package_args, pinned_maven_image
@@ -156,3 +158,29 @@ class LocalAcceptanceContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.mark.parametrize("platform", ["", "--platform=$BUILDPLATFORM "])
+def test_maven_pin_reader_accepts_native_builder_stage(tmp_path, platform):
+    from scripts.local_acceptance import pinned_maven_image
+
+    image = "maven:3.9-eclipse-temurin-21@sha256:" + "a" * 64
+    docker = tmp_path / "docker"
+    docker.mkdir()
+    (docker / "Dockerfile").write_text(f"FROM {platform}{image} AS build\n")
+    assert pinned_maven_image(tmp_path) == image
+
+
+@pytest.mark.parametrize("image", [
+    "maven:3.9-eclipse-temurin-21",
+    "maven:3.9-eclipse-temurin-21@sha256:short",
+    "python:3.14@sha256:" + "a" * 64,
+])
+def test_maven_pin_reader_rejects_missing_or_invalid_digest(tmp_path, image):
+    from scripts.local_acceptance import pinned_maven_image
+
+    docker = tmp_path / "docker"
+    docker.mkdir()
+    (docker / "Dockerfile").write_text(f"FROM {image} AS build\n")
+    with pytest.raises(ValueError):
+        pinned_maven_image(tmp_path)

@@ -112,9 +112,13 @@ def pinned_maven_image(root: Path) -> str:
     dockerfile = root / "docker" / "Dockerfile"
     for line in dockerfile.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
-        if stripped.startswith("FROM maven:"):
-            return stripped.split()[1]
-    raise ValueError("pinned maven image not found in continuous.Dockerfile")
+        match = re.fullmatch(
+            r"FROM (?:--platform=\$BUILDPLATFORM )?(maven:[^\s@]+@sha256:[0-9a-f]{64}) AS build",
+            stripped,
+        )
+        if match:
+            return match[1]
+    raise ValueError("pinned Maven build stage not found in docker/Dockerfile")
 
 
 def docker_maven_package_args(root: Path) -> list[str]:

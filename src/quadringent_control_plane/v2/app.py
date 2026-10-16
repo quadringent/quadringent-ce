@@ -52,6 +52,7 @@ from .services.costs_snowflake import SnowflakeCreditsQueryProtocol, SnowflakeWa
 from .services.idempotency import IdempotencyStore
 from .services.logs import LogSourceProtocol
 from .services.logs_kubernetes import KubernetesLogSource
+from .services.native_verifications import NativeAdmissionPort, NativePreparationPort
 from .services.observation import PipelineObservationProviderProtocol
 from .services.observation_composite import CompositeObservationProvider
 from .services.observation_projection import PipelineSourceSpecResolver, ProjectionRepositoryObservationAdapter
@@ -83,6 +84,8 @@ def create_v2_app(
     table_discovery_client: TableDiscoveryClientProtocol | None = None,
     source_probe: SourceProbeProtocol | None = None,
     destination_verifier: DestinationVerifierProtocol | None = None,
+    native_verification_preparer_factory: Callable[[str], NativePreparationPort | None] | None = None,
+    native_verification_controller_factory: Callable[[str], NativeAdmissionPort | None] | None = None,
     pipeline_observation_provider: PipelineObservationProviderProtocol | None = None,
     log_source: LogSourceProtocol | None = None,
     costs_provider: CostsProviderProtocol | None = None,
@@ -162,6 +165,8 @@ def create_v2_app(
     app.state.table_discovery_client = table_discovery_client
     app.state.source_probe = source_probe
     app.state.destination_verifier = destination_verifier
+    app.state.native_verification_preparer_factory = native_verification_preparer_factory
+    app.state.native_verification_controller_factory = native_verification_controller_factory
 
     resolved_observation_provider = pipeline_observation_provider
     if resolved_observation_provider is None and pipeline_source_spec_resolver is not None:

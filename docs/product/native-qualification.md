@@ -34,6 +34,49 @@ observation/ACK. Standard output reports only status, path and verdict.
 Sanitized failures return nonzero; business values and site identities remain
 in private evidence.
 
+## Collect a complete table comparison
+
+Use an operator-owned collection plan to run the seven stream producers and
+compare their complete rows with the disk-backed verifier:
+
+Run this command from the current source checkout. The published 0.4.5 images
+do not include it.
+
+```sh
+quadringent qualification collect --config /private/path/collection.json \
+  --out-dir /private/path/new-collection
+```
+
+The plan uses `format_version: quadringent-collection-plan-v1` and these fields:
+
+| Field | Value |
+|---|---|
+| `scope` | A complete `VerificationScope.to_dict()` for the original copy and receiver windows |
+| `storage` | `{"backend":"local","root":"/absolute/object-root"}`, or `backend: aws/gcs` with `bucket` |
+| `raw_prefix_root` | Existing RAW namespace |
+| `initial_copy`, `copy_intent` | Original object references, each with `key` and `sha256` |
+| `raw_read_set` | Ordered batches with `manifest`, `payload` and `receipt` references; use `null` for an absent receipt |
+| `source` | A process specification: `command` argument array, private `input_path`, explicit `environment` map |
+| `journal`, `positions` | One process specification per receiver window, in the scope's exact order |
+| `destination` | `account`, `user`, `role`, `warehouse`, and private `private_key_path` for Snowflake JWT |
+| `max_seconds` | Cooperative collection budget, 1–3600 seconds |
+
+Process specifications execute trusted operator commands without a shell.
+Credentials travel on stdin; the parent environment is not inherited. Use
+0600 files for the plan, stdin inputs and PEM key. The output directory must
+be new. Preserve `collection.json`, original streams, stored-object bytes and
+`comparison.json`. The inventory retains their relative paths, hashes and sizes.
+Destination and storage clients also need an outer process deadline because
+a blocking driver call can outlive its query timeout.
+
+The command checks complete framed EOF, successful producer exit, pinned
+object hashes and unchanged local inputs. Exit 0 records an equal comparison;
+exit 2 records a divergent comparison; exit 1 means collection failed.
+It always reports `native_admission: not_evaluated`: operator-supplied commands
+and a RAW read-set do not prove native format history, complete physical
+inventory or a stable cut. A native business-image producer is not bundled
+with this command. No historical copy acquires native admission from it.
+
 ## Fresh release admission
 
 admit-release accepts a configuration containing only release. Through an

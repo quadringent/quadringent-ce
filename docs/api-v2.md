@@ -229,6 +229,10 @@ before storage and read; organization isolation applies to every read.
 | GET | /v2/pipelines | read | limit/cursor, state/source_id/destination_id filters |
 | GET | /v2/pipelines/{id} | read | Declared state plus observation |
 | GET | /v2/pipelines/{id}/metrics | read | window=1h or 24h |
+| GET | /v2/pipelines/{id}/native-verifications | read | Bounded native-verification history |
+| GET | /v2/pipelines/{id}/native-verifications/latest | read | Latest attempt, with current context validity |
+| GET | /v2/pipelines/{id}/native-verifications/{verification_id} | read | One attempt in the requested pipeline |
+| POST | /v2/pipelines/{id}/native-verifications | operate | Idempotent internal collection and admission; accepts only optional boolean `dry_run` |
 | GET | /v2/pipelines/{id}/logs | read | since, level, correlate_incident; redacted |
 | POST | /v2/pipelines/{id}/actions/{pause,resume,remove,restart_initial_copy,replay} | operate | Executor; sensitive actions confirmed |
 | POST | /v2/actions/{pause_all,resume_all} | operate | Organization action; always confirmed |
@@ -255,6 +259,12 @@ before storage and read; organization isolation applies to every read.
 | POST | /v2/webhooks/{id}/redeliver/{event_id} | operate | Explicit idempotent redelivery |
 | GET | /v2/costs | read | scope=connection or table, id, window |
 | GET | /v2/openapi.json | public | Complete OpenAPI 3.1 schemas |
+
+Native verification requires trusted preparation/admission adapters and enabled
+SQL context tracking. The installed entrypoint supplies no native adapters;
+POST returns `capability_unavailable` in that configuration. The API accepts
+no caller-supplied proof. A changed context makes a historical result
+`superseded`; it does not prove current journal-head freshness.
 
 Unknown IDs return 404; invalid state/window/level/scope filters return 400.
 The error catalog includes invalid_request, idempotency_key_conflict,

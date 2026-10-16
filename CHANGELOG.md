@@ -4,9 +4,10 @@
 
 Changes not yet in a published release.
 
+- Add an operator-owned seven-stream collection command with hashed originals, a persistent inventory and strict row-chain comparisons. Collection does not grant native admission.
 - Add a bounded read-only native format identity probe. Its level ID and raw response are metadata observations; copy integration, historical continuity and native admission remain unavailable.
 - Keep delivery counts separate from surviving-row commit ages, including after deletes. Loader logs do not establish delivery latency, which stays unmeasured.
-- Add SQL authority scaffolding for future native verification, with context generations, fenced requests and immutable historical results. Strict enforcement is disabled by default; native admission, activation and API/cockpit integration remain unavailable.
+- Add SQL authority and authenticated API dispatch for native verification, with context generations, fenced requests and immutable historical results. Strict enforcement is disabled by default; the installed entrypoint has no native admission adapters, and cockpit integration remains unavailable.
 - Enforce agent tokens' source restrictions on v2 reads, actions, confirmations and paginated lists. Refuse global operations without a safe source scope before providers or cached responses run. This fix is not included in the 0.4.5 images.
 - Add bounded native reconciliation helpers: typed row streams, disk-backed comparisons, and read-only IBM i and Snowflake exports. Native provenance, a stable collection boundary and cockpit integration remain required; these helpers do not establish transaction consistency or runtime qualification.
 - Export pinned snapshot/RAW originals and explicit native journal positions for those comparisons. Complete inventory, receiver identity and historical record formats still require admission by the controller.

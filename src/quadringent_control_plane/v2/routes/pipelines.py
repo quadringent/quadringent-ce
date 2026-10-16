@@ -12,6 +12,9 @@ exécuteur.
 
 from __future__ import annotations
 
+import asyncio
+import uuid
+
 from fastapi import APIRouter, Depends, Request, Response
 
 from ..auth import require_scope
@@ -28,6 +31,8 @@ from ..services.confirmations import ConfirmationNotFoundError, ConfirmationsSer
 from ..services.logs import KNOWN_LEVELS, LogsService, NullLogSource
 from ..services.evidence import absent_evidence
 from ..services.logs import redact as redact_log_message
+from ..services.native_context import context_snapshot
+from ..services.native_verifications import NativeVerificationsService
 from ..services.observation import NullObservationProvider, PipelineObservationProviderProtocol
 from ..services.pipelines import (
     ACTIONS,
@@ -57,6 +62,131 @@ def _confirmations_service(request: Request) -> ConfirmationsService:
 def _observation_provider(request: Request) -> PipelineObservationProviderProtocol:
     provider = getattr(request.app.state, "pipeline_observation_provider", None)
     return provider if provider is not None else NullObservationProvider()
+
+
+def _native_service(request: Request, identity, *, preparer=None, controller=None) -> NativeVerificationsService:
+    return NativeVerificationsService(
+        request.app.state.engine, org_id=request.app.state.org_id,
+        source_restriction=identity.source_restriction, preparer=preparer, controller=controller,
+    )
+
+
+def _dispatch_native_verification(service, pipeline_id, *, requested_by, idempotency_key):
+    lease = None
+    try:
+        attempt = service.request(pipeline_id, requested_by=requested_by, idempotency_key=idempotency_key)
+        if attempt["lifecycle"] == "finished":
+            return attempt
+        lease = service.claim(attempt["id"], holder="http-" + uuid.uuid4().hex, lease_seconds=7200)
+        prepared_lease = service.prepare(lease)
+        if prepared_lease is None:
+            return service.get(attempt["id"])
+        lease = prepared_lease
+        return service.finalize(lease)
+    except Exception:
+        if lease is not None:
+            try:
+                return service.close_incomplete(lease, reason_code="controller_failed")
+            except Exception:
+                # A lost lease belongs to its new holder; never override that fence.
+                pass
+        raise capability_unavailable("Native verification could not complete in the current context.") from None
+
+
+@router.get("/{pipeline_id}/native-verifications")
+async def list_native_verifications(
+    pipeline_id: str, request: Request, limit: int = 50, identity=Depends(require_scope("read")),
+) -> dict[str, object]:
+    try:
+        items = _native_service(request, identity).list_history(pipeline_id, limit=limit)
+    except LookupError:
+        raise not_found("Pipeline not found") from None
+    except ValueError:
+        raise invalid_request("Native history limit must be between 1 and 500.") from None
+    return {"items": list(items)}
+
+
+@router.get("/{pipeline_id}/native-verifications/latest")
+async def get_latest_native_verification(
+    pipeline_id: str, request: Request, identity=Depends(require_scope("read")),
+) -> dict[str, object] | None:
+    try:
+        return _native_service(request, identity).get_latest(pipeline_id)
+    except LookupError:
+        raise not_found("Pipeline not found") from None
+
+
+@router.get("/{pipeline_id}/native-verifications/{verification_id}")
+async def get_native_verification(
+    pipeline_id: str, verification_id: str, request: Request, identity=Depends(require_scope("read")),
+) -> dict[str, object]:
+    try:
+        result = _native_service(request, identity).get(verification_id)
+    except LookupError:
+        raise not_found("Native verification not found") from None
+    if result["pipeline_id"] != pipeline_id:
+        raise not_found("Native verification not found")
+    return result
+
+
+@router.post("/{pipeline_id}/native-verifications")
+async def request_native_verification(
+    pipeline_id: str, request: Request, response: Response, identity=Depends(require_scope("operate")),
+) -> dict[str, object]:
+    path = f"/v2/pipelines/{pipeline_id}/native-verifications"
+    try:
+        before = _native_service(request, identity).get_latest(pipeline_id)
+        with request.app.state.engine.connect() as connection:
+            _, context, _, _ = context_snapshot(
+                connection, request.app.state.org_id, pipeline_id, identity.source_restriction,
+            )
+    except LookupError:
+        raise not_found("Pipeline not found") from None
+    preparer_factory = request.app.state.native_verification_preparer_factory
+    controller_factory = request.app.state.native_verification_controller_factory
+    if (not context["organization"]["native_context_enforced"]
+            or not callable(preparer_factory) or not callable(controller_factory)):
+        raise capability_unavailable("Native verification collection and authority are unavailable.")
+    try:
+        preparer = preparer_factory(request.app.state.org_id)
+        controller = controller_factory(request.app.state.org_id)
+    except Exception:
+        raise capability_unavailable("Native verification collection is unavailable.") from None
+    if not callable(getattr(preparer, "prepare", None)) or not callable(getattr(controller, "admit", None)):
+        raise capability_unavailable("Native verification collection is unavailable.")
+
+    async def build(payload: dict[str, object]) -> tuple[int, dict[str, object]]:
+        if set(payload) - {"dry_run"} or type(payload.get("dry_run", False)) is not bool:
+            raise invalid_request("Only a boolean dry_run may be supplied; native proofs are collected internally.")
+        if payload.get("dry_run", False):
+            return 200, envelope(
+                before=before, after=before, verify_method="GET", verify_path=path + "/latest",
+                dry_run={"would_request": "native_verification"},
+            )
+        service = _native_service(request, identity, preparer=preparer, controller=controller)
+        result = await asyncio.to_thread(
+            _dispatch_native_verification, service, pipeline_id, requested_by=identity.subject,
+            idempotency_key=request.headers["idempotency-key"],
+        )
+        return 201, envelope(
+            before=before, after=result, verify_method="GET", verify_path=path + "/" + result["id"],
+        )
+
+    receipt = await idempotent_write(
+        request=request, response=response, actor_id=identity.subject, method="POST", path=path,
+        store=request.app.state.idempotency_store, build=build,
+        audit=AuditContext(action="pipeline.native_verification.request", resource_type="pipeline",
+                           resource_id=pipeline_id), identity=identity,
+    )
+    after = receipt.get("after")
+    if isinstance(after, dict) and after.get("context_validity") == "same_context":
+        try:
+            current = _native_service(request, identity).get(after["id"])
+        except (LookupError, KeyError):
+            raise capability_unavailable("The native verification receipt is no longer current.") from None
+        if current["context_validity"] != "same_context":
+            raise capability_unavailable("The native verification receipt is no longer current.")
+    return receipt
 
 
 @router.get("")

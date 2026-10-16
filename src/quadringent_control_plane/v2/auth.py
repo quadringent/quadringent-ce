@@ -61,7 +61,7 @@ class Identity:
             object.__setattr__(self, "actor_display", self.subject)
 
     def source_allowed(self, source_id: str | None) -> bool:
-        if not self.source_restriction or source_id is None:
+        if not self.source_restriction:
             return True
         return source_id in self.source_restriction
 
@@ -179,6 +179,17 @@ def _scope_rank(identity: Identity) -> int:
     return _ROLE_TO_SCOPE_RANK.get(identity.role, -1)
 
 
+def enforce_presented_source_scope(request: Request) -> None:
+    """A signed capability must not bypass a presented restricted agent token."""
+    token = _bearer_token(request)
+    if token is not None:
+        identity = _identity_from_agent_token(request, token)
+        if identity is not None:
+            from .services.source_access import enforce_source_access
+
+            enforce_source_access(request, identity)
+
+
 def require_scope(scope: str):
     """Fabrique une dépendance FastAPI exigeant au moins ``scope``."""
 
@@ -189,6 +200,9 @@ def require_scope(scope: str):
         identity = resolve_identity(request)
         if _scope_rank(identity) < _SCOPE_RANK[scope]:
             raise insufficient_role(f"scope {scope!r} required")
+        from .services.source_access import enforce_source_access
+
+        enforce_source_access(request, identity)
         return identity
 
     return dependency

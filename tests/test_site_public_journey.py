@@ -234,10 +234,11 @@ def test_status_line_and_evidence_section_use_latest_scoped_observations_without
     current = scoped_summary("qualification-0.4.5")
     html = read("site/index.html")
     source_version = tomllib.loads(read("pyproject.toml"))["project"]["version"]
-    assert release_version() == source_version == current["version"] == published_version() == "0.4.5"
+    assert release_version() == source_version
+    assert current["version"] == published_version() == "0.4.5"
     status = text_of(re.search(r'<p class="status-line">.*?</p>', html, re.S)[0])
     assert status.startswith("Version " + ".".join(source_version.split(".")[:2]) + " · Apache-2.0")
-    assert "Unreleased changes" in status
+    assert f"Source {source_version} with Unreleased changes, latest published prerelease {current['version']}" in status
     assert current["overall_status"] == "PARTIAL_NOT_FULLY_QUALIFIED"
     initial = current["volume"]["initial_four_layer_equality"]
     assert initial["status"] == "PASS_SCOPED_INITIAL_FULL_TYPED_EQUALITY"
@@ -384,7 +385,7 @@ def test_readme_points_to_the_evidence_page_that_matches_scoped_receipts_and_pre
     recovery = scoped_summary("recovery-0.3.4")
     readme = flat(read("README.md"))
     source_version = tomllib.loads(read("pyproject.toml"))["project"]["version"]
-    assert f"Source {source_version} with Unreleased changes; latest published prerelease {source_version}" in readme
+    assert f"Source {source_version} with Unreleased changes; latest published prerelease {published_version()}" in readme
     assert "one million rows across SOURCE, RAW, HISTORY and MIRROR on AWS VM" in readme
     assert "site/qualification-0.4.5.json" in readme
     assert "(docs/evidence.md)" in readme

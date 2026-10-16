@@ -11,6 +11,7 @@ from quadringent_control_plane.v2.services.native_collection import NativeCollec
 from quadringent_control_plane.v2.services.native_replay import StoredCollectionReplay, NativeReplayError
 from quadringent.qualification.verification_receivers import ReceiverObservationConfig
 from test_native_verification_identity import Cursor
+from test_native_source_observation import offline_java  # noqa: F401
 from test_v2_native_collection import (  # noqa: F401
     ROOT, artifact_bytes, case, collected_case, collector, authority, preparer,
 )
@@ -61,17 +62,17 @@ def test_identity_drift_during_export_refuses_collection_and_closes_the_same_ses
     assert not value.directory.exists()
 
 
-def test_archived_identity_is_replayed_against_server_expectation(collected_case, tmp_path):
+def test_archived_identity_is_replayed_against_server_expectation(collected_case, tmp_path, offline_java):
     value = collected_case
     expected, factory = identity_setup(value)
     result = collector(value, connection_factory=factory, destination_identity=expected).collect(
         value.prepared, context=value.case.context, directory=value.directory, check_current=lambda: True)
-    verifier = StoredCollectionReplay(value.case.storage, ROOT, "org-one", destination_identity=expected)
+    verifier = StoredCollectionReplay(value.case.storage, ROOT, "org-one", destination_identity=expected, **offline_java)
     replayed = verifier.replay(value.prepared, result.manifest, context=value.case.context, directory=tmp_path / "replay")
-    assert replayed.validated_observations == ("destination_identity",)
+    assert replayed.validated_observations == ("destination_identity", "native_source_observations")
     assert "destination_identity" not in replayed.missing_authorities
     assert replayed.state == "incomplete" and "stable_cut" in replayed.missing_authorities
-    wrong = StoredCollectionReplay(value.case.storage, ROOT, "org-one", destination_identity=replace(expected, role="WRONG"))
+    wrong = StoredCollectionReplay(value.case.storage, ROOT, "org-one", destination_identity=replace(expected, role="WRONG"), **offline_java)
     with pytest.raises(NativeReplayError):
         wrong.replay(value.prepared, result.manifest, context=value.case.context, directory=tmp_path / "wrong")
 
@@ -100,16 +101,16 @@ def receiver_setup(value, *, replacement=False):
 
 
 @pytest.mark.parametrize("case", ["native"], indirect=True)
-def test_native_receiver_originals_bracket_the_real_collection_and_replay(collected_case, tmp_path):
+def test_native_receiver_originals_bracket_the_real_collection_and_replay(collected_case, tmp_path, offline_java):
     value = collected_case
     config = receiver_setup(value)
     result = collector(value, receiver_config=config).collect(value.prepared, context=value.case.context,
         directory=value.directory, check_current=lambda: True)
     doc = json.loads(artifact_bytes(value.case, result.manifest))
     assert set(doc["authority_observations"]["receiver"]) == {"before", "after"}
-    replayed = StoredCollectionReplay(value.case.storage, ROOT, "org-one", receiver_config=config).replay(
+    replayed = StoredCollectionReplay(value.case.storage, ROOT, "org-one", receiver_config=config, **offline_java).replay(
         value.prepared, result.manifest, context=value.case.context, directory=tmp_path / "replay")
-    assert replayed.validated_observations == ("receiver_sampled_ranges",)
+    assert replayed.validated_observations == ("receiver_sampled_ranges", "native_source_observations")
     assert replayed.state == "incomplete" and "stable_cut" in replayed.missing_authorities
 
 

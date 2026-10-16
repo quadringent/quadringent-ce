@@ -1,3 +1,4 @@
+import type { NativeCapabilities, NativeVerification } from './nativeVerification.ts';
 /**
  * Data loaders of the cockpit screens, independent of React and of the
  * demo/real client choice so a selection race can be tested without a DOM.
@@ -41,6 +42,10 @@ export interface CockpitTableData {
   readonly costToday: CostSnapshot | null;
   readonly evidence?: PipelineEvidence | null;
   readonly evidenceError?: string;
+  readonly nativeCapabilities?: NativeCapabilities | null;
+  readonly nativeVerification?: NativeVerification | null;
+  readonly nativeCapabilitiesError?: boolean;
+  readonly nativeVerificationError?: boolean;
   /** Display name (library/table); the screen falls back to the pipeline id
    *  when the catalogue is momentarily unavailable. */
   readonly name?: string;
@@ -92,7 +97,7 @@ export async function loadTableData(
   logFilters: CockpitTableLogFilters,
   signal?: AbortSignal,
 ): Promise<CockpitTableData> {
-  const [pipeline, metrics, logs, costToday, pipelines, evidenceResult] = await Promise.all([
+  const [pipeline, metrics, logs, costToday, pipelines, evidenceResult, nativeResult] = await Promise.all([
     client.getPipeline(pipelineId, signal),
     client.getMetrics(pipelineId, window, signal),
     client.getLogs(pipelineId, logFilters, signal),
@@ -100,10 +105,18 @@ export async function loadTableData(
     client.listPipelines(signal).catch(() => [] as readonly PipelineListRecordV2[]),
     client.getEvidence(pipelineId, signal).then((evidence) => ({ evidence, evidenceError: undefined }))
       .catch((error: unknown) => ({ evidence: null, evidenceError: error instanceof Error ? error.message : 'Evidence unavailable.' })),
+    Promise.all([
+      Promise.resolve().then(() => client.getNativeCapabilities(pipelineId, signal))
+        .then(nativeCapabilities => ({ nativeCapabilities, nativeCapabilitiesError: false }))
+        .catch(() => ({ nativeCapabilities: null, nativeCapabilitiesError: true })),
+      Promise.resolve().then(() => client.getLatestNativeVerification(pipelineId, signal))
+        .then(nativeVerification => ({ nativeVerification, nativeVerificationError: false }))
+        .catch(() => ({ nativeVerification: null, nativeVerificationError: true })),
+    ]).then(([capability, result]) => ({ ...capability, ...result })),
   ]);
   const resolvers = await makeResolvers(client, pipelines);
   const name = resolvers.nameForPipeline(pipelineId);
-  return { pipeline, metrics, logs, costToday, ...evidenceResult, name: name === pipelineId ? undefined : name };
+  return { pipeline, metrics, logs, costToday, ...evidenceResult, ...nativeResult, name: name === pipelineId ? undefined : name };
 }
 
 /** Data loaded for another table must never be shown under the current

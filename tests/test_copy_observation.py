@@ -97,6 +97,31 @@ def test_context_preserves_original_frontier_and_requires_bound_identity():
         build_context(pipeline_id="pipe-1", table_id="tbl-orders", run_id="run-1", boundary=None, request=request())
 
 
+def test_current_witness_window_is_explicit_without_rewriting_original_context():
+    from quadringent.copy_observation import validate_observation
+
+    current = context()
+    document = observation(current=current)
+    original = encode(current)
+    document["witness_window"]["end_sequence"] = "4205"
+    pinned = encode(document)
+    with pytest.raises(ValueError, match="witness_window_mismatch"):
+        validate_observation(document, context=current, phase="before")
+    window = dict(current["request"]["witness_window"], end="4205")
+    assert validate_observation(document, context=current, phase="before", witness_window=window) == document
+    assert encode(current) == original and encode(document) == pinned
+    assert document["context_sha256"] == context_sha256(current)
+
+
+def test_explicit_witness_window_does_not_bypass_window_validation():
+    from quadringent.copy_observation import validate_observation
+
+    current = context()
+    with pytest.raises(ValueError, match="invalid_witness_window"):
+        validate_observation(observation(current=current), context=current, phase="before",
+                             witness_window=dict(current["request"]["witness_window"], start="0"))
+
+
 @pytest.mark.parametrize("bad", [True, 0, -1, 1048577])
 def test_reference_has_strict_positive_bounded_bytes(bad):
     with pytest.raises(ValueError):

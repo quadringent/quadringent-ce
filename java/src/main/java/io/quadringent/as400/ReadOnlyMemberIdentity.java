@@ -178,17 +178,53 @@ public final class ReadOnlyMemberIdentity {
         resolve(program, ccsid, request, last, originals, budget);
         byte[] after = member(program, ccsid, request, originals, budget);
         // Creation/restore observations are guards, not native generation identifiers.
-        for (int offset : new int[]{8, 18, 28, 38, 58, 186}) {
-            int size = offset == 58 || offset == 186 ? 13 : 10;
-            if (!Arrays.equals(Arrays.copyOfRange(before, offset, offset + size),
-                    Arrays.copyOfRange(after, offset, offset + size))) throw new IdentityFailure("identity_changed");
-        }
+        sameObservedMember(before, after);
         Instant completed = instant(now);
         if (completed.isBefore(started)) throw new IdentityFailure("clock_invalid");
         byte[] metadata = metadata(request, ccsid, originals, List.of(first, last), started, completed);
         if (metadata.length > budget.limits.maxMetadataBytes()) throw new IdentityFailure("metadata_budget_exceeded");
         budget.check();
         return new Result(request, first.jidHex(), originals, List.of(first, last), metadata);
+    }
+
+    static void sameObservedMember(byte[] before, byte[] after) throws IdentityFailure {
+        for (int offset : new int[]{8, 18, 28, 38, 58, 186}) {
+            int size = offset == 58 || offset == 186 ? 13 : 10;
+            if (!Arrays.equals(Arrays.copyOfRange(before, offset, offset + size),
+                    Arrays.copyOfRange(after, offset, offset + size))) throw new IdentityFailure("identity_changed");
+        }
+    }
+
+    static byte[] validateArchived(Request request, int ccsid, String jid, List<NativeOriginal> values) throws Exception {
+        if (values.size() != 4) throw new IdentityFailure("native_reply_invalid");
+        int[] index = {0};
+        NativeProgram archived = (call, seconds) -> {
+            NativeOriginal value = values.get(index[0]++);
+            byte[] raw = value.receiver();
+            String format = call.program().equals("QUSRMBRD") ? "MBRD0200" : "RJID0100";
+            if (!value.program().equals(call.program()) || !value.format().equals(format)
+                    || raw.length < 8 || raw.length > call.receiverLength()
+                    || number(raw, 0) != raw.length || number(raw, 4) != raw.length) {
+                throw new IdentityFailure("native_reply_invalid");
+            }
+            return new NativeReply(true, Arrays.copyOf(raw, call.receiverLength()), value.errorCode());
+        };
+        Budget budget = new Budget(Limits.defaults(), System::nanoTime);
+        List<NativeOriginal> checked = new ArrayList<>();
+        byte[] before = member(archived, ccsid, request, checked, budget);
+        Witness witness = new Witness(jid, request.receiverLibrary(), request.receiverName(), request.start().toString(),
+                "R", "PT", padded(request.fileName()) + padded(request.fileLibrary()) + padded(request.memberName()), "*FILE");
+        resolve(archived, ccsid, request, witness, checked, budget);
+        resolve(archived, ccsid, request, witness, checked, budget);
+        byte[] after = member(archived, ccsid, request, checked, budget);
+        sameObservedMember(before, after);
+        // Separate sessions may encode the same observed member with another CCSID.
+        for (int offset : new int[]{8, 18, 28, 38, 58, 186}) {
+            int width = offset == 58 || offset == 186 ? 13 : 10;
+            String value = (String) new AS400Text(width, ccsid).toObject(before, offset);
+            System.arraycopy(encode(value, width, 367), 0, before, offset, width);
+        }
+        return before;
     }
 
     private static byte[] member(NativeProgram program, int ccsid, Request request,

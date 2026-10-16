@@ -63,6 +63,7 @@ COPY src/quadringent/qualification/verification_stored.py /app/src/quadringent/q
 COPY src/quadringent/qualification/verification_collect.py src/quadringent/qualification/verification_destination.py src/quadringent/qualification/verification_ledger.py /app/src/quadringent/qualification/
 COPY src/quadringent/qualification/verification_native.py src/quadringent/qualification/verification_guard.py src/quadringent/qualification/proof.py /app/src/quadringent/qualification/
 COPY src/quadringent/qualification/verification_identity.py src/quadringent/qualification/verification_receivers.py /app/src/quadringent/qualification/
+COPY src/quadringent/qualification/verification_source_observation.py /app/src/quadringent/qualification/
 COPY src/quadringent/copy_observation.py /app/src/quadringent/
 COPY src/quadringent/diagnostics/__init__.py src/quadringent/diagnostics/model.py src/quadringent/diagnostics/export.py /app/src/quadringent/diagnostics/
 COPY src/quadringent/infrastructure_costs.py src/quadringent/storage_backend.py src/quadringent/gcs_backend.py src/quadringent/checkpoint.py src/quadringent/receiver_identity.py src/quadringent/capture_binding.py src/quadringent/receiver_registry.py /app/src/quadringent/

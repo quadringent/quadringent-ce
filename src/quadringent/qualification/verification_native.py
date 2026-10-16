@@ -10,7 +10,7 @@ import struct
 
 from quadringent.checkpoint import _decode_checkpoint_json
 from quadringent.copy_observation import (
-    ObservationReference, context_sha256, read_copy_observations, validate_observation,
+    ObservationReference, context_sha256, encode, read_copy_observations, validate_observation,
 )
 from quadringent_control_plane.v2.executor.evidence import InitialCopyEvidence
 
@@ -33,6 +33,8 @@ class NativeCopyInputs:
     bundle: bytes = field(repr=False)
     bundle_sha256: str
     native_admission: str = 'not_evaluated'
+    initial_context: bytes = field(default=b'', repr=False)
+    initial_observations: tuple[bytes, bytes] = field(default=(b'', b''), repr=False)
 
 
 def _pinned(store, reference):
@@ -70,8 +72,10 @@ def load_native_copy_inputs(authority_store, evidence_bytes: bytes, *, expected_
         raise ValueError('native_copy_context_mismatch')
     bundle = bytearray(b'QDTNCB2\n')
     documents = {}
+    originals_by_phase = []
     for phase in ('before', 'after'):
         raw = _pinned(authority_store, ObservationReference.from_dict(manifest[phase]))
+        originals_by_phase.append(raw)
         document = validate_observation(_decode_checkpoint_json(raw), context=context, phase=phase)
         if document['format_version'] != 'quadringent-native-copy-observation-v2':
             raise ValueError('native_copy_file_observation_required')
@@ -96,6 +100,7 @@ def load_native_copy_inputs(authority_store, evidence_bytes: bytes, *, expected_
         scope.sha256, context_sha256(context), context_sha256(context['boundary']['capture_binding']),
         context_sha256(context['boundary']), source['member'], source['format'],
         documents['before']['member']['jid_hex'], bytes(bundle), hashlib.sha256(bundle).hexdigest(),
+        initial_context=encode(context), initial_observations=tuple(originals_by_phase),
     )
 
 

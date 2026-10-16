@@ -101,6 +101,14 @@ jobs:
           name: pytest-collection
           path: ${{ steps.pytest_collection.outputs.path }}
           retention-days: 1
+      - name: Pinned native Java test dependency
+        run: |
+          jar="$HOME/.m2/repository/net/sf/jt400/jt400/21.0.7/jt400-21.0.7.jar"
+          mkdir -p "$(dirname "$jar")"
+          curl --fail --silent --show-error --location \
+            https://repo.maven.apache.org/maven2/net/sf/jt400/jt400/21.0.7/jt400-21.0.7.jar \
+            --output "$jar"
+          printf 'd2c06bba78d20b4733a3fabc9fe6ccabac337f7298bea95c6766108fa0b420f8  %s\n' "$jar" | sha256sum --check --strict
       - name: Single Python suite
         run: python -m pytest -q
       - name: Types, names and version

@@ -643,3 +643,17 @@
 .cockpit-diagnostics__files th, .cockpit-diagnostics__files td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--rule); }
 .cockpit-diagnostics__files .banded-table__col--numeric { text-align: right; }
 .cockpit-diagnostics__digest { overflow-wrap: anywhere; }
+
+.native-verification { border-bottom: 1px solid var(--rule); padding-bottom: var(--space-6); margin-bottom: var(--space-6); }
+.native-verification__head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); }
+.native-verification h2 { font-size: var(--t-body); }
+.native-verification__context { color: var(--signal-attention); font-size: var(--t-small); }
+.native-verification__tables { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-6); }
+.native-verification table { width: 100%; border-collapse: collapse; text-align: left; font-size: var(--t-small); }
+.native-verification caption { text-align: left; font-weight: var(--w-medium); padding: var(--space-4) 0; }
+.native-verification th, .native-verification td { padding: var(--space-2); border-bottom: 1px solid var(--rule); vertical-align: top; }
+.native-verification td { font-family: var(--font-mono); }
+.native-verification__row-state { display: block; color: var(--ink-3); font-weight: normal; }
+.native-verification__authorities { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); margin-top: var(--space-5); }
+.native-verification h3 { font-size: var(--t-small); }
+@media (max-width: 1000px) { .native-verification__tables { grid-template-columns: 1fr; } }

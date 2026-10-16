@@ -231,8 +231,9 @@ before storage and read; organization isolation applies to every read.
 | GET | /v2/pipelines/{id}/metrics | read | window=1h or 24h |
 | GET | /v2/pipelines/{id}/native-verifications | read | Bounded native-verification history |
 | GET | /v2/pipelines/{id}/native-verifications/latest | read | Latest attempt, with current context validity |
+| GET | /v2/pipelines/{id}/native-verifications/capabilities | read | Server availability and observation/admission mode |
 | GET | /v2/pipelines/{id}/native-verifications/{verification_id} | read | One attempt in the requested pipeline |
-| POST | /v2/pipelines/{id}/native-verifications | operate | Idempotent internal collection and admission; accepts only optional boolean `dry_run` |
+| POST | /v2/pipelines/{id}/native-verifications | operate | Idempotent server-configured observation or admission; accepts only optional boolean `dry_run` |
 | GET | /v2/pipelines/{id}/logs | read | since, level, correlate_incident; redacted |
 | POST | /v2/pipelines/{id}/actions/{pause,resume,remove,restart_initial_copy,replay} | operate | Executor; sensitive actions confirmed |
 | POST | /v2/actions/{pause_all,resume_all} | operate | Organization action; always confirmed |
@@ -260,10 +261,13 @@ before storage and read; organization isolation applies to every read.
 | GET | /v2/costs | read | scope=connection or table, id, window |
 | GET | /v2/openapi.json | public | Complete OpenAPI 3.1 schemas |
 
-Native verification requires trusted preparation/admission adapters and enabled
-SQL context tracking. The installed entrypoint supplies no native adapters;
-POST returns `capability_unavailable` in that configuration. The API accepts
-no caller-supplied proof. A changed context makes a historical result
+Native verification requires enabled SQL context tracking and server-configured
+adapters. The Linux entrypoint can prepare and observe using configured Java
+and storage; it supplies no native admission controller. Missing dependencies
+keep capabilities unavailable and POST returns `capability_unavailable`.
+Observed results use `quadringent-native-observed-result-v1`, retain the
+recomputed comparison and missing authorities, and always have an `incomplete`
+outcome. The API accepts no caller-supplied proof. A changed context makes a historical result
 `superseded`; it does not prove current journal-head freshness.
 
 Unknown IDs return 404; invalid state/window/level/scope filters return 400.

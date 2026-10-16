@@ -1,3 +1,4 @@
+import { parseNativeCapabilities, parseNativeVerification, type NativeCapabilities, type NativeVerification } from './nativeVerification.ts';
 import type { DiscoveredTable, KeyStrategy, TableReadiness } from '../domain/wizardTables.ts';
 import {
   parseDiagnosticExport,
@@ -684,6 +685,31 @@ export class ControlPlaneV2Client {
   async getMetrics(pipelineId: string, window: '1h' | '24h' = '1h', signal?: AbortSignal): Promise<MetricsSeries> {
     const payload = await this.getJson(`/pipelines/${encodeURIComponent(pipelineId)}/metrics?window=${window}`, signal);
     return parseMetricsSeries(payload, window);
+  }
+
+  async getNativeCapabilities(pipelineId: string, signal?: AbortSignal): Promise<NativeCapabilities> {
+    return parseNativeCapabilities(await this.getJson(`/pipelines/${encodeURIComponent(pipelineId)}/native-verifications/capabilities`, signal));
+  }
+
+  async getLatestNativeVerification(pipelineId: string, signal?: AbortSignal): Promise<NativeVerification | null> {
+    return parseNativeVerification(await this.getJson(`/pipelines/${encodeURIComponent(pipelineId)}/native-verifications/latest`, signal), pipelineId);
+  }
+
+  async getNativeVerification(pipelineId: string, verificationId: string, signal?: AbortSignal): Promise<NativeVerification> {
+    const value = parseNativeVerification(await this.getJson(`/pipelines/${encodeURIComponent(pipelineId)}/native-verifications/${encodeURIComponent(verificationId)}`, signal), pipelineId);
+    if (!value || value.id !== verificationId) throw new Error('Invalid native verification read-back.');
+    return value;
+  }
+
+  async requestNativeVerification(pipelineId: string, dryRun: boolean, signal?: AbortSignal): Promise<NativeVerification | null> {
+    const value = await this.writeFull(`/pipelines/${encodeURIComponent(pipelineId)}/native-verifications`, { dry_run: dryRun }, signal);
+    if (dryRun) {
+      if ((value.dryRun as Record<string, unknown> | null)?.would_request !== 'native_verification') throw new Error('Invalid native verification preview.');
+      return null;
+    }
+    const accepted = parseNativeVerification(value.after, pipelineId);
+    if (!accepted) throw new Error('Invalid native verification receipt.');
+    return accepted;
   }
 
   async getEvidence(pipelineId: string, signal?: AbortSignal): Promise<PipelineEvidence> {

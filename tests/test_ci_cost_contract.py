@@ -36,6 +36,11 @@ def test_concurrency_cancels_only_the_same_workflow_and_ref():
 
 def test_dependency_caches_do_not_replace_installations_or_java_contracts():
     jobs = workflow()['jobs']
+    steps = jobs['tests']['steps']
+    native = next(step for step in steps if step.get('name') == 'Pinned native Java test dependency')
+    suite = next(step for step in steps if step.get('name') == 'Single Python suite')
+    assert steps.index(native) < steps.index(suite)
+    assert 'jt400-21.0.7.jar' in native['run'] and 'sha256sum --check --strict' in native['run']
     setup = next(s for s in jobs['tests']['steps'] if s.get('uses', '').startswith('actions/setup-python@'))
     assert setup['with']['cache'] == 'pip'
     assert set(setup['with']['cache-dependency-path'].splitlines()) == {'pyproject.toml', 'requirements.txt'}

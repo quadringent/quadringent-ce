@@ -1,7 +1,6 @@
-"""SQL-owned proof attempts; native collection/admission is unavailable by default.
+"""SQL-owned observations stay distinct from independently admitted results.
 
-Only an injected internal controller may supply an independently admitted result.
-No endpoint or job-supplied JSON is accepted by this service.
+Internal ports are absent by default; endpoints accept no caller proof JSON.
 """
 
 from dataclasses import dataclass, replace
@@ -9,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import re
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 from urllib.parse import urlsplit
 import uuid
 
@@ -20,9 +19,22 @@ from quadringent.qualification.verification_stream import _timestamp
 from .native_context import NativeContextConflict, canonical, context_snapshot, context_transaction
 from .. import schema
 
+if TYPE_CHECKING:
+    from .native_collection import NativeCollectionResult
+    from .native_replay import NativeArchiveReplay
+
 _SHA = re.compile(r"[0-9a-f]{64}")
 _PREPARATION = {"copy_intent", "copy_evidence", "registry", "binding", "checkpoint"}
 _PROOFS = {"platform", "source", "raw_inventory", "native_format", "receiver_chain", "destination", "stable_cut"}
+_OBSERVED = "quadringent-native-observed-result-v1"
+_MISSING = {"platform", "source_provenance", "receiver_chain", "physical_inventory", "stable_cut"}
+_OBSERVATIONS = {
+    "destination_identity": {"destination:history:before", "destination:history:after",
+                             "destination:mirror:before", "destination:mirror:after"},
+    "receiver_sampled_ranges": {"receiver:before", "receiver:after"},
+    "native_source_observations": {"guard:journal_original", "guard:final_original",
+                                   "guard:stdout_original", "native_bundle"},
+}
 _REASONS = {"preparation_unavailable", "preparation_failed", "admission_unavailable",
             "admission_failed", "collection_failed", "controller_failed", "unsupported_native_format",
             "native_authority_unavailable"}
@@ -101,6 +113,14 @@ class NativeAdmissionPort(Protocol):
     def admit(self, prepared: NativePreparation) -> NativeAdmission: ...
 
 
+class NativeObservationPort(Protocol):
+    """Collect and replay originals without granting native admission."""
+
+    def observe(self, prepared: NativePreparation, *, context: dict, check_current) -> tuple[
+        "NativeCollectionResult", "NativeArchiveReplay"
+    ]: ...
+
+
 @dataclass(frozen=True)
 class ControllerLease:
     request_id: str
@@ -165,12 +185,164 @@ def _comparison(report, artifacts, scope, now):
         raise ValueError("native_report_state_mismatch")
 
 
+def _stored(encoded):
+    if type(encoded) is not str or len(encoded.encode()) > 262144:
+        raise ValueError("stored_native_document_budget")
+    value = json.loads(encoded)
+    if canonical(value) != encoded:
+        raise ValueError("stored_native_document_invalid")
+    return value
+
+
+def _labels(values, allowed):
+    if (type(values) is not list or len(values) > len(allowed)
+            or any(type(value) is not str or value not in allowed for value in values)
+            or len(set(values)) != len(values)):
+        raise ValueError("invalid_native_observation_labels")
+    return set(values)
+
+
+def _scope_columns(scope, context):
+    if scope.primary_key != tuple((context["table"]["key_columns"] or "").split(",")):
+        raise ValueError("native_preparation_key_mismatch")
+    declared = context["table"]["discovered_columns"]
+    kinds = {"smallint": "int", "integer": "int", "bigint": "int", "decimal": "decimal",
+             "numeric": "decimal", "char": "text", "varchar": "text", "clob": "text",
+             "graphic": "text", "vargraphic": "text", "dbclob": "text",
+             "date": "date", "timestamp": "timestamp"}
+    if (not declared or tuple((column.name, column.kind) for column in scope.columns)
+            != tuple((column["name"], kinds[column["kind"]]) for column in declared)):
+        raise ValueError("native_preparation_columns_mismatch")
+
+
 class NativeVerificationsService:
     def __init__(self, engine, *, org_id, source_restriction=(), preparer=None, controller=None,
-                 now=lambda: datetime.now(timezone.utc)):
+                 observer=None, now=lambda: datetime.now(timezone.utc)):
         self.engine, self.org_id = engine, org_id
         self.source_restriction = tuple(source_restriction)
         self.preparer, self.controller, self.now = preparer, controller, now
+        self.observer = observer
+
+    def _frozen_scope(self, row):
+        context = _stored(row["context_json"])
+        scope = VerificationScope.from_dict(_stored(row["scope_json"]))
+        if (scope.sha256 != row["scope_sha256"] or hashlib.sha256(row["context_json"].encode()).hexdigest() != row["context_sha256"]
+                or (context["org_id"], context["pipeline_id"], context["table_id"], context["copy_run_id"],
+                    context["source_id"], context["destination_id"], context["generation"])
+                != (self.org_id, row["pipeline_id"], row["table_id"], row["copy_run_id"], row["source_id"],
+                    row["destination_id"], row["context_generation"])
+                or (scope.pipeline_id, scope.table_id, scope.copy_run_id, scope.source_library, scope.source_table,
+                    scope.destination_database, scope.destination_schema)
+                != (row["pipeline_id"], row["table_id"], row["copy_run_id"], context["table"]["schema_name"],
+                    context["table"]["table_name"], context["destination"]["destination_database"],
+                    context["destination"]["destination_schema"])):
+            raise ValueError("native_result_context_mismatch")
+        _scope_columns(scope, context)
+        return scope
+
+    def _observed_manifest(self, manifest, row):
+        if (type(manifest) is not dict or set(manifest) != {
+                "format_version", "scope_sha256", "context_sha256", "context_generation", "native_admission",
+                "native_cdc_qualified", "collection_manifest", "artifacts", "comparison", "streams_replayed",
+                "validated_observations", "missing_authorities"}
+                or manifest["format_version"] != _OBSERVED
+                or manifest["scope_sha256"] != row["scope_sha256"]
+                or manifest["context_sha256"] != row["context_sha256"]
+                or type(manifest["context_generation"]) is not int
+                or manifest["context_generation"] != row["context_generation"]
+                or manifest["native_admission"] != "not_evaluated" or manifest["native_cdc_qualified"] is not False
+                or type(manifest["streams_replayed"]) is not int or manifest["streams_replayed"] != 7):
+            raise ValueError("invalid_native_observed_result")
+        scope = self._frozen_scope(row)
+        if type(manifest["artifacts"]) is not list:
+            raise ValueError("invalid_native_observed_references")
+        artifacts = tuple(NativeArtifact(**value) for value in manifest["artifacts"])
+        refs = {value.name: value for value in artifacts}
+        _refs(artifacts, _PREPARATION | {"collection_manifest", "comparison"} | {"stream:" + name for name in DATASETS})
+        preparation = tuple(NativeArtifact(**value) for value in _stored(row["preparation_json"]))
+        _refs(preparation, _PREPARATION)
+        if any(refs.get(value.name) != value for value in preparation):
+            raise ValueError("native_observed_preparation_mismatch")
+        collection = NativeArtifact(**manifest["collection_manifest"])
+        if collection.name != "collection_manifest" or refs[collection.name] != collection:
+            raise ValueError("native_observed_collection_mismatch")
+        org_hash = hashlib.sha256(self.org_id.encode()).hexdigest()
+        origin = urlsplit(collection.uri)
+        for ref in artifacts:
+            parsed = urlsplit(ref.uri)
+            namespace = parsed.path.split("/")[1]
+            if (namespace not in {"native-preparations-v1", "native-collections-v1"}
+                    or ref.version != "sha256:" + ref.sha256 or (parsed.scheme, parsed.netloc) != (origin.scheme, origin.netloc)
+                    or parsed.path != f"/{namespace}/{org_hash}/objects/{ref.sha256}"
+                    or ref.name == "collection_manifest" and namespace != "native-collections-v1"):
+                raise ValueError("native_observed_artifact_scope")
+        labels = _labels(manifest["validated_observations"], set(_OBSERVATIONS))
+        missing = _labels(manifest["missing_authorities"], _MISSING | {"destination_identity"})
+        if missing != _MISSING | ({"destination_identity"} if "destination_identity" not in labels else set()):
+            raise ValueError("native_observed_authority_missing")
+        if any(not _OBSERVATIONS[label].issubset(refs) for label in labels):
+            raise ValueError("native_observed_originals_missing")
+        if "native_source_observations" in labels:
+            final, stdout = refs["guard:final_original"], refs["guard:stdout_original"]
+            if (final.sha256, final.byte_count) != (stdout.sha256, stdout.byte_count):
+                raise ValueError("native_observed_guard_reference")
+        report = manifest["comparison"]
+        if type(report) is not dict or set(report) != {
+                "format_version", "scope_sha256", "state", "datasets", "comparisons", "checks", "ignored_fields",
+                "failure_codes", "equality_scope", "update_pairing_verified", "transaction_consistency_verified",
+                "numeric_value_max_characters"}:
+            raise ValueError("invalid_native_observed_comparison")
+        _comparison(report, artifacts, scope, self.now())
+        raw = (canonical(report) + "\n").encode()
+        if (refs["comparison"].sha256, refs["comparison"].byte_count) != (hashlib.sha256(raw).hexdigest(), len(raw)):
+            raise ValueError("native_observed_comparison_reference")
+
+    def _observe(self, lease, row):
+        from .native_collection import NativeCollectionResult
+        from .native_replay import NativeArchiveReplay
+
+        def current():
+            self._read_owned(lease)
+            return True
+
+        try:
+            current()
+            prepared = NativePreparation(VerificationScope.from_dict(_stored(row["scope_json"])),
+                tuple(NativeArtifact(**value) for value in _stored(row["preparation_json"])))
+            values = self.observer.observe(prepared, context=_stored(row["context_json"]), check_current=current)
+            current()
+            if (type(values) is not tuple or len(values) != 2 or type(values[0]) is not NativeCollectionResult
+                    or type(values[1]) is not NativeArchiveReplay):
+                raise ValueError("independent_native_observation_required")
+            collection, replay = values
+            if (collection.native_admission != "not_evaluated" or collection.native_cdc_qualified is not False
+                    or replay.state != "incomplete" or replay.native_admission != "not_evaluated"
+                    or replay.native_cdc_qualified is not False or replay.collection_manifest != collection.manifest
+                    or replay.scope_sha256 != prepared.scope.sha256 or replay.context_sha256 != row["context_sha256"]
+                    or type(replay.validated_observations) is not tuple or type(replay.missing_authorities) is not tuple
+                    or collection.report != replay.comparison):
+                raise ValueError("native_observation_replay_mismatch")
+            manifest = dict(format_version=_OBSERVED, scope_sha256=prepared.scope.sha256,
+                context_sha256=row["context_sha256"], context_generation=row["context_generation"],
+                native_admission="not_evaluated", native_cdc_qualified=False,
+                collection_manifest=collection.manifest.to_dict(), artifacts=_refs(collection.artifacts, set()),
+                comparison=replay.comparison, streams_replayed=replay.streams_replayed,
+                validated_observations=list(replay.validated_observations), missing_authorities=list(replay.missing_authorities))
+            self._observed_manifest(manifest, row)
+            encoded = canonical(manifest)
+        except NativeContextConflict:
+            raise
+        except Exception:
+            return self.close_incomplete(lease, reason_code="collection_failed")
+        with context_transaction(self.engine, self.org_id) as connection:
+            current_row = self._row(connection, lease.request_id)
+            self._lease(current_row, lease)
+            self._context(connection, current_row)
+            connection.execute(update(schema.native_verifications).where(schema.native_verifications.c.id == lease.request_id)
+                .values(lifecycle="finished", outcome="incomplete", reason_code="native_authority_unavailable",
+                        finished_at=_utc(self.now()), result_manifest_json=encoded,
+                        result_sha256=hashlib.sha256(encoded.encode()).hexdigest(), revision=current_row["revision"] + 1))
+        return self.get(lease.request_id)
 
     def _row(self, c, request_id):
         row = c.execute(select(schema.native_verifications).where(
@@ -289,16 +461,7 @@ class NativeVerificationsService:
                         context["table"]["schema_name"], context["table"]["table_name"],
                         context["destination"]["destination_database"], context["destination"]["destination_schema"])):
                 raise ValueError("native_preparation_scope_mismatch")
-            if scope.primary_key != tuple((context["table"]["key_columns"] or "").split(",")):
-                raise ValueError("native_preparation_key_mismatch")
-            declared = context["table"]["discovered_columns"]
-            kinds = {"smallint": "int", "integer": "int", "bigint": "int", "decimal": "decimal",
-                     "numeric": "decimal", "char": "text", "varchar": "text", "clob": "text",
-                     "graphic": "text", "vargraphic": "text", "dbclob": "text",
-                     "date": "date", "timestamp": "timestamp"}
-            if (not declared or tuple((column.name, column.kind) for column in scope.columns)
-                    != tuple((column["name"], kinds[column["kind"]]) for column in declared)):
-                raise ValueError("native_preparation_columns_mismatch")
+            _scope_columns(scope, context)
             refs = canonical(_refs(prepared.artifacts, _PREPARATION))
             scope_json = canonical(scope.to_dict())
         except Exception:
@@ -340,6 +503,8 @@ class NativeVerificationsService:
         if row["scope_json"] is None:
             return self.close_incomplete(lease, reason_code="preparation_failed")
         if self.controller is None:
+            if self.observer is not None:
+                return self._observe(lease, row)
             return self.close_incomplete(lease, reason_code="admission_unavailable")
         try:
             scope = VerificationScope.from_dict(json.loads(row["scope_json"]))
@@ -378,22 +543,42 @@ class NativeVerificationsService:
         enforced = context["organization"]["native_context_enforced"]
         same = (p["latest_native_verification_id"] == row["id"] and p["native_context_operation_id"] is None
                 and p["native_context_generation"] == row["context_generation"] and digest == row["context_sha256"])
-        outcome, reason, manifest, observed, age = row["outcome"], row["reason_code"], None, None, None
+        outcome = "incomplete" if row["lifecycle"] == "finished" else None
+        reason, manifest, observed, age = row["reason_code"], None, None, None
+        if row["result_manifest_json"] is None and row["outcome"] in {"verified", "divergent"}:
+            reason = "stored_result_invalid"
         if row["result_manifest_json"] is not None:
             try:
                 encoded = row["result_manifest_json"]
-                manifest = json.loads(encoded)
-                if (hashlib.sha256(encoded.encode()).hexdigest() != row["result_sha256"]
-                        or manifest.get("format_version") != "quadringent-native-admitted-result-v1"
+                manifest = _stored(encoded)
+                if (row["lifecycle"] != "finished"
+                        or type(manifest.get("context_generation")) is not int
+                        or manifest["context_generation"] != row["context_generation"]
+                        or hashlib.sha256(encoded.encode()).hexdigest() != row["result_sha256"]
                         or manifest.get("scope_sha256") != row["scope_sha256"]
                         or manifest.get("context_sha256") != row["context_sha256"]):
+                    raise ValueError("stored_result_invalid")
+                if manifest.get("format_version") == _OBSERVED:
+                    self._observed_manifest(manifest, row)
+                    outcome, reason = "incomplete", "native_authority_unavailable"
+                elif manifest.get("format_version") == "quadringent-native-admitted-result-v1":
+                    if set(manifest) != {"format_version", "scope_sha256", "context_sha256", "context_generation",
+                                         "policy_revision", "comparison", "artifacts"}:
+                        raise ValueError("stored_result_invalid")
+                    artifacts = tuple(NativeArtifact(**value) for value in manifest["artifacts"])
+                    _refs(artifacts, _PROOFS | {"stream:" + name for name in DATASETS})
+                    _text(manifest["policy_revision"])
+                    _comparison(manifest["comparison"], artifacts,
+                                self._frozen_scope(row), self.now())
+                    outcome, reason = manifest["comparison"]["state"], None
+                else:
                     raise ValueError("stored_result_invalid")
                 observed = max((v["completed_at"] for v in manifest["comparison"]["datasets"].values()),
                                key=_timestamp)
                 age = (_utc(self.now()) - datetime.fromisoformat(observed.replace("Z", "+00:00"))).total_seconds()
                 if age < 0:
                     raise ValueError("stored_result_future")
-            except (ValueError, TypeError, AttributeError, KeyError):
+            except (ValueError, TypeError, AttributeError, KeyError, RecursionError, OverflowError):
                 outcome, reason, manifest = "incomplete", "stored_result_invalid", None
                 observed, age = None, None
         return dict(

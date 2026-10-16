@@ -21,11 +21,15 @@ from quadringent_control_plane.v2.services.native_collection import StoredNative
 from quadringent_control_plane.v2.services.native_replay import StoredCollectionReplay
 from quadringent.qualification.verification_identity import observe_destination_identity
 from quadringent.qualification.verification_receivers import observe_receiver
+from quadringent.qualification.verification_source_observation import validate_source_observations
+from quadringent_control_plane.v2.services.native_observer import InstalledNativeObserver
+from quadringent_control_plane.v2.services.native_observer_process import run_worker
 from zipfile import ZipFile
 from quadringent.qualification.verification_guard import collect_native_guards
 from botocore.session import get_session
 assert callable(StoredNativeCollector) and callable(collect_native_guards)
 assert callable(StoredCollectionReplay) and callable(observe_destination_identity) and callable(observe_receiver)
+assert callable(validate_source_observations) and callable(InstalledNativeObserver) and callable(run_worker)
 assert CollectionLimits().max_seconds == 3600
 multipart = get_session().get_service_model('s3').operation_model('CompleteMultipartUpload')
 assert 'IfNoneMatch' in multipart.input_shape.members, 'conditional archive completion requires SDK support'
@@ -54,6 +58,18 @@ else:
 
 with ZipFile('/app/probe.jar') as producer:
     assert producer.getinfo('io/quadringent/as400/NativeVerificationReceiverExport.class').file_size > 0
+    assert producer.getinfo('io/quadringent/as400/NativeSourceObservationVerify.class').file_size > 0
+
+import sys
+worker = '''import json,sys
+json.loads(sys.stdin.readline())
+print(json.dumps({"kind":"fence","index":1}),flush=True)
+assert json.loads(sys.stdin.readline()) == {"current":True,"index":1}
+print(json.dumps({"kind":"result","value":{"packaged":True}}),flush=True)
+assert json.loads(sys.stdin.readline()) == {"finish":True}
+'''
+assert run_worker((sys.executable, '-u', '-c', worker), {}, environment={"PATH":"/usr/local/bin:/usr/bin:/bin", "PYTHONPATH":"/app/src"},
+                  check_current=lambda: True, max_seconds=10) == {"packaged":True}
 
 class Assets(HTMLParser):
     paths = []

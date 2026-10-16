@@ -31,8 +31,8 @@ storage integration and external stage. The v1 S3 console/proof/notification
 examples remain AWS-specific. See [autonomous Snowflake](autonomous-snowflake-dev.md).
 
 Review IAM templates for the actual site; do not apply synthetic policies as-is.
-The offline native collection component is not an installed admission controller.
-If explicitly integrated at a site, its S3 identity needs `GetObject` and
+The Linux v2 control plane can collect read-only observations when Java,
+site storage and SQL context tracking are configured. Its S3 identity needs `GetObject` and
 `PutObject` on that organization's `native-collections-v1/<org-sha256>/objects/*`,
 plus `AbortMultipartUpload` there to clean up interrupted large-file transfers.
 Bucket-level `ListBucket` must also allow the initial `HeadObject` check to
@@ -43,9 +43,19 @@ alone grants no native qualification or stable-cut proof.
 The server collector can also record native receiver identities/catalogue ranges
 and Snowflake identities before and after exports on the same sessions. Snowflake
 account, user, role and warehouse expectations must come from server configuration.
-Archive replay recalculates the seven streams and comparison with bounded memory;
+Archive replay reparses the archived native source bytes and recalculates the
+seven streams and comparison with bounded memory;
 missing platform, source-provenance, full receiver-chain, inventory or stable-cut
-authority keeps native admission incomplete. This controller remains uninstalled.
+authority keeps the Evidence result **Incomplete**, even when the streams agree.
+The installed observer does not provide native admission.
+
+Fresh organizations enable context tracking. For an older installation with
+tracking disabled, set `QUADRINGENT_V2_NATIVE_CONTEXT_TRACKING=true` explicitly;
+resolve pending context operations first. Startup never disables existing tracking.
+`QUADRINGENT_V2_NATIVE_TIMEOUT_SECONDS` bounds the whole observation worker
+(60–7100 seconds, default 3600), including blocked SDK calls. The Evidence action
+appears only when server capabilities allow it, requires confirmation and reads
+back the stored result.
 
 ## Prepare values and secrets
 

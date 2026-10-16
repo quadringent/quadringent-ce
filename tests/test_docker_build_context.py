@@ -220,7 +220,10 @@ def test_native_remote_imports_work_in_isolated_runtime_tree(dockerfile, ignore,
     expected_qualification = ["__init__.py", "boundary.py", "verification_contract.py",
                               "verification_process.py", "verification_stream.py"]
     if dockerfile.name == "control-plane.Dockerfile":
-        expected_qualification.insert(-1, "verification_stored.py")
+        expected_qualification = sorted(set(expected_qualification) | {
+            "proof.py", "verification_collect.py", "verification_destination.py", "verification_guard.py",
+            "verification_ledger.py", "verification_native.py", "verification_stored.py",
+        })
     script = f'''import pathlib,sys
 sys.path.insert(0,sys.argv[1])
 {_native_remote_project_imports()}
@@ -237,4 +240,23 @@ assert sorted(p.name for p in (root/'quadringent'/'qualification').glob('*.py'))
         [sys.executable, "-I", "-S", "-B", "-c", script, str(python_path)],
         cwd=tmp_path, capture_output=True, text=True,
     )
+    assert result.returncode == 0, result.stderr
+
+
+def test_native_collection_imports_from_packaged_control_plane_tree(tmp_path):
+    dockerfile = ROOT / "docker/control-plane.Dockerfile"
+    image = _runtime_python_tree(dockerfile, ROOT / "docker/control-plane.Dockerfile.dockerignore", tmp_path / "image")
+    script = '''import pathlib,sys
+sys.path.insert(0,sys.argv[1])
+from quadringent_control_plane.v2.services.native_collection import StoredNativeCollector,CollectionLimits
+from quadringent.qualification.verification_guard import collect_native_guards
+assert callable(StoredNativeCollector) and callable(collect_native_guards)
+assert CollectionLimits().max_seconds == 3600
+root=pathlib.Path(sys.argv[1]).resolve()
+for name,module in list(sys.modules.items()):
+    if name == 'quadringent' or name.startswith(('quadringent.','quadringent_control_plane')):
+        assert pathlib.Path(module.__file__).resolve().is_relative_to(root),name
+'''
+    result = subprocess.run([sys.executable, "-I", "-B", "-c", script, str(image)],
+                            cwd=tmp_path, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr

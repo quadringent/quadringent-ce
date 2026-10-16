@@ -504,3 +504,74 @@ def test_live_copy_script_refuses_runtime_or_snapshot_binding_tampering(tmp_path
             stores['receiver-authority-v1'].values[key] = json.dumps(record).encode()
     with pytest.raises((ValueError, SystemExit)):
         collector.copy(({'pod': 'loader', 'container': 'destination-loader'}, {}))
+
+
+@pytest.mark.parametrize('tamper', [False, True, 'foreign-source', 'foreign-prefix', 'foreign-scope', 'race-manifest'])
+def test_live_copy_v3_script_archives_and_revalidates_observation_originals(tmp_path, monkeypatch, capsys, tamper):
+    from quadringent.copy_observation import build_context, publish_copy_observations
+    from quadringent_control_plane.v2.executor.evidence import InitialCopyEvidence
+    from test_copy_observation import request, observation, encode
+
+    collector, table, stores, evidence, _, ref, _ = copy_script_fixture(tmp_path, monkeypatch, capsys)
+    current_boundary = JournalBoundary.from_dict(evidence['boundary'])
+    req = request()
+    req['source'].update(library='S', file='OTHER' if tamper == 'foreign-source' else 'T', member='T', format='TFMT')
+    point = current_boundary.require_bound()
+    req['witness_window'].update(receiver_library=point.receiver_identity.receiver_library,
+                                receiver_name=point.receiver_identity.receiver_name, start='1', end=str(point.sequence))
+    pipeline_id = 'foreign' if tamper == 'foreign-scope' else 'p1'
+    current = build_context(pipeline_id=pipeline_id, table_id='t1', run_id='run1', boundary=current_boundary, request=req)
+    item = {'prefix': 'unowned/snapshot' if tamper == 'foreign-prefix' else 't/snapshot', **ref}
+    for part in ('payload', 'manifest'):
+        data = stores['t/snapshot'].values[ref[part + '_key']]
+        item[part + '_sha256'] = hashlib.sha256(data).hexdigest()
+        item[part + '_bytes'] = len(data)
+    reference = publish_copy_observations(stores['receiver-authority-v1'], context=current,
+                                          before_bytes=encode(observation(current=current)),
+                                          after_bytes=encode(observation('after', current)),
+                                          snapshot_inventory=[item], rows_copied=1,
+                                          evidence_key=table.evidence_key)
+    proof = InitialCopyEvidence.from_dict(evidence)
+    from dataclasses import replace
+    raw = encode(replace(proof, pipeline_id=pipeline_id, copy_observations=reference).to_dict())
+    stores[''].values[table.evidence_key] = raw
+    for key, data in stores['receiver-authority-v1'].values.items():
+        stores[''].values['receiver-authority-v1/' + key] = data
+    if tamper in {'foreign-source', 'foreign-prefix', 'foreign-scope'}:
+        reads = []
+        get = stores['t/snapshot'].get_bounded
+        def record_read(name, maximum):
+            reads.append(name)
+            return get(name, maximum)
+        monkeypatch.setattr(stores['t/snapshot'], 'get_bounded', record_read)
+        with pytest.raises(ValueError):
+            collector.copy(({'pod': 'loader', 'container': 'destination-loader'}, {}))
+        assert reads == []
+        return
+    if tamper == 'race-manifest':
+        get = stores['t/snapshot'].get_bounded
+        manifest_reads = []
+        def racing_read(name, maximum):
+            data = get(name, maximum)
+            if name == ref['manifest_key']:
+                manifest_reads.append(name)
+                if len(manifest_reads) == 2:
+                    return data + b' '
+            return data
+        monkeypatch.setattr(stores['t/snapshot'], 'get_bounded', racing_read)
+        with pytest.raises(ValueError):
+            collector.copy(({'pod': 'loader', 'container': 'destination-loader'}, {}))
+        return
+    if tamper is True:
+        stores['t/snapshot'].values[ref['manifest_key']] += b' '
+        with pytest.raises(ValueError):
+            collector.copy(({'pod': 'loader', 'container': 'destination-loader'}, {}))
+        return
+    result = collector.copy(({'pod': 'loader', 'container': 'destination-loader'}, {}))
+    expected = {'receiver-authority-v1/' + key for key in stores['receiver-authority-v1'].values
+                if key.startswith('copy-observations-v1/')}
+    actual = {item.get('evidence_key') for item in result['artifacts']}
+    assert expected <= actual
+    del stores[''].values['receiver-authority-v1/' + reference.key]
+    with pytest.raises((ValueError, FileNotFoundError)):
+        collector.copy(({'pod': 'loader', 'container': 'destination-loader'}, {}))

@@ -610,7 +610,7 @@ def _bound_evidence(table, storage):
             table.pipeline_id, table.run_id, table.evidence_key)):
         raise DestinationLoaderError('installed loader requires bound pipeline/table/run evidence')
     try:
-        evidence = EvidenceReader(storage.object_store('')).read(table.evidence_key)
+        evidence = EvidenceReader(storage.object_store('')).read(table.evidence_key, expected_source=(table.schema_name, table.table_name))
         if evidence is None:
             return None
         if ((evidence.pipeline_id, evidence.table_id, evidence.run_id) !=
@@ -689,7 +689,20 @@ def _bound_preflight(table, storage, raw_prefix_root, *, history_mode, receipt_c
         snapshot_boundary=evidence.require_bound(), receiver_registry=_bound_registry(table, storage))
     batches = [_bound_batch(table, item, preserve_decimals=history_mode == 'sql') for item in pending]
     snapshots, refs = [], set()
+    observed_inventory = {}
     if current is None:
+        if evidence.copy_observations is not None:
+            from quadringent.copy_observation import read_copy_observations, read_snapshot_original, validate_inventory_originals
+
+            manifest = read_copy_observations(storage.object_store('receiver-authority-v1'), evidence.copy_observations)
+            prefix = snapshot_prefix(raw_prefix_root, table.table_name)
+            if any(item['prefix'] != prefix for item in manifest['snapshot_inventory']):
+                raise DestinationLoaderError('copy observation snapshot namespace differs')
+            observed_inventory = {(item['payload_key'], item['manifest_key']): item for item in manifest['snapshot_inventory']}
+            try:
+                validate_inventory_originals(manifest, storage.object_store)
+            except (ValueError, FileNotFoundError, TypeError):
+                raise DestinationLoaderError('copy observation snapshot originals differ') from None
         snapshot_store = storage.object_store(snapshot_prefix(raw_prefix_root, table.table_name))
         expected = {'pipeline_id': table.pipeline_id, 'table_id': table.table_id, 'run_id': table.run_id,
                     'boundary': evidence.require_bound().to_dict()}
@@ -698,7 +711,17 @@ def _bound_preflight(table, storage, raw_prefix_root, *, history_mode, receipt_c
             if keys in refs:
                 raise DestinationLoaderError('duplicate snapshot batch reference')
             refs.add(keys)
-            batch = read_published_batch(snapshot_store, *keys, preserve_decimals=history_mode == 'sql')
+            if evidence.copy_observations is not None:
+                try:
+                    originals = read_snapshot_original(observed_inventory[keys], snapshot_store)
+                except (ValueError, KeyError):
+                    raise DestinationLoaderError('copy observation consumed snapshot differs') from None
+                class VerifiedObjects:
+                    def get(self, key):
+                        return originals[key]
+                batch = read_published_batch(VerifiedObjects(), *keys, preserve_decimals=history_mode == 'sql')
+            else:
+                batch = read_published_batch(snapshot_store, *keys, preserve_decimals=history_mode == 'sql')
             if (batch.manifest.format_version != 'as400-snapshot-v2'
                     or batch.manifest.capture_binding != table.capture_binding
                     or batch.manifest.copy_context != expected

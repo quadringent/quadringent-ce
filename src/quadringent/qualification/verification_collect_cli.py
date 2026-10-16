@@ -3,14 +3,18 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import re
 import stat
 import sys
+import time
 
 from .verification_collect import ProcessSpec, WindowProcess, collect_verification
 from .verification_contract import VerificationScope
+from .verification_native import load_native_copy_inputs, native_journal_processes
+from .verification_process import DocumentLimits, collect_process_document
 from .verification_stored import BatchReference, ObjectReference, StoredReadSet
 
 
@@ -137,20 +141,127 @@ def _connect(destination, private_key):
     )
 
 
+def _save_private(path, data):
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, 'wb') as stream:
+        stream.write(data)
+        stream.flush()
+        os.fsync(stream.fileno())
+    descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _native_journal(config, scope, store, initial_copy, out_dir, inputs, max_seconds):
+    _fields(config, 'producer java classpath input_path environment')
+    if config['producer'] != 'ibmi-fixed-copy-v1':
+        raise ValueError('unsupported_native_journal_producer')
+
+    class Authority:
+        def get_bounded(self, key, maximum):
+            return store.get_bounded('receiver-authority-v1/' + key, maximum)
+
+    raw = store.get_bounded(initial_copy.key, 65536)
+    copy = load_native_copy_inputs(Authority(), raw, expected_sha256=initial_copy.sha256,
+                                  evidence_key=initial_copy.key, scope=scope)
+    credentials = inputs.read(config['input_path'], 65536)
+    directory = _absolute(str(out_dir) + '-native-inputs')
+    directory.mkdir(mode=0o700)
+    bundle = directory / 'descriptor.bundle'
+    guard = directory / 'journal-guard.json'
+    _save_private(bundle, copy.bundle)
+    inputs.read(str(bundle), 393600)
+    processes = native_journal_processes(
+        copy, scope, java=config['java'], classpath=config['classpath'], credentials=credentials,
+        environment=config['environment'], bundle_path=bundle, guard_receipt_path=guard,
+        max_seconds=min(max_seconds, 900),
+    )
+    return processes, dict(
+        format_version='quadringent-native-copy-collection-inputs-v1', scope_sha256=scope.sha256,
+        context_sha256=copy.context_sha256, capture_binding_sha256=copy.binding_sha256,
+        copy_boundary_sha256=copy.boundary_sha256, copy_run_id=scope.copy_run_id,
+        initial_copy=dict(key=initial_copy.key, sha256=initial_copy.sha256),
+        bundle_path=str(bundle), bundle_sha256=copy.bundle_sha256,
+        guard_receipt_path=str(guard), native_admission='not_evaluated',
+        _producer=processes[0].process,
+    )
+
+
+def _guard_document(native, document, mode):
+    phases = ['before_business', 'after_business'] if mode == 'journal' else ['after_all_streams']
+    if (type(document) is not dict
+            or document.get('format_version') != 'quadringent-native-journal-guard-v1'
+            or document.get('mode') != mode or document.get('state') != 'complete'
+            or document.get('error_code') is not None
+            or type(document.get('guards')) is not list
+            or any(type(value) is not dict for value in document['guards'])
+            or [value.get('phase') for value in document['guards']] != phases
+            or document.get('native_admission') != 'not_evaluated'
+            or document.get('transaction_consistency_verified') is not False
+            or any(document.get(name) != native[name] for name in (
+                'scope_sha256', 'context_sha256', 'capture_binding_sha256', 'copy_boundary_sha256',
+                'copy_run_id', 'bundle_sha256'))):
+        raise ValueError('native_guard_reference_mismatch')
+    return document
+
+
+def _native_receipt(native, inputs, max_seconds):
+    guard = _absolute(native['guard_receipt_path'])
+    raw = inputs.read(str(guard), 4 * 1024**2)
+    _guard_document(native, json.loads(raw, object_pairs_hook=_pairs), 'journal')
+    producer = native['_producer']
+    if len(producer.command) != 31 or producer.command[3] != 'io.quadringent.as400.NativeBusinessImageExport':
+        raise ValueError('invalid_native_producer')
+    command = list(producer.command)
+    command[3] = 'io.quadringent.as400.NativeLifecycleGuard'
+    final_receipt = guard.parent / 'after-all-streams-guard.json'
+    command[27] = str(final_receipt)
+    command[30] = str(min(60, max_seconds))
+    result = collect_process_document(
+        tuple(command), directory=guard.parent/'after-all-streams', input_bytes=producer.input_bytes,
+        environment=producer.environment,
+        validate=lambda value: _guard_document(native, value, 'after_all_streams'),
+        limits=DocumentLimits(max_bytes=4*1024**2, max_seconds=min(60, max_seconds)),
+    )
+    final_raw = inputs.read(str(final_receipt), 4*1024**2)
+    if (len(final_raw) != result.byte_count or hashlib.sha256(final_raw).hexdigest() != result.sha256
+            or result.return_code != 0 or inputs.current() is not True):
+        raise ValueError('native_final_guard_differs')
+    # This preserves a producer measurement, not an independently admitted proof.
+    native = {**{key: value for key, value in native.items() if key != '_producer'},
+              'guard_receipt_sha256': hashlib.sha256(raw).hexdigest(), 'guard_receipt_bytes': len(raw),
+              'final_guard': dict(mode='after_all_streams', path=str(final_receipt),
+                                 original_path=str(result.path), sha256=result.sha256, byte_count=result.byte_count)}
+    path = guard.parent / 'native-copy-inputs.json'
+    _save_private(path, (json.dumps(native, sort_keys=True, separators=(',', ':')) + '\n').encode())
+    return path
+
+
 def run_collection(config, out_dir, *, stdout=None):
     stdout = sys.stdout if stdout is None else stdout
     try:
+        started = time.monotonic()
         inputs = _Inputs()
         plan = json.loads(inputs.read(config, 1024 * 1024), object_pairs_hook=_pairs)
         _fields(plan, 'format_version scope storage raw_prefix_root initial_copy copy_intent raw_read_set '
                       'source journal positions destination max_seconds')
-        if plan['format_version'] != 'quadringent-collection-plan-v1':
+        if plan['format_version'] not in {'quadringent-collection-plan-v1', 'quadringent-collection-plan-v2'}:
             raise ValueError('unsupported_collection_plan')
         scope = VerificationScope.from_dict(plan['scope'])
         if type(plan['max_seconds']) is not int or not 1 <= plan['max_seconds'] <= 3600:
             raise ValueError('invalid_collection_budget')
+
+        def remaining():
+            seconds = math.floor(plan['max_seconds'] - (time.monotonic() - started))
+            if seconds < 1:
+                raise ValueError('collection_deadline')
+            return seconds
         processes = {}
         for dataset in ('journal', 'positions'):
+            if dataset == 'journal' and plan['format_version'] == 'quadringent-collection-plan-v2':
+                continue
             values = plan[dataset]
             if type(values) is not list or len(values) != len(scope.receiver_windows):
                 raise ValueError('invalid_process_windows')
@@ -167,17 +278,28 @@ def run_collection(config, out_dir, *, stdout=None):
             raise ValueError('invalid_read_set')
         read_set = StoredReadSet(scope.sha256, tuple(_batch(value) for value in plan['raw_read_set']))
         store = _store(plan['storage'])
+        native = None
+        if plan['format_version'] == 'quadringent-collection-plan-v2':
+            processes['journal'], native = _native_journal(
+                plan['journal'], scope, store, _object(plan['initial_copy']),
+                _absolute(out_dir), inputs, remaining(),
+            )
         result = collect_verification(
             _absolute(out_dir), scope, source=source, **processes, store=store,
             raw_prefix_root=plan['raw_prefix_root'], initial_copy=_object(plan['initial_copy']),
             copy_intent=_object(plan['copy_intent']), raw_read_set=read_set,
             connection_factory=lambda: _connect(destination, private_key), check_current=inputs.current,
-            max_seconds=plan['max_seconds'],
+            max_seconds=remaining(),
         )
         output = dict(status='comparison_recorded', comparison_state=result.report['state'],
                       report_path=str(result.report_reference.path),
                       collection_path=str(result.collection_reference.path), native_cdc_qualified=False,
                       native_admission='not_evaluated', context_enforcement='local_files_only')
+        if native is not None:
+            output['native_copy_inputs_path'] = str(_native_receipt(native, inputs, remaining()))
+            if inputs.current() is not True:
+                raise ValueError('changed_native_input')
+        remaining()
         print(json.dumps(output), file=stdout)
         return 0 if result.report['state'] == 'verified' else 2
     except Exception:

@@ -102,3 +102,33 @@ def test_evidence_rejects_duplicate_json_fields() -> None:
     raw = json.dumps(evidence.to_dict())[:-1] + ', "pipeline_id": "pipe-1"}'
     with pytest.raises(EvidenceError):
         EvidenceReader(_FakeObjectStore({"proof": raw.encode()})).read("proof")
+
+
+def test_v3_new_copy_requires_original_observations_and_keeps_v2_readable():
+    from quadringent.copy_observation import ObservationReference
+    from test_copy_observation import context, published
+    from quadringent_control_plane.v2.executor.boundary import JournalBoundary
+    from quadringent_control_plane.v2.executor.evidence import SnapshotBatchRef
+
+    store, ref = published()
+    current = context()
+    evidence = InitialCopyEvidence('pipe-1', 'tbl-orders', 'run-1',
+                                   JournalBoundary.from_dict(current['boundary']), 0,
+                                   datetime(2026, 10, 16, 8, 3, tzinfo=timezone.utc),
+                                   (), copy_observations=ref)
+    raw = evidence.to_dict()
+    assert raw['format_version'] == 'quadringent-initial-copy-evidence-v3'
+    assert raw['copy_observations'] == ref.to_dict()
+    assert InitialCopyEvidence.from_dict(raw) == evidence
+    root = {'proof': json.dumps(raw).encode(), **{'receiver-authority-v1/' + k: v for k, v in store.objects.items()}}
+    assert EvidenceReader(_FakeObjectStore(root)).read('proof') == evidence
+    del root['receiver-authority-v1/' + ref.key]
+    with pytest.raises(EvidenceError):
+        EvidenceReader(_FakeObjectStore(root)).read('proof')
+    raw['format_version'] = 'quadringent-initial-copy-evidence-v2'
+    with pytest.raises(EvidenceError):
+        InitialCopyEvidence.from_dict(raw)
+    raw.pop('copy_observations')
+    assert InitialCopyEvidence.from_dict(raw).copy_observations is None
+    assert SnapshotBatchRef('a', 'b').to_dict() == {'payload_key': 'a', 'manifest_key': 'b'}
+    assert isinstance(ref, ObservationReference)

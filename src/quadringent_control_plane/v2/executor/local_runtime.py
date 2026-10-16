@@ -663,9 +663,17 @@ def admission_from_dict(payload: object) -> tuple[dict[str, Any], JournalBoundar
 
 
 def copy_job_environment(base: Mapping[str, str], admission: Mapping[str, Any], boundary: JournalBoundary,
-                          binding: CaptureBinding, *, snapshot_dir: str, schema: str, table: str) -> dict[str, str]:
+                          binding: CaptureBinding, *, snapshot_dir: str, schema: str, table: str,
+                          copy_observation_request: Mapping[str, Any] | None = None) -> dict[str, str]:
     """The environment ``build_initial_copy_job`` would give the copy Job, on the local backend."""
     env = dict(base)
+    if copy_observation_request is not None:
+        from quadringent.copy_observation import validate_request
+
+        request = validate_request(dict(copy_observation_request))
+        if (request['source']['library'], request['source']['file']) != (schema, table):
+            raise LocalRuntimeError('config_invalid', 'copy observation source differs from the requested table')
+        env['AS400_COPY_OBSERVATION_REQUEST_JSON'] = json.dumps(request, sort_keys=True, separators=(',', ':'))
     env.update({
         "QUADRINGENT_STORAGE_BACKEND": "local",
         "AS400_RAW_PREFIX": admission["raw_prefix_root"],
@@ -697,14 +705,18 @@ def _copy_job_module():
 
 def run_copy(storage: StorageBackend, admission: Mapping[str, Any], boundary: JournalBoundary,
              binding: CaptureBinding, *, schema: str, table: str, password: str | None,
-             environ: Mapping[str, str] | None = None, copy_job=None, now=None, catalog_factory=None) -> dict[str, Any]:
+             environ: Mapping[str, str] | None = None, copy_job=None, now=None, catalog_factory=None,
+             copy_observation_request: Mapping[str, Any] | None = None) -> dict[str, Any]:
     """Run the initial copy job on local storage; a run whose evidence is already durable is not repeated."""
     reader = EvidenceReader(storage.object_store(""))
-    existing = reader.read(admission["evidence_key"])
+    existing = reader.read(admission["evidence_key"], expected_source=(schema, table))
     if existing is not None:
         if (existing.pipeline_id, existing.table_id, existing.run_id) != (
                 admission["pipeline_id"], admission["table_id"], admission["run_id"]) or existing.boundary != boundary:
             raise LocalRuntimeError("capability_unavailable", "existing copy evidence belongs to another admission")
+        requested = copy_observation_request is not None or 'AS400_COPY_OBSERVATION_REQUEST_JSON' in (environ or os.environ)
+        if requested and existing.copy_observations is None:
+            raise LocalRuntimeError('capability_unavailable', 'historical copy cannot acquire observations retroactively')
         return {"evidence_key": admission["evidence_key"], "rows": existing.rows_copied}
     module = copy_job or _copy_job_module()
     scratch = Path(storage.state_location) / "scratch" / admission["run_id"]
@@ -715,7 +727,7 @@ def run_copy(storage: StorageBackend, admission: Mapping[str, Any], boundary: Jo
     if password is not None:
         base["ISERIES_PASSWORD"] = password
     env = copy_job_environment(base, admission, boundary, binding, snapshot_dir=str(scratch),
-                               schema=schema, table=table)
+                               schema=schema, table=table, copy_observation_request=copy_observation_request)
     env.setdefault(LOCAL_DATA_DIR_ENV, storage.state_location)
     os.environ.setdefault(LOCAL_DATA_DIR_ENV, storage.state_location)
     try:
@@ -728,7 +740,7 @@ def run_copy(storage: StorageBackend, admission: Mapping[str, Any], boundary: Jo
         shutil.rmtree(scratch, ignore_errors=True)
     if code != 0:
         raise LocalRuntimeError("copy_failed", "initial copy job returned a failure status")
-    evidence = reader.read(admission["evidence_key"])
+    evidence = reader.read(admission["evidence_key"], expected_source=(schema, table))
     if evidence is None:
         raise LocalRuntimeError("copy_failed", "initial copy finished without durable evidence")
     return {"evidence_key": admission["evidence_key"], "rows": evidence.rows_copied}

@@ -267,3 +267,88 @@ def test_installed_streaming_refusal_precedes_remote_connection(tmp_path, monkey
     with pytest.raises(loader.DestinationLoaderError, match='SQL history'):
         loader.main(['--once'])
     connection.assert_not_called()
+
+
+@pytest.mark.parametrize('foreign', [False, True])
+def test_v3_loader_reloads_observations_before_any_destination_dml(tmp_path, foreign):
+    from quadringent.copy_observation import build_context, publish_copy_observations
+    from test_copy_observation import request, observation, encode
+
+    storage, table, proof = setup(tmp_path)
+    req = request()
+    req['source'].update(library=table.schema_name, file=table.table_name, member=table.table_name, format='CNTRFMT')
+    req['witness_window'].update(receiver_library='RLIB', receiver_name='R1', start='1', end='9')
+    if foreign:
+        req['source']['file'] = 'OTHER'
+    current = build_context(pipeline_id=table.pipeline_id, table_id=table.table_id, run_id=table.run_id,
+                            boundary=proof.boundary, request=req)
+    reference = publish_copy_observations(storage.object_store('receiver-authority-v1'), context=current,
+                                          before_bytes=encode(observation(current=current)),
+                                          after_bytes=encode(observation('after', current)),
+                                          snapshot_inventory=[], rows_copied=0, evidence_key=table.evidence_key)
+    proof = replace(proof, copy_observations=reference)
+    (storage.object_store('').root / table.evidence_key).write_bytes(encode(proof.to_dict()))
+    if foreign:
+        with pytest.raises(loader.DestinationLoaderError):
+            loader._bound_evidence(table, storage)
+        return
+    assert loader._bound_evidence(table, storage) == proof
+    manifest = json.loads(storage.object_store('receiver-authority-v1').get_bounded(reference.key, 1048576))
+    (storage.object_store('receiver-authority-v1').root / manifest['before']['key']).unlink()
+    cursor = Mock()
+    with pytest.raises(loader.DestinationLoaderError):
+        load(storage, table, cursor)
+    cursor.execute.assert_not_called()
+
+
+def test_v3_loader_validates_consumed_snapshot_bytes_before_dml(tmp_path, monkeypatch):
+    from test_continuous import event
+    from test_copy_observation import request, observation, encode
+    from quadringent.copy_observation import build_context, publish_copy_observations
+    from quadringent.storage_layout import snapshot_prefix
+
+    storage, table, proof = setup(tmp_path)
+    row = replace(event('R1', 1), position=JournalPosition('SNAPSHOT:' + table.run_id, 1), journal='SNAPSHOT:LEDGER.CNTR')
+    source = tmp_path / 'snapshot'
+    manifest = RawBatchWriter(source).write_batch([row], high_watermark=row.position)
+    payload = (source / f'batch-{manifest.batch_id}.jsonl').read_bytes()
+    bound = bind_snapshot_batch((source / f'batch-{manifest.batch_id}.manifest.json').read_bytes(), payload,
+                                 binding=BINDING, boundary=BOOTSTRAP, pipeline_id=table.pipeline_id,
+                                 table_id=table.table_id, run_id=table.run_id)
+    batch_id = json.loads(bound)['batch_id']
+    prefix = snapshot_prefix('raw', table.table_name)
+    snapshot = storage.object_store(prefix)
+    payload_key, manifest_key = f'batch-{batch_id}.jsonl', f'batch-{batch_id}.manifest.json'
+    snapshot.put_once(payload_key, payload)
+    snapshot.put_once(manifest_key, bound)
+    proof = replace(proof, rows_copied=1, snapshot_batches=(SnapshotBatchRef(payload_key, manifest_key),))
+    req = request()
+    req['source'].update(library=table.schema_name, file=table.table_name, member=table.table_name, format='CNTRFMT')
+    req['witness_window'].update(receiver_library='RLIB', receiver_name='R1', start='1', end='9')
+    context = build_context(pipeline_id=table.pipeline_id, table_id=table.table_id, run_id=table.run_id,
+                            boundary=proof.boundary, request=req)
+    item = {'prefix': prefix, 'payload_key': payload_key, 'manifest_key': manifest_key,
+            'payload_sha256': hashlib.sha256(payload).hexdigest(), 'manifest_sha256': hashlib.sha256(bound).hexdigest(),
+            'payload_bytes': len(payload), 'manifest_bytes': len(bound)}
+    reference = publish_copy_observations(storage.object_store('receiver-authority-v1'), context=context,
+                                          before_bytes=encode(observation(current=context)),
+                                          after_bytes=encode(observation('after', context)), snapshot_inventory=[item],
+                                          rows_copied=1, evidence_key=table.evidence_key)
+    (storage.object_store('').root / table.evidence_key).write_bytes(encode(replace(proof, copy_observations=reference).to_dict()))
+    reads = []
+    get, bounded = snapshot.get, snapshot.get_bounded
+    def racing(key, data):
+        if key == manifest_key:
+            reads.append(key)
+            if len(reads) == 2:
+                return data + b' '
+        return data
+    monkeypatch.setattr(snapshot, 'get', lambda key: racing(key, get(key)))
+    monkeypatch.setattr(snapshot, 'get_bounded', lambda key, maximum: racing(key, bounded(key, maximum)))
+    objects = storage.object_store
+    monkeypatch.setattr(storage, 'object_store', lambda value: snapshot if value == prefix else objects(value))
+    cursor = Mock()
+    with pytest.raises(loader.DestinationLoaderError):
+        load(storage, table, cursor)
+    cursor.execute.assert_not_called()
+    assert len(reads) == 2

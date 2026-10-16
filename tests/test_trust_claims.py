@@ -37,6 +37,7 @@ DOCUMENTED_IBMI_SERVICES = frozenset(
     {
         "DISPLAY_JOURNAL",
         "JOURNAL_RECEIVER_INFO",
+        "JOURNAL_INFO",
         "JOURNALED_OBJECTS",
         "IFS_OBJECT_STATISTICS",
         "SYSTABLES",
@@ -85,6 +86,19 @@ FORMAT_IDENTITY_BLOCKS = {
     "    public static final class ProgramRequest {": "14399b710cb10de765c84d6c6ff9c9ec5e9db1f1db0397fd1c5c14ef70e6f728",
     "    public static NativeProgram program(AS400 system) {": "d39d3ba5809afbf0e90ecd0ab8086fecdc8b6e25b132f28410ff93efa84fa7ea",
     "    private static void requireTls() throws IdentityFailure {": "90d632ff18115e16fc2cd6d416ad6d1a9934627b18e9024da6dfb9ef33fbf8be",
+}
+
+# These closed adapters are reviewed in full. Only ProgramCall is exempted
+# from the write-API detector; SQL/CL and other APIs remain checked.
+COPY_NATIVE_ADAPTERS = {
+    "NativeCopyObservationExport.java": (
+        "25669183076919416f2b698f8b5ff63e32a37291304d9184b2c4d261bde7884f",
+        frozenset({"AS400JDBCConnection", "Job", "ProgramCall", "ProgramParameter", "SocketProperties", "Trace"}),
+    ),
+    "NativeJournalPrefixForce.java": (
+        "68d8ad93216d61e721280b873305548d2d73160b9eb4bedb4873edc9ccafd97d",
+        frozenset({"AS400ZonedDecimal", "Job", "ProgramCall", "ProgramParameter"}),
+    ),
 }
 
 # --------------------------------------------------------------------------
@@ -257,6 +271,14 @@ def reader_source_findings(source: str, *, file_name: str | None = None) -> list
     """Everything in one Java source that the footprint page says is absent."""
     allowed_imports = ALLOWED_JTOPEN_IMPORTS
     review_findings = []
+    reviewed_program_call = False
+    if file_name in COPY_NATIVE_ADAPTERS:
+        digest, imports = COPY_NATIVE_ADAPTERS[file_name]
+        if hashlib.sha256(source.encode()).hexdigest() != digest:
+            review_findings.append("unreviewed_copy_native_surface")
+        else:
+            reviewed_program_call = True
+            allowed_imports |= imports
     if file_name == MEMBER_IDENTITY_CLASS:
         blocks = reviewed_member_blocks(source)
         program_import = "import com.ibm.as400.access.ProgramCall;"
@@ -288,7 +310,7 @@ def reader_source_findings(source: str, *, file_name: str | None = None) -> list
     return [
         *review_findings,
         *changing_statements(literals),
-        *_JAVA_WRITE_API.findall(code),
+        *(name for name in _JAVA_WRITE_API.findall(code) if not reviewed_program_call or name != "ProgramCall"),
         *_JAVA_TRUST_BYPASS.findall(code),
         *jtopen,
         *jtopen_literals,
@@ -480,10 +502,36 @@ def test_java_reader_classes_import_only_reviewed_jtopen_classes() -> None:
         if path.name == FORMAT_IDENTITY_CLASS:
             assert reviewed_format_blocks(source) is not None
             allowed |= FORMAT_IDENTITY_IMPORTS
+        if path.name in COPY_NATIVE_ADAPTERS:
+            digest, imports = COPY_NATIVE_ADAPTERS[path.name]
+            assert hashlib.sha256(source.encode()).hexdigest() == digest
+            allowed |= imports
         references = set(_JTOPEN_REFERENCE.findall(code))
         assert all(package == "access" and name in allowed for package, name in references), path.name
         imported.update(name for _, name in references)
     assert imported, "no JTOpen class found: the scan would pass vacuously"
+
+
+@pytest.mark.parametrize('name', COPY_NATIVE_ADAPTERS)
+def test_copy_native_adapters_require_the_exact_review_and_class(name):
+    source = _read(JAVA_MAIN/name)
+    assert reader_source_findings(source, file_name=name) == []
+    assert reader_source_findings(source, file_name='AnotherReader.java')
+    assert reader_source_findings(source + '\n', file_name=name)
+    for body in ('s.executeUpdate("x");', 'new CommandCall(system);',
+                 'new ProgramCall(system, "/QSYS.LIB/QCMDEXC.PGM", params);'):
+        mutated = source.rstrip()[:-1] + '\n void unreviewed() { ' + body + ' }\n}\n'
+        assert reader_source_findings(mutated, file_name=name)
+
+
+def test_force_adapter_rejects_unreviewed_keys_targets_and_payloads():
+    name = 'NativeJournalPrefixForce.java'
+    source = _read(JAVA_MAIN/name)
+    for before, after in (('"/QSYS.LIB/QJOSJRNE.PGM"', '"/QSYS.LIB/QCMDEXC.PGM"'),
+                          ('put(text("2", 1, ccsid)', 'put(text("1", 1, ccsid)'),
+                          ('in(bin(0)), new Parameter', 'in(bin(1)), new Parameter')):
+        assert source.count(before) == 1
+        assert reader_source_findings(source.replace(before, after), file_name=name)
 
 
 def test_detector_flags_the_allowlisted_class() -> None:
@@ -785,9 +833,14 @@ def test_product_refuses_ibmi_plaintext_in_chart_installer_and_onboarding() -> N
     assert "the product refuses plaintext" in _read(FOOTPRINT)
 
 
-# The capture image ships two side-effect-free boundary helpers from quadringent/qualification
-# (data classes and validation). The write-capable qualification driver stays out.
+# Boundary helpers stay side-effect-free. The reviewed observation transport
+# also ships for the new copy Job; it launches a bounded local process.
 SHIPPED_QUALIFICATION_HELPERS = ("src/quadringent/qualification/__init__.py", "src/quadringent/qualification/boundary.py")
+SHIPPED_COPY_OBSERVATION_HELPERS = {
+    'src/quadringent/qualification/verification_contract.py': '8e5f8d82c5b6aa8eef28c8b1c3a331e769deba67631cd6d1d228c7e3cf7aed8a',
+    'src/quadringent/qualification/verification_stream.py': 'a4ca6dac196a105948a23829f5376314eb69f1ce957ca598ca996432bb336d65',
+    'src/quadringent/qualification/verification_process.py': '936feef20a1f156533eb076c2b59e107b198448e757666943502c702a0874ef8',
+}
 
 
 def test_capture_image_does_not_copy_qualification_code() -> None:
@@ -795,13 +848,15 @@ def test_capture_image_does_not_copy_qualification_code() -> None:
     assert "quadringent_qualification" not in dockerfile
     assert "QualificationSourceDriver" not in dockerfile
     shipped = set(re.findall(r"src/quadringent/qualification/[\w./-]+", dockerfile))
-    assert shipped <= set(SHIPPED_QUALIFICATION_HELPERS), shipped
+    assert shipped <= set(SHIPPED_QUALIFICATION_HELPERS) | set(SHIPPED_COPY_OBSERVATION_HELPERS), shipped
     for helper in SHIPPED_QUALIFICATION_HELPERS:
         tree = ast.parse(_read(ROOT / helper))
         imported = {(node.module or "") for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
         imported |= {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
         assert all(name.startswith(("__future__", "dataclasses", "quadringent")) for name in imported), (helper, imported)
         assert not re.search(r"subprocess|socket|jaydebeapi|pyodbc|QCMDEXC|CommandCall|INSERT|UPDATE|DELETE|CHGJRN", _read(ROOT / helper)), helper
+    for helper, digest in SHIPPED_COPY_OBSERVATION_HELPERS.items():
+        assert hashlib.sha256((ROOT/helper).read_bytes()).hexdigest() == digest, helper
     assert "quadringent_lab" not in dockerfile
     runtime = _read(ROOT / "docker/runtime-modules.txt")
     assert "qualification" not in runtime

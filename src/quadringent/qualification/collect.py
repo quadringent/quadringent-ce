@@ -659,6 +659,25 @@ storage=StorageBackend.from_environment(os.environ);root=storage.object_store(''
 evidence_key={evidence_expression}
 raw=root.get_bounded(evidence_key,262144);evidence=_decode_checkpoint_json(raw)
 boundary=read_copy_boundary(evidence,SimpleNamespace(**{scope_context(a)!r}),expected_binding=None if {historical!r} else t.capture_binding,original_only=True,historical={historical!r})
+observation_artifacts=[];observation_inventory={{}}
+if evidence.get('format_version')=='quadringent-initial-copy-evidence-v3':
+ from quadringent_control_plane.v2.executor.evidence import EvidenceReader
+ from quadringent.copy_observation import read_copy_observations,validate_inventory_originals
+ copy=EvidenceReader(root).read(evidence_key)
+ if copy is None or copy.to_dict()!=evidence:raise SystemExit(1)
+ class Authority:
+  def get_bounded(self,key,maximum):return root.get_bounded('receiver-authority-v1/'+key,maximum)
+ metadata=read_copy_observations(Authority(),copy.copy_observations)
+ context=metadata['context'];source=context['request']['source']
+ if ((context['pipeline_id'],context['table_id'],context['run_id'],context['boundary'],metadata['rows_copied'])!=(copy.pipeline_id,copy.table_id,copy.run_id,copy.boundary.to_dict(),copy.rows_copied) or (source['library'],source['file'])!=(t.schema_name,t.table_name)):raise ValueError('copy_observation_scope_mismatch')
+ prefix=snapshot_prefix(os.environ.get('AS400_RAW_PREFIX',''),t.table_name)
+ if any(item['prefix']!=prefix for item in metadata['snapshot_inventory']):raise ValueError('copy_observation_snapshot_namespace_mismatch')
+ validate_inventory_originals(metadata,storage.object_store)
+ observation_inventory={{(item['payload_key'],item['manifest_key']):item for item in metadata['snapshot_inventory']}}
+ for ref in [copy.copy_observations.to_dict(),metadata['before'],metadata['after']]:
+  key='receiver-authority-v1/'+ref['key'];original=root.get_bounded(key,ref['byte_count'])
+  if len(original)!=ref['byte_count'] or hashlib.sha256(original).hexdigest()!=ref['sha256']:raise SystemExit(1)
+  observation_artifacts.append({{'evidence_key':key,'verified':True,'sha256':ref['sha256'],'byte_count':len(original)}})
 if boundary.capture_binding is not None:
  if boundary.capture_binding.registry_authority!=('s3' if storage.kind=='aws' else 'gcs')+'://'+storage.raw_bucket+'/receiver-authority-v1':raise SystemExit(1)
  registry=ReceiverNameRegistry(storage.object_store('receiver-authority-v1'),authority=boundary.capture_binding.registry_authority,source_system='ibmi',journal=boundary.capture_binding.journal)
@@ -673,13 +692,16 @@ for ref in batches:
   if not isinstance(key,str) or '/' in key or not key.startswith('batch-') or key in keys:raise SystemExit(1)
   keys.add(key)
  payload=store.get_bounded(ref['payload_key'],2000000);manifest=store.get_bounded(ref['manifest_key'],262144)
+ if evidence.get('format_version')=='quadringent-initial-copy-evidence-v3':
+  item=observation_inventory.get((ref['payload_key'],ref['manifest_key']))
+  if item is None or any(len(data)!=item[part+'_bytes'] or hashlib.sha256(data).hexdigest()!=item[part+'_sha256'] for part,data in [('payload',payload),('manifest',manifest)]):raise ValueError('copy_observation_consumed_original_mismatch')
  batch=read_raw_batch(manifest,payload,preserve_decimals=True)
  if boundary.capture_binding is not None and (batch.manifest.format_version!='as400-snapshot-v2' or batch.manifest.capture_binding!=boundary.capture_binding or batch.manifest.copy_context!={{'pipeline_id':{a.pipeline!r},'table_id':{a.table_id!r},'run_id':{a.copy_run_id!r},'boundary':boundary.require_bound().to_dict()}}):raise SystemExit(1)
  if batch.manifest.high_watermark.receiver!='SNAPSHOT:'+{a.copy_run_id!r} or batch.manifest.high_watermark.sequence!=max(e.position.sequence for e in batch.events):raise SystemExit(1)
  records.extend(e.to_record() for e in batch.events)
  if len(records)>1000:raise SystemExit(1)
  artifacts.append({{**ref,'verified':True,'payload_sha256':hashlib.sha256(payload).hexdigest(),'manifest_sha256':hashlib.sha256(manifest).hexdigest(),'events':len(batch.events)}})
-evidence.update(records=records,artifacts=[{{'evidence_key':evidence_key,'verified':True,'sha256':hashlib.sha256(raw).hexdigest()}},*artifacts])
+evidence.update(records=records,artifacts=[{{'evidence_key':evidence_key,'verified':True,'sha256':hashlib.sha256(raw).hexdigest()}},*observation_artifacts,*artifacts])
 print(json.dumps(evidence,default=str))
 '''
         return p.exec_json(loader[0]['pod'],loader[0]['container'],script)

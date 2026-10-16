@@ -8,6 +8,7 @@ from quadringent_control_plane.v2.executor.boundary import JournalBoundary
 from quadringent_control_plane.v2.executor.evidence import copy_intent_key
 
 from .capture_binding import CaptureBinding, _AUTHORITY
+from .copy_observation import MAX_OBSERVATION_BYTES, validate_authority_observations
 from .checkpoint import _decode_checkpoint_json
 from .object_store import ObjectStore, _validate_object_key
 from .receiver_identity import _strict_string
@@ -49,8 +50,9 @@ class ReceiverAuthorityBackup:
         objects = {}
         size = 0
         for key in keys:
-            content = self.store.get_bounded(key, _RECORD_BYTES)
-            if type(content) is not bytes or len(content) > _RECORD_BYTES:
+            maximum = MAX_OBSERVATION_BYTES if key.startswith('copy-observations-v1/') else _RECORD_BYTES
+            content = self.store.get_bounded(key, maximum)
+            if type(content) is not bytes or len(content) > maximum:
                 raise ValueError("authority object exceeds byte budget")
             size += len(content)
             if size > max_bytes:
@@ -71,7 +73,8 @@ class ReceiverAuthorityBackup:
         intents: list[tuple[JournalBoundary, ReceiverNameRegistry]] = []
         for key, content in objects.items():
             _validate_object_key(key)
-            if len(content) > _RECORD_BYTES:
+            maximum = MAX_OBSERVATION_BYTES if key.startswith('copy-observations-v1/') else _RECORD_BYTES
+            if len(content) > maximum:
                 raise ValueError("authority object exceeds byte budget")
             record = _decode_checkpoint_json(content)
             if key.startswith("receiver-registry-v1/"):
@@ -102,8 +105,11 @@ class ReceiverAuthorityBackup:
                                                 source_system=binding.source_system, journal=binding.journal)
                 registry._validate_binding(binding)
                 intents.append((boundary, registry))
+            elif key.startswith('copy-observations-v1/'):
+                continue  # Validated with their complete original dependency set below.
             else:
                 raise ValueError("unknown object in receiver authority")
+        validate_authority_observations(objects)
         for registry, domain_objects in domains.values():
             registry._validate_inventory_objects(domain_objects)
         for boundary, registry in intents:

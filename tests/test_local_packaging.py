@@ -37,8 +37,13 @@ def capture_image_modules() -> list[str]:
 def stage_capture_image(base: Path) -> Path:
     app = base / "app"
     (app / "quadringent").mkdir(parents=True)
-    for source in capture_image_modules():
-        shutil.copy2(ROOT / source, app / "quadringent" / Path(source).name)
+    for line in (ROOT / "docker/Dockerfile").read_text().splitlines():
+        fields = shlex.split(line) if line.startswith("COPY src/quadringent/") else []
+        if fields and fields[-1].startswith("/app/quadringent/"):
+            destination = app / fields[-1].removeprefix("/app/")
+            destination.mkdir(parents=True, exist_ok=True)
+            for source in fields[1:-1]:
+                shutil.copy2(ROOT / source, destination / Path(source).name)
     shutil.copytree(ROOT / "src/quadringent_control_plane", app / "quadringent_control_plane",
                     ignore=shutil.ignore_patterns("__pycache__"))
     for line in (ROOT / "docker/Dockerfile").read_text().splitlines():

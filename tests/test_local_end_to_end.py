@@ -212,3 +212,82 @@ def test_the_loader_does_not_adopt_another_store(world, monkeypatch, tmp_path):
     assert loader.load_table_once(table, plan=plan, storage=other, raw_prefix_root=RAW_ROOT,
                                   streaming_client_factory=None, cursor=cursor, history_mode="sql") == (0, 0)
     cursor.execute.assert_not_called()
+
+
+@pytest.mark.parametrize('failure', [None, 'after', 'changed-format'])
+def test_explicit_observation_mode_publishes_only_after_real_snapshot_and_readbacks(world, monkeypatch, failure):
+    import hashlib
+    from quadringent.copy_observation import build_context, read_copy_observations
+    from quadringent.qualification.verification_process import CollectedProcessDocument, ProcessCollectionError
+    from test_copy_observation import request, observation, encode
+
+    storage, env, admission = world
+    boundary = JournalBoundary.from_dict(admission['boundary'])
+    req = request()
+    req['source'].update(library=SCHEMA, file=TABLE, member=TABLE, format='CNTRFMT')
+    current = build_context(pipeline_id=admission['pipeline_id'], table_id=admission['table_id'],
+                            run_id=admission['run_id'], boundary=boundary, request=req)
+    calls = []
+    snapshot = fake_snapshot_writer(admission['run_id'], 2)
+
+    def run_snapshot(*args, **kwargs):
+        calls.append('snapshot')
+        return snapshot(*args, **kwargs)
+
+    def collect(command, *, directory, input_bytes, environment, validate, limits):
+        phase = command[4]
+        calls.append(phase)
+        assert input_bytes.splitlines()[-1] == b'offline-password'
+        assert 'ISERIES_PASSWORD' not in environment
+        if phase == failure:
+            raise ProcessCollectionError('invalid_document')
+        value = observation(phase, current)
+        if failure == 'changed-format' and phase == 'after':
+            value['format']['level_id'] = 'XYZ1234567890'
+        validate(value)
+        directory.mkdir(mode=0o700)
+        path = directory / 'original.json'
+        data = encode(value)
+        path.write_bytes(data)
+        path.chmod(0o600)
+        return CollectedProcessDocument(path, value, hashlib.sha256(data).hexdigest(), len(data))
+
+    monkeypatch.setattr(copy_job, 'run_snapshot', run_snapshot)
+    monkeypatch.setattr(copy_job, 'collect_process_document', collect)
+    environment = dict(env, ISERIES_HOST='192.0.2.10', ISERIES_USER='TESTUSER', AS400_JAVA_CLASSPATH='offline.jar')
+    options = dict(schema=SCHEMA, table=TABLE, password='offline-password', environ=environment,
+                   catalog_factory=FakeNativeCatalog, now=lambda: NOW, copy_observation_request=req)
+    if failure:
+        with pytest.raises((runtime.LocalRuntimeError, ValueError)) as raised:
+            runtime.run_copy(storage, admission, boundary, boundary.capture_binding, **options)
+        assert storage.object_store(snapshot_prefix(RAW_ROOT, TABLE)).list_keys(100) == ()
+        assert isinstance(raised.value, runtime.LocalRuntimeError)
+        assert EvidenceReader(storage.object_store('')).read(admission['evidence_key']) is None
+        assert storage.object_store(snapshot_prefix(RAW_ROOT, TABLE)).list_keys(100) == ()
+    else:
+        assert runtime.run_copy(storage, admission, boundary, boundary.capture_binding, **options)['rows'] == 2
+        evidence = EvidenceReader(storage.object_store('')).read(admission['evidence_key'])
+        assert evidence.copy_observations is not None
+        assert evidence.require_bound() == boundary.require_bound()
+        manifest = read_copy_observations(storage.object_store('receiver-authority-v1'), evidence.copy_observations)
+        assert manifest['rows_copied'] == 2 and len(manifest['snapshot_inventory']) == 1
+        assert manifest['admission'] == 'not_evaluated'
+        assert manifest['context']['boundary'] == admission['boundary']
+        cursor = Mock(rowcount=1)
+        cursor.fetchall.return_value = []
+        loader.load_table_once(loader_table(admission), plan=loader.build_plan(loader_table(admission), database='D', schema='S'),
+                               storage=storage, raw_prefix_root=RAW_ROOT, streaming_client_factory=None,
+                               cursor=cursor, history_mode='sql')
+        assert cursor.execute.called
+    assert calls == ['before', 'snapshot', 'after']
+
+
+def test_existing_v2_copy_cannot_receive_a_witness_retroactively(world, monkeypatch):
+    from test_copy_observation import request
+
+    storage, env, admission = world
+    run_copy(storage, env, admission, monkeypatch)
+    boundary = JournalBoundary.from_dict(admission['boundary'])
+    with pytest.raises(runtime.LocalRuntimeError, match='retroactively'):
+        runtime.run_copy(storage, admission, boundary, boundary.capture_binding, schema=SCHEMA, table=TABLE,
+                         password='offline-password', environ=env, copy_observation_request=request())

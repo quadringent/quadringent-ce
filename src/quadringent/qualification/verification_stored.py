@@ -103,6 +103,7 @@ class _Budget:
         self.store, self.limits, self.seconds = store, limits, seconds
         self.started = self.previous = time.monotonic()
         self.bytes = self.objects = 0
+        self.copy_pins = {}
 
     def check(self):
         now = time.monotonic()
@@ -121,6 +122,10 @@ class _Budget:
         self.check()
         if type(data) is not bytes or not 0 < len(data) <= maximum:
             raise ValueError('stored_object_budget')
+        if key in self.copy_pins:
+            digest, count = self.copy_pins[key]
+            if len(data) != count or hashlib.sha256(data).hexdigest() != digest:
+                raise ValueError('copy_observation_consumed_original_mismatch')
         self.bytes += len(data)
         self.objects += 1
         return data
@@ -178,7 +183,7 @@ def _copy(budget, scope, root, initial_copy, copy_intent):
                 scope.pipeline_id, scope.table_id, scope.copy_run_id)):
         raise ValueError('copy_namespace_mismatch')
     raw = _json(budget.pinned(initial_copy, 65536))
-    if (type(raw) is not dict or raw.get('format_version') != 'quadringent-initial-copy-evidence-v2'
+    if (type(raw) is not dict or raw.get('format_version') not in {'quadringent-initial-copy-evidence-v2', 'quadringent-initial-copy-evidence-v3'}
             or type(raw.get('snapshot_batches')) is not list
             or any(type(ref) is not dict or set(ref) != {'payload_key', 'manifest_key'}
                    or any(type(value) is not str for value in ref.values()) for ref in raw['snapshot_batches'])):
@@ -201,6 +206,23 @@ def _copy(budget, scope, root, initial_copy, copy_intent):
     registry.require(scope.capture_binding, scope.copy_boundary)
     registry.require(scope.capture_binding, scope.checkpoint)
     prefix = snapshot_prefix(root, scope.source_table)
+    if evidence.copy_observations is not None:
+        from ..copy_observation import read_copy_observations, validate_inventory_originals
+
+        manifest = read_copy_observations(_Prefix(budget, 'receiver-authority-v1'), evidence.copy_observations,
+                                          expected_batches=[ref.to_dict() for ref in evidence.snapshot_batches])
+        context = manifest['context']
+        if ((context['pipeline_id'], context['table_id'], context['run_id'], context['boundary'], manifest['rows_copied'])
+                != (scope.pipeline_id, scope.table_id, scope.copy_run_id, evidence.boundary.to_dict(), scope.expected_snapshot_rows)
+                or (context['request']['source']['library'], context['request']['source']['file']) != (scope.source_library, scope.source_table)
+                or manifest['evidence_key'] != initial_copy.key
+                or any(item['prefix'] != prefix for item in manifest['snapshot_inventory'])):
+            raise ValueError('copy_observation_scope_mismatch')
+        for item in manifest['snapshot_inventory']:
+            for part in ('payload', 'manifest'):
+                key = item['prefix'] + '/' + item[part + '_key']
+                budget.copy_pins[key] = (item[part + '_sha256'], item[part + '_bytes'])
+        validate_inventory_originals(manifest, lambda name: _Prefix(budget, name))
     refs = tuple((prefix + '/' + ref.manifest_key, prefix + '/' + ref.payload_key)
                  for ref in evidence.snapshot_batches)
     if len(refs) > budget.limits.max_objects // 2 or len(set(refs)) != len(refs):

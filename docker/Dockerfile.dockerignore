@@ -15,6 +15,9 @@
 !src/quadringent/qualification/
 !src/quadringent/qualification/__init__.py
 !src/quadringent/qualification/boundary.py
+!src/quadringent/qualification/verification_contract.py
+!src/quadringent/qualification/verification_stream.py
+!src/quadringent/qualification/verification_process.py
 !src/quadringent_control_plane/
 !src/quadringent_control_plane/**
 !scripts/

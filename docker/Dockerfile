@@ -77,9 +77,11 @@ COPY java/third-party-sources.sha256 /usr/share/quadringent/
 # docker/runtime-modules.txt.
 COPY src/quadringent/__init__.py /app/quadringent/
 COPY src/quadringent/qualification/__init__.py src/quadringent/qualification/boundary.py /app/quadringent/qualification/
+COPY src/quadringent/qualification/verification_contract.py src/quadringent/qualification/verification_stream.py src/quadringent/qualification/verification_process.py /app/quadringent/qualification/
 COPY src/quadringent/checkpoint.py /app/quadringent/
 COPY src/quadringent/receiver_identity.py /app/quadringent/
 COPY src/quadringent/capture_binding.py /app/quadringent/
+COPY src/quadringent/copy_observation.py /app/quadringent/
 COPY src/quadringent/receiver_registry.py /app/quadringent/
 COPY src/quadringent/console_snapshot.py /app/quadringent/
 COPY src/quadringent/continuous.py /app/quadringent/

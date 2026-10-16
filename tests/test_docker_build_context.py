@@ -217,12 +217,13 @@ def _native_remote_project_imports() -> str:
 @pytest.mark.parametrize("dockerfile,ignore", PAIRS[:2], ids=lambda path: path.name)
 def test_native_remote_imports_work_in_isolated_runtime_tree(dockerfile, ignore, tmp_path):
     python_path = _runtime_python_tree(dockerfile, ignore, tmp_path / "image")
-    expected_qualification = ["__init__.py", "boundary.py"]
-    if dockerfile.name == "control-plane.Dockerfile":
-        expected_qualification.extend(["verification_contract.py", "verification_stream.py"])
+    expected_qualification = ["__init__.py", "boundary.py", "verification_contract.py",
+                              "verification_process.py", "verification_stream.py"]
     script = f'''import pathlib,sys
 sys.path.insert(0,sys.argv[1])
 {_native_remote_project_imports()}
+from quadringent.qualification.verification_process import collect_process_document,DocumentLimits
+assert callable(collect_process_document) and DocumentLimits().max_seconds == 60
 assert callable(read_binding) and callable(read_copy_boundary)
 root=pathlib.Path(sys.argv[1]).resolve()
 for name,module in list(sys.modules.items()):

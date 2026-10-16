@@ -5,14 +5,21 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import hashlib
+import tempfile
 from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
+import stat
 import sys
 
+from quadringent.copy_observation import (
+    build_context, observation_arguments, publish_copy_observations, validate_observation, validate_observation_pair, validate_request,
+)
+from quadringent.qualification.verification_process import DocumentLimits, collect_process_document
 from quadringent.capture_binding import CaptureBinding
 from quadringent.checkpoint import _decode_checkpoint_json
 from quadringent.continuous import ReceiverPlanningError, require_readable_receiver
@@ -61,6 +68,7 @@ class InitialCopyConfig:
     pipeline_id: str
     table_id: str
     boundary: JournalBoundary
+    copy_observation_request: dict | None = None
 
     @classmethod
     def from_environment(cls, environ: dict) -> "InitialCopyConfig":
@@ -86,6 +94,15 @@ class InitialCopyConfig:
                 raise ValueError("copy bootstrap fields differ from the bound boundary")
         except (TypeError, ValueError) as error:
             raise InitialCopyJobError("a complete matching bound copy handoff is required") from error
+        request = None
+        if "AS400_COPY_OBSERVATION_REQUEST_JSON" in environ:
+            try:
+                request = validate_request(_decode_checkpoint_json(environ["AS400_COPY_OBSERVATION_REQUEST_JSON"]))
+                if (request["source"]["library"], request["source"]["file"]) != (
+                        _required(environ, "ISERIES_SCHEMA"), _required(environ, "ISERIES_TABLE")):
+                    raise ValueError("source mismatch")
+            except (ValueError, TypeError) as error:
+                raise InitialCopyJobError("invalid explicit copy observation request") from error
         return cls(
             java=environ.get("AS400_JAVA", "java"),
             java_classpath=_required(environ, "AS400_JAVA_CLASSPATH"),
@@ -107,6 +124,7 @@ class InitialCopyConfig:
             pipeline_id=_required(environ, "AS400_PIPELINE_ID"),
             table_id=_required(environ, "AS400_TABLE_ID"),
             boundary=boundary,
+            copy_observation_request=request,
         )
 
 
@@ -146,6 +164,82 @@ def run_snapshot(config: InitialCopyConfig, *, base_environ: dict, runner=subpro
     if not match:
         raise InitialCopyJobError("snapshot summary not found in reader output")
     return int(match.group(1))
+
+
+def _observation_original(result, maximum):
+    if type(result.byte_count) is not int or not 0 < result.byte_count <= maximum or result.return_code != 0:
+        raise ValueError("invalid observation original")
+    descriptor = os.open(result.path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as handle:
+        before = os.fstat(handle.fileno())
+        if (not stat.S_ISREG(before.st_mode) or stat.S_IMODE(before.st_mode) != 0o600
+                or before.st_size != result.byte_count):
+            raise ValueError("invalid observation original")
+        data = handle.read(maximum + 1)
+        after = os.fstat(handle.fileno())
+    current = os.lstat(result.path)
+    def identity(info):
+        return info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns, info.st_mode
+    if (identity(before) != identity(after) or identity(before) != identity(current)
+            or len(data) != result.byte_count or hashlib.sha256(data).hexdigest() != result.sha256):
+        raise ValueError("observation original changed")
+    return data
+
+
+def run_observed_snapshot(config: InitialCopyConfig, *, base_environ: dict):
+    """Observe before and after the real reader; distinct jobs imply no guarded cut."""
+    request = config.copy_observation_request
+    if request is None:
+        raise InitialCopyJobError("explicit copy observation request required")
+    context = build_context(pipeline_id=config.pipeline_id, table_id=config.table_id, run_id=config.run_id,
+                            boundary=config.boundary, request=request)
+    config.output_dir.parent.mkdir(parents=True, exist_ok=True)
+    workspace = Path(tempfile.mkdtemp(prefix="copy-observations-", dir=config.output_dir.parent))
+    credentials = (config.ibmi_host, config.ibmi_user, config.ibmi_password)
+    if any(not value or any(char in value for char in ("\n", "\r", "\0")) for value in credentials):
+        raise InitialCopyJobError("invalid observation credential framing")
+    input_bytes = ("\n".join(credentials) + "\n").encode("utf-8")
+    environment = {key: value for key, value in base_environ.items()
+                   if key in {"PATH", "JAVA_HOME", "LANG", "LC_ALL", "AS400_TLS", "AS400_TLS_CA_FILE"}}
+    originals = {}
+    try:
+        for phase in ("before", "after"):
+            if phase == "after":
+                rows = run_snapshot(config, base_environ=base_environ)
+            command = (config.java, "-cp", config.java_classpath, "io.quadringent.as400.NativeCopyObservationExport",
+                       *observation_arguments(context, phase))
+            result = collect_process_document(
+                command, directory=workspace / phase, input_bytes=input_bytes, environment=environment,
+                validate=lambda document, phase=phase: validate_observation(document, context=context, phase=phase),
+                limits=DocumentLimits(max_bytes=request["max_metadata_bytes"], max_seconds=request["max_seconds"]))
+            data = _observation_original(result, request["max_metadata_bytes"])
+            validate_observation(_decode_checkpoint_json(data), context=context, phase=phase)
+            originals[phase] = data
+        validate_observation_pair(context=context, before_bytes=originals["before"], after_bytes=originals["after"])
+        return rows, context, originals["before"], originals["after"]
+    except Exception:
+        raise InitialCopyJobError("native copy observation failed") from None
+
+
+def publish_observations(config, observed, batches, rows_copied):
+    from quadringent.storage_backend import StorageBackend
+    from quadringent.storage_layout import snapshot_prefix
+
+    storage = StorageBackend(config.storage_backend, config.raw_bucket, "")
+    prefix = snapshot_prefix(config.raw_prefix, config.table)
+    store = storage.object_store(prefix)
+    inventory = []
+    for batch in batches:
+        entry = {"prefix": prefix, **batch}
+        for part in ("payload", "manifest"):
+            data = store.get_bounded(batch[part + "_key"], 32 * 1024 * 1024)
+            entry[part + "_sha256"] = hashlib.sha256(data).hexdigest()
+            entry[part + "_bytes"] = len(data)
+        inventory.append(entry)
+    _, context, before, after = observed
+    return publish_copy_observations(storage.object_store("receiver-authority-v1"), context=context,
+                                     before_bytes=before, after_bytes=after, snapshot_inventory=inventory,
+                                     rows_copied=rows_copied, evidence_key=config.evidence_key)
 
 
 def publish_snapshot(config: InitialCopyConfig, *, base_environ: dict) -> list[dict[str, str]]:
@@ -282,7 +376,7 @@ def validate_native_boundary(config: InitialCopyConfig, *, base_environ: dict, c
 
 def build_evidence(
     config: InitialCopyConfig, *, rows_copied: int, completed_at: datetime,
-    snapshot_batches: list[dict[str, str]] = (),
+    snapshot_batches: list[dict[str, str]] = (), copy_observations=None,
 ) -> dict:
     """Même forme que ``v2/executor/evidence.py::InitialCopyEvidence.to_dict()`` —
     vérifié par un test qui la relit avec ``InitialCopyEvidence.from_dict``.
@@ -296,7 +390,7 @@ def build_evidence(
     return InitialCopyEvidence(
         config.pipeline_id, config.table_id, config.run_id, config.boundary,
         rows_copied, completed_at,
-        tuple(SnapshotBatchRef.from_dict(batch) for batch in snapshot_batches),
+        tuple(SnapshotBatchRef.from_dict(batch) for batch in snapshot_batches), copy_observations,
     ).to_dict()
 
 
@@ -329,13 +423,20 @@ def main(argv: list[str] | None = None, *, environ: dict | None = None, now=None
         return 0
     validate_original_binding(config)
     validate_native_boundary(config, base_environ=base_environ, catalog_factory=catalog_factory)
-    rows_copied = run_snapshot(config, base_environ=base_environ)
+    observed = None
+    if config.copy_observation_request is not None:
+        observed = run_observed_snapshot(config, base_environ=base_environ)
+        rows_copied = observed[0]
+    else:
+        rows_copied = run_snapshot(config, base_environ=base_environ)
     validate_native_boundary(config, base_environ=base_environ, catalog_factory=catalog_factory)
     validate_original_binding(config)
     snapshot_batches = publish_snapshot(config, base_environ=base_environ)
+    copy_observations = publish_observations(config, observed, snapshot_batches, rows_copied) if observed is not None else None
     completed_at = now() if now is not None else datetime.now(timezone.utc)
     evidence = build_evidence(
-        config, rows_copied=rows_copied, completed_at=completed_at, snapshot_batches=snapshot_batches
+        config, rows_copied=rows_copied, completed_at=completed_at, snapshot_batches=snapshot_batches,
+        copy_observations=copy_observations,
     )
     write_evidence(config, evidence)
     print(

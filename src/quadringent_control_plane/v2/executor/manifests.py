@@ -735,8 +735,15 @@ class InitialCopyDesiredSpec:
     active_deadline_seconds: int = 3600
     resources: Mapping[str, object] = field(default_factory=dict)
     ca_secret_ref: str | None = None
+    copy_observation_request: Mapping[str, object] | None = None
 
     def __post_init__(self) -> None:
+        if self.copy_observation_request is not None:
+            from quadringent.copy_observation import validate_request
+
+            request = validate_request(dict(self.copy_observation_request))
+            if (request['source']['library'], request['source']['file']) != (self.schema_name, self.table_name):
+                raise ManifestError('copy observation source differs from the requested table')
         if not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", self.run_id):
             raise ManifestError("run_id must be a UUID — see ReadOnlyTableSnapshot")
         if not self.ibmi_host.strip() or not self.ibmi_user.strip():
@@ -797,6 +804,8 @@ def build_initial_copy_job(spec: InitialCopyDesiredSpec) -> dict[str, object]:
                                raw_prefix=spec.raw_prefix)
         env[ENV_CAPTURE_BINDING_JSON] = json.dumps(spec.boundary.capture_binding.to_dict(), sort_keys=True, separators=(",", ":"))
         env[ENV_BOUNDARY_JSON] = json.dumps(spec.boundary.to_dict(), sort_keys=True, separators=(",", ":"))
+    if spec.copy_observation_request is not None:
+        env['AS400_COPY_OBSERVATION_REQUEST_JSON'] = json.dumps(dict(spec.copy_observation_request), sort_keys=True, separators=(',', ':'))
     container: dict[str, object] = {
         "name": "initial-copy",
         "image": spec.image,

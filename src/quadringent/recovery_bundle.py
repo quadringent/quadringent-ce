@@ -20,6 +20,9 @@ from .checkpoint import _decode_checkpoint_json
 from .object_store import _validate_object_key
 from .proof_windows import validate_bound_receipt
 from .raw import read_raw_batch
+from .copy_observation import (
+    MANIFEST_VERSION, ObservationReference, read_copy_observations, validate_inventory_originals,
+)
 from .receiver_identity import BoundCheckpoint
 from .receiver_registry import ReceiverNameRegistry
 
@@ -273,6 +276,66 @@ def _contexts(checkpoints: dict[str, tuple[CaptureBinding, BoundCheckpoint]], au
                 if boundary.capture_binding != binding or boundary.require_bound() != point:
                     raise ValueError("snapshot original copy intent boundary differs")
             _registry(binding, authority_objects).require(binding, point)
+    class PrefixObjects:
+        def __init__(self, prefix):
+            if prefix not in raw_groups:
+                raise ValueError('copy observation replay prefix is absent')
+            self.objects = raw_groups[prefix]
+
+        def get_bounded(self, key, maximum):
+            data = self.objects.get(key)
+            if data is None or len(data) > maximum:
+                raise ValueError('copy observation replay original is absent or oversized')
+            return data
+
+    def original(key):
+        matches = [content for prefix, values in raw_groups.items() for relative, content in values.items()
+                   if prefix + '/' + relative == key]
+        if len(matches) != 1:
+            raise ValueError('copy observation original evidence is absent or ambiguous')
+        return matches[0]
+
+    from quadringent_control_plane.v2.executor.evidence import InitialCopyEvidence, OBSERVED_EVIDENCE_FORMAT_VERSION, MAX_EVIDENCE_BYTES
+
+    for prefix, values in raw_groups.items():
+        for relative, content in values.items():
+            if not relative.endswith('.json') or relative.endswith('.manifest.json'):
+                continue
+            if len(content) > MAX_EVIDENCE_BYTES:
+                if '/evidence/' in prefix + '/' + relative:
+                    raise ValueError('copy_observation_evidence_budget')
+                continue
+            try:
+                record = _decode_checkpoint_json(content)
+            except (ValueError, UnicodeError):
+                if '/evidence/' in prefix + '/' + relative:
+                    raise ValueError('copy_observation_evidence_unreadable') from None
+                continue  # Historical opaque JSON-labelled material grants no authority.
+            if type(record) is not dict or record.get('format_version') != OBSERVED_EVIDENCE_FORMAT_VERSION:
+                continue
+            evidence = InitialCopyEvidence.from_dict(record)
+            manifest = read_copy_observations(_MemoryObjects(authority_objects), evidence.copy_observations)
+            if manifest['evidence_key'] != prefix + '/' + relative:
+                raise ValueError('copy_observation_evidence_namespace_mismatch')
+
+    for key, content in authority_objects.items():
+        if not key.startswith('copy-observations-v1/') or not key.endswith('/manifest.json'):
+            continue
+        metadata = _decode_checkpoint_json(content)
+        if metadata.get('format_version') != MANIFEST_VERSION:
+            raise ValueError('unknown copy observation manifest')
+        reference = ObservationReference(key, _sha(content), len(content))
+        manifest = read_copy_observations(_MemoryObjects(authority_objects), reference)
+        evidence = InitialCopyEvidence.from_dict(_decode_checkpoint_json(original(manifest['evidence_key'])))
+        context = manifest['context']
+        if (evidence.copy_observations != reference or evidence.boundary.to_dict() != context['boundary']
+                or (evidence.pipeline_id, evidence.table_id, evidence.run_id, evidence.rows_copied)
+                != (context['pipeline_id'], context['table_id'], context['run_id'], manifest['rows_copied'])
+                or [ref.to_dict() for ref in evidence.snapshot_batches]
+                != [{k: v[k] for k in ('payload_key', 'manifest_key')} for v in manifest['snapshot_inventory']]):
+            raise ValueError('restored copy observations differ from original copy evidence')
+        validate_inventory_originals(manifest, PrefixObjects)
+
     for binding, point in checkpoints.values():
         if _binding_for(point, authority_objects) != binding:
             raise ValueError("checkpoint original capture binding differs")

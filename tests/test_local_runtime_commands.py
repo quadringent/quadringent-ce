@@ -304,3 +304,18 @@ def test_copy_environment_matches_the_cluster_copy_job_environment():
     differing = {key for key in cluster if local[key] != cluster[key]}
     assert differing == {"QUADRINGENT_STORAGE_BACKEND", "AS400_SNAPSHOT_OUTPUT_DIR"}
     assert local["QUADRINGENT_STORAGE_BACKEND"] == "local"
+
+
+def test_local_copy_environment_propagates_explicit_observation_mode():
+    from quadringent_control_plane.v2.executor.local_runtime import copy_job_environment
+    from test_copy_observation import request
+    from test_v2_capture_binding_handoff import boundary, BINDING
+    import json
+
+    admission = {'raw_prefix_root': 'raw/test', 'run_id': 'run-1', 'evidence_key': 'proof',
+                 'pipeline_id': 'pipe-1', 'table_id': 'table-1'}
+    current = request()
+    env = copy_job_environment({}, admission, boundary(), BINDING,
+                               snapshot_dir='/tmp/offline-copy', schema='TESTLIB', table='ITEMS',
+                               copy_observation_request=current)
+    assert json.loads(env['AS400_COPY_OBSERVATION_REQUEST_JSON']) == current

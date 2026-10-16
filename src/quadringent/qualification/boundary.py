@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from quadringent.capture_binding import CaptureBinding
 from quadringent.receiver_identity import BoundCheckpoint
 from quadringent_control_plane.v2.executor.boundary import JournalBoundary
-from quadringent_control_plane.v2.executor.evidence import EVIDENCE_FORMAT_VERSION, InitialCopyEvidence
+from quadringent_control_plane.v2.executor.evidence import EVIDENCE_FORMAT_VERSION, OBSERVED_EVIDENCE_FORMAT_VERSION, InitialCopyEvidence
 
 
 @dataclass(frozen=True)
@@ -76,7 +76,9 @@ def read_copy_boundary(evidence, args, *, expected_binding=None, original_only=F
                              journal_name=getattr(args, 'journal_name', None), expected_binding=expected_binding)
     if boundary.capture_binding is not None or 'format_version' in evidence:
         fields = {'format_version', 'pipeline_id', 'table_id', 'run_id', 'boundary', 'rows_copied', 'completed_at', 'snapshot_batches'}
-        if evidence.get('format_version') != EVIDENCE_FORMAT_VERSION or not fields <= set(evidence):
+        if evidence.get('format_version') == OBSERVED_EVIDENCE_FORMAT_VERSION:
+            fields.add('copy_observations')
+        if evidence.get('format_version') not in {EVIDENCE_FORMAT_VERSION, OBSERVED_EVIDENCE_FORMAT_VERSION} or not fields <= set(evidence):
             raise ValueError('original bound copy evidence format is missing')
         InitialCopyEvidence.from_dict(evidence if original_only else {key: evidence[key] for key in fields}).require_bound()
     if boundary.receiver_name + ':' + str(boundary.last_sequence) != args.copy_boundary:

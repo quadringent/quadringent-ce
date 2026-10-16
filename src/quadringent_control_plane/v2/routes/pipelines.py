@@ -64,11 +64,37 @@ def _observation_provider(request: Request) -> PipelineObservationProviderProtoc
     return provider if provider is not None else NullObservationProvider()
 
 
-def _native_service(request: Request, identity, *, preparer=None, controller=None) -> NativeVerificationsService:
+def _native_service(request: Request, identity, *, preparer=None, controller=None, observer=None) -> NativeVerificationsService:
     return NativeVerificationsService(
         request.app.state.engine, org_id=request.app.state.org_id,
-        source_restriction=identity.source_restriction, preparer=preparer, controller=controller,
+        source_restriction=identity.source_restriction, preparer=preparer, controller=controller, observer=observer,
     )
+
+
+def _native_ports(request, pipeline, context):
+    unavailable = dict(available=False, mode=None, reason_code="not_configured")
+    if (not context["organization"]["native_context_enforced"] or not context["copy_run_id"]
+            or pipeline["native_context_operation_id"] is not None
+            or any(context[name]["paused_at"] for name in ("organization", "source", "destination"))):
+        return dict(available=False, mode=None, reason_code="native_context_unavailable"), None, None, None
+    try:
+        factory = request.app.state.native_verification_preparer_factory
+        if not callable(factory):
+            return unavailable, None, None, None
+        preparer = factory(request.app.state.org_id)
+        if not callable(getattr(preparer, "prepare", None)):
+            return unavailable, None, None, None
+        factory = request.app.state.native_verification_controller_factory
+        controller = factory(request.app.state.org_id) if callable(factory) else None
+        if callable(getattr(controller, "admit", None)):
+            return dict(available=True, mode="admission", reason_code=None), preparer, controller, None
+        factory = request.app.state.native_verification_observer_factory
+        observer = factory(request.app.state.org_id) if callable(factory) else None
+        if callable(getattr(observer, "observe", None)):
+            return dict(available=True, mode="observation", reason_code=None), preparer, None, observer
+    except Exception:
+        pass
+    return unavailable, None, None, None
 
 
 def _dispatch_native_verification(service, pipeline_id, *, requested_by, idempotency_key):
@@ -116,6 +142,20 @@ async def get_latest_native_verification(
         raise not_found("Pipeline not found") from None
 
 
+@router.get("/{pipeline_id}/native-verifications/capabilities")
+async def native_verification_capabilities(
+    pipeline_id: str, request: Request, identity=Depends(require_scope("read")),
+) -> dict[str, object]:
+    try:
+        with request.app.state.engine.connect() as connection:
+            pipeline, context, _, _ = context_snapshot(
+                connection, request.app.state.org_id, pipeline_id, identity.source_restriction)
+    except LookupError:
+        raise not_found("Pipeline not found") from None
+    capability, _, _, _ = _native_ports(request, pipeline, context)
+    return capability
+
+
 @router.get("/{pipeline_id}/native-verifications/{verification_id}")
 async def get_native_verification(
     pipeline_id: str, verification_id: str, request: Request, identity=Depends(require_scope("read")),
@@ -137,23 +177,14 @@ async def request_native_verification(
     try:
         before = _native_service(request, identity).get_latest(pipeline_id)
         with request.app.state.engine.connect() as connection:
-            _, context, _, _ = context_snapshot(
+            pipeline, context, _, _ = context_snapshot(
                 connection, request.app.state.org_id, pipeline_id, identity.source_restriction,
             )
     except LookupError:
         raise not_found("Pipeline not found") from None
-    preparer_factory = request.app.state.native_verification_preparer_factory
-    controller_factory = request.app.state.native_verification_controller_factory
-    if (not context["organization"]["native_context_enforced"]
-            or not callable(preparer_factory) or not callable(controller_factory)):
+    capability, preparer, controller, observer = _native_ports(request, pipeline, context)
+    if not capability["available"]:
         raise capability_unavailable("Native verification collection and authority are unavailable.")
-    try:
-        preparer = preparer_factory(request.app.state.org_id)
-        controller = controller_factory(request.app.state.org_id)
-    except Exception:
-        raise capability_unavailable("Native verification collection is unavailable.") from None
-    if not callable(getattr(preparer, "prepare", None)) or not callable(getattr(controller, "admit", None)):
-        raise capability_unavailable("Native verification collection is unavailable.")
 
     async def build(payload: dict[str, object]) -> tuple[int, dict[str, object]]:
         if set(payload) - {"dry_run"} or type(payload.get("dry_run", False)) is not bool:
@@ -163,7 +194,7 @@ async def request_native_verification(
                 before=before, after=before, verify_method="GET", verify_path=path + "/latest",
                 dry_run={"would_request": "native_verification"},
             )
-        service = _native_service(request, identity, preparer=preparer, controller=controller)
+        service = _native_service(request, identity, preparer=preparer, controller=controller, observer=observer)
         result = await asyncio.to_thread(
             _dispatch_native_verification, service, pipeline_id, requested_by=identity.subject,
             idempotency_key=request.headers["idempotency-key"],
@@ -186,6 +217,10 @@ async def request_native_verification(
             raise capability_unavailable("The native verification receipt is no longer current.") from None
         if current["context_validity"] != "same_context":
             raise capability_unavailable("The native verification receipt is no longer current.")
+        if after.get("result_manifest") is not None and (
+                current["result_manifest"] != after["result_manifest"] or current["result_sha256"] != after.get("result_sha256")
+                or current["outcome"] != after.get("outcome") or current["reason_code"] != after.get("reason_code")):
+            raise capability_unavailable("The native verification receipt is no longer valid.")
     return receipt
 
 

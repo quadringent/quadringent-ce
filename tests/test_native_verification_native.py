@@ -59,6 +59,9 @@ def test_binary_bundle_contains_exact_descriptors_in_the_java_wire_order(native_
     assert result.member == 'ITEMS' and result.format_name == 'ITEMSFMT'
     assert result.jid_hex == '00112233445566778899'
     assert result.native_admission == 'not_evaluated'
+    assert result.initial_context == encode(context())
+    for phase, raw in zip(('before', 'after'), result.initial_observations, strict=True):
+        assert raw == encode(observation(phase))
 
 
 @pytest.mark.parametrize('change', [

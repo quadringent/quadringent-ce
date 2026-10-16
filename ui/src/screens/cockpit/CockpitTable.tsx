@@ -1,3 +1,4 @@
+import { NativeVerificationPanel } from './NativeVerificationPanel.tsx';
 /**
  * Cockpit — Table : onglets Métriques, Dernières lignes, Journaux, Coûts,
  * Preuves (design §3, niveau table). ControlsPanel avec les cinq actions du
@@ -164,7 +165,7 @@ export function CockpitTableView({
             <LogsTab data={state.data} level={level} onLevelChange={onLevelChange} correlateIncident={correlateIncident} onCorrelateIncidentChange={onCorrelateIncidentChange} />
           ) : null}
           {activeTab === 'costs' ? <CostsTab data={state.data} /> : null}
-          {activeTab === 'proofs' ? <ProofsTab data={state.data} /> : null}
+          {activeTab === 'proofs' ? <ProofsTab data={state.data} onSettled={onSettled ?? onRefresh} /> : null}
         </>
       )}
 
@@ -287,7 +288,11 @@ function CostsTab({ data }: { readonly data: import('../../data/useCockpit.ts').
   );
 }
 
-function ProofsTab({ data }: { readonly data: import('../../data/useCockpit.ts').CockpitTableData }) {
+function ProofsTab({ data, onSettled }: { readonly data: import('../../data/useCockpit.ts').CockpitTableData; readonly onSettled: () => void }) {
+  return <><NativeVerificationPanel key={data.pipeline.id} data={data} onSettled={onSettled} /><LegacyProofsTab data={data} /></>;
+}
+
+function LegacyProofsTab({ data }: { readonly data: import('../../data/useCockpit.ts').CockpitTableData }) {
   const evidence = data.evidence;
   const diagnosticsLink = (
     <p className="cockpit-table__note">

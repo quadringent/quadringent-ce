@@ -146,7 +146,11 @@ def make_collection(case, tmp_path, *, broken_chain=False):
     native = load_native_copy_inputs(
         Authority(case.store), evidence, expected_sha256=initial.sha256, evidence_key=initial.key, scope=scope
     )
+    from test_native_source_observation import guard_documents
+    journal_guard, final_guard = guard_documents(native, scope)
     data = {
+        "guard_journal": journal_guard,
+        "guard_final": final_guard,
         "metadata": {
             "scope_sha256": scope.sha256,
             "context_sha256": native.context_sha256,
@@ -180,11 +184,7 @@ kind = sys.argv[3].rsplit(".", 1)[-1]
 with open(os.environ["QDT_CALLS"], "a") as calls:
     calls.write(json.dumps(sys.argv[1:]) + "\n")
 def guard(mode):
-    phases = ["before_business", "after_business"] if mode == "journal" else ["after_all_streams"]
-    return {**data["metadata"], "format_version":"quadringent-native-journal-guard-v1",
-            "mode":mode, "state":"complete", "error_code":None,
-            "guards":[{"phase":phase} for phase in phases],
-            "native_admission":"not_evaluated", "transaction_consistency_verified":False}
+    return data["guard_journal" if mode == "journal" else "guard_final"]
 def save(path, raw):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "wb") as target:

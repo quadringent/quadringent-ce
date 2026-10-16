@@ -32,6 +32,7 @@ src/quadringent/**
 !src/quadringent/qualification/verification_native.py
 !src/quadringent/qualification/verification_identity.py
 !src/quadringent/qualification/verification_receivers.py
+!src/quadringent/qualification/verification_source_observation.py
 !src/quadringent/qualification/proof.py
 !src/quadringent/copy_observation.py
 !src/quadringent/diagnostics/

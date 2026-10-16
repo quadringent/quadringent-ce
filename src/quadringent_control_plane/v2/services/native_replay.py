@@ -14,6 +14,7 @@ import tempfile
 from quadringent.qualification.verification_contract import DATASETS
 from quadringent.qualification.verification_guard import _document, _guard_document
 from quadringent.qualification.verification_ledger import DiskReconciler
+from quadringent.qualification.verification_source_observation import validate_source_observations
 from quadringent.qualification.verification_native import load_native_copy_inputs
 from quadringent.qualification.verification_identity import (
     read_destination_identity, validate_destination_identity_pair,
@@ -49,6 +50,9 @@ class NativeArchiveReplay:
     state: str = "incomplete"
     native_admission: str = "not_evaluated"
     native_cdc_qualified: bool = False
+    collection_manifest: NativeArtifact | None = None
+    scope_sha256: str | None = None
+    context_sha256: str | None = None
 
     @property
     def comparison(self):
@@ -98,13 +102,14 @@ class _Reader:
 
 class StoredCollectionReplay:
     def __init__(self, storage, raw_prefix_root, org_id, *, max_seconds=3600, max_file_bytes=2 * 1024**3,
-                 destination_identity=None, receiver_config=None):
+                 destination_identity=None, receiver_config=None, java=None, classpath=None, environment=None):
         _require(type(max_seconds) is int and 1 <= max_seconds <= 7200
                  and type(max_file_bytes) is int and 1 <= max_file_bytes <= 16 * 1024**3)
         storage_prefix(storage, org_id, "native-collections-v1")
         self.storage, self.root, self.org_id = storage, raw_prefix_root, org_id
         self.seconds, self.maximum = max_seconds, max_file_bytes
         self.destination_identity, self.receiver_config = destination_identity, receiver_config
+        self.java, self.classpath, self.environment = java, classpath, dict(environment or {})
 
     def replay(self, prepared, manifest, *, context, directory, check_current=lambda: True):
         root = None
@@ -136,7 +141,7 @@ class StoredCollectionReplay:
                 resolved.store.get_bounded(resolved.initial_copy.key, 65536),
                 expected_sha256=resolved.initial_copy.sha256, evidence_key=resolved.initial_copy.key, scope=scope)
             _require(reader.read(doc["native_bundle"], name="native_bundle") == copy.bundle)
-            self._guards(reader, doc, copy, scope)
+            journal_guard, final_guard = self._guards(reader, doc, copy, scope)
             files = self._files(reader, doc)
             inventory, store, read_set = self._inventory(reader, doc, resolved)
             report = _document(reader.read(doc["comparison"], name="comparison"))
@@ -147,6 +152,14 @@ class StoredCollectionReplay:
             parent_descriptor = os.open(root.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
             current = os.stat(root.name, dir_fd=parent_descriptor, follow_symlinks=False)
             _require((current.st_dev, current.st_ino) == root_identity)
+            source_observation = budget.call(validate_source_observations, copy, scope, journal_guard, final_guard,
+                java=self.java, classpath=self.classpath,
+                environment={k: v for k, v in self.environment.items()
+                             if k in {"PATH", "JAVA_HOME", "LANG", "LC_ALL", "TZ", "TMPDIR"}},
+                directory=root / "native-source-observations", check_current=budget.admit,
+                max_seconds=min(60, budget.remaining()))
+            _require(source_observation["native_admission"] == "not_evaluated"
+                     and source_observation["validated_current_observations"] == 3)
             limits = StreamLimits(max_bytes=self.maximum, max_seconds=min(1800, budget.remaining()))
             with ExitStack() as stack:
                 streams = {}
@@ -172,13 +185,16 @@ class StoredCollectionReplay:
                     reader.verify(value)
                 self._collection(reader, doc, files, scope, streams, limits, store.trace)
                 observations = self._observations(reader, doc, files, scope)
+                observations.append("native_source_observations")
                 budget.call(resolved.verify)
             _require(inventory["coverage"] == "observed_keys_only")
             budget.admit()
             missing = ["platform", "source_provenance", "receiver_chain", "physical_inventory", "stable_cut"]
             if "destination_identity" not in observations:
                 missing.append("destination_identity")
-            return NativeArchiveReplay(deepcopy(actual), 7, tuple(missing), tuple(observations))
+            return NativeArchiveReplay(deepcopy(actual), 7, tuple(missing), tuple(observations),
+                collection_manifest=reader.reference(manifest, "collection_manifest")[0],
+                scope_sha256=scope.sha256, context_sha256=resolved.context_sha256)
         except Exception:
             raise NativeReplayError("native_archive_replay_failed") from None
         finally:
@@ -207,6 +223,7 @@ class StoredCollectionReplay:
         _guard_document(pins, _document(journal), "journal")
         _guard_document(pins, _document(final), "after_all_streams")
         _require(all(doc["guard_metadata"].get(k) == v for k, v in pins.items()))
+        return journal, final
 
     @staticmethod
     def _files(reader, doc):

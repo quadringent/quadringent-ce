@@ -49,7 +49,9 @@ from .executor.diagnostic_jobs import (
     in_cluster,
 )
 from .services.destination_verifier import SnowflakeKeyPairVerifier
+from .services.native_context import pipeline_rows, semantic_update
 from .services.native_preparation import StoredNativePreparer
+from .services.native_observer import InstalledNativeObserver, installed_runtime
 from .services.loader_telemetry import KubernetesLoaderTelemetry, resolve_loader_identity
 from ..k8s_jobs import JobsApiError
 
@@ -104,8 +106,10 @@ def resolve_org_id(environ: Mapping[str, str]) -> str:
     )
 
 
-def ensure_organization(engine: Engine, org_id: str) -> None:
+def ensure_organization(engine: Engine, org_id: str, *, native_context_tracking: bool | None = None) -> None:
     """Bootstrap or validate the installation's sole organisation atomically."""
+    if native_context_tracking is not None and type(native_context_tracking) is not bool:
+        raise ConfigurationError("Native context tracking must be an explicit boolean")
     with engine.begin() as connection:
         if engine.dialect.name == "postgresql":
             # Serialize bootstrap and validation, including concurrent inserts.
@@ -114,13 +118,22 @@ def ensure_organization(engine: Engine, org_id: str) -> None:
             connection.exec_driver_sql("BEGIN IMMEDIATE")
         organizations = connection.execute(select(schema.organizations.c.id).limit(2)).scalars().all()
         if not organizations:
-            connection.execute(schema.organizations.insert(), {"id": org_id, "name": org_id})
+            connection.execute(schema.organizations.insert(), {"id": org_id, "name": org_id,
+                "native_context_enforced": native_context_tracking is not False})
         elif len(organizations) != 1 or organizations[0] != org_id:
             raise ConfigurationError(
                 "This installation requires a single organisation matching its configured identity. "
                 "Restore the matching installation database and configuration, or use a separate database; "
                 "the startup check did not rename or remove organisations."
             )
+        elif native_context_tracking is not None:
+            current = connection.execute(select(schema.organizations.c.native_context_enforced)).scalar_one()
+            if native_context_tracking is False and current:
+                raise ConfigurationError("Startup cannot disable existing native context tracking")
+            if native_context_tracking is True and not current:
+                if any(row["native_context_operation_id"] is not None for row in pipeline_rows(connection)):
+                    raise ConfigurationError("Resolve pending native context operations before enabling tracking")
+                semantic_update(connection, schema.organizations, org_id, {"native_context_enforced": True})
 
 
 def build_diagnostic_adapters(
@@ -384,6 +397,47 @@ def build_native_preparer_factory(values: Mapping[str, str], *, org_id: str):
     return factory
 
 
+def build_native_observer_factory(values, *, org_id, engine, secret_box, preparer_factory):
+    """Enable supervised observations only with installed server-owned dependencies."""
+    if not callable(preparer_factory):
+        return None
+    try:
+        identity = read_build_identity()
+        if identity is None:
+            return None
+        runtime = installed_runtime(values)
+        if runtime is None:
+            return None
+        text = values.get("QUADRINGENT_V2_NATIVE_TIMEOUT_SECONDS", "3600")
+        if type(text) is not str or not text.isascii() or not text.isdecimal() or str(int(text)) != text:
+            raise ValueError("invalid_native_deadline")
+        seconds = int(text)
+        if not 60 <= seconds <= 7100:
+            raise ValueError("invalid_native_deadline")
+    except (ValueError, TypeError, OSError):
+        raise ConfigurationError("Native observations require valid installed runtime metadata and deadline") from None
+
+    def factory(requested_org_id):
+        if requested_org_id != org_id:
+            return None
+        prepared = preparer_factory(org_id)
+        if prepared is None:
+            return None
+        return InstalledNativeObserver(engine, secret_box, storage=prepared.storage, root=prepared.root,
+            org_id=org_id, runtime=runtime, producer_revision=identity.source_revision, max_seconds=seconds)
+
+    return factory
+
+
+def _native_tracking_preference(values):
+    choice = values.get("QUADRINGENT_V2_NATIVE_CONTEXT_TRACKING")
+    if choice is None:
+        return None
+    if type(choice) is not str or choice not in {"true", "false"}:
+        raise ConfigurationError("QUADRINGENT_V2_NATIVE_CONTEXT_TRACKING must be true or false")
+    return choice == "true"
+
+
 def build_app(environ: Mapping[str, str] | None = None) -> tuple[FastAPI, Engine]:
     """Applique les migrations (verrouillées) puis construit l'application v2.
 
@@ -392,18 +446,21 @@ def build_app(environ: Mapping[str, str] | None = None) -> tuple[FastAPI, Engine
     """
 
     values = dict(os.environ) if environ is None else dict(environ)
+    native_tracking = _native_tracking_preference(values)
     dsn = _require(ENV_DATABASE_URL, values)
     db.run_migrations_locked(dsn)
     engine = db.create_engine_for(dsn)
     try:
         org_id = resolve_org_id(values)
-        ensure_organization(engine, org_id)
+        ensure_organization(engine, org_id, native_context_tracking=native_tracking)
         secret_box = SecretBox.from_environment(values)
         token_pepper = load_token_pepper(values)
         source_probe, table_discovery_client = build_diagnostic_adapters(values, engine, secret_box)
         pipeline_executor, reconciliation_executor = build_pipeline_executor(values, engine, secret_box)
         loader_telemetry = build_loader_telemetry(engine)
         native_preparer_factory = build_native_preparer_factory(values, org_id=org_id)
+        native_observer_factory = build_native_observer_factory(values, org_id=org_id, engine=engine,
+            secret_box=secret_box, preparer_factory=native_preparer_factory)
         app = create_v2_app(
             engine=engine,
             secret_box=secret_box,
@@ -424,6 +481,7 @@ def build_app(environ: Mapping[str, str] | None = None) -> tuple[FastAPI, Engine
             require_authentication=True,
             destination_verifier=_build_destination_verifier(),
             native_verification_preparer_factory=native_preparer_factory,
+            native_verification_observer_factory=native_observer_factory,
         )
         return app, engine
     except BaseException:

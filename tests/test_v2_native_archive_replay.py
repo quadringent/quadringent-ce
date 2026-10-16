@@ -8,9 +8,15 @@ import pytest
 
 from quadringent_control_plane.v2.services.native_artifacts import ArtifactArchive
 from quadringent_control_plane.v2.services.native_replay import NativeReplayError, StoredCollectionReplay
+from test_native_source_observation import offline_java  # noqa: F401
 from test_v2_native_collection import (  # noqa: F401
     ROOT, artifact_bytes, case, collected_case, collector, preparer, authority,
 )
+
+
+@pytest.fixture(autouse=True)
+def native_replay_runtime(collected_case, offline_java):
+    collected_case.replay_config = offline_java
 
 
 def collect(value):
@@ -19,7 +25,7 @@ def collect(value):
 
 
 def replay(value, result, tmp_path, **changes):
-    return StoredCollectionReplay(value.case.storage, ROOT, "org-one").replay(
+    return StoredCollectionReplay(value.case.storage, ROOT, "org-one", **value.replay_config).replay(
         value.prepared, result.manifest, context=value.case.context, directory=tmp_path / "replay", **changes)
 
 
@@ -149,3 +155,23 @@ def test_consistently_rehashed_recorded_payload_must_match_the_object_actually_c
     result = replace(result, manifest=archive.retain_bytes("collection_manifest", (json.dumps(outer) + "\n").encode()))
     with pytest.raises(NativeReplayError):
         replay(value, result, tmp_path)
+
+
+def test_rehashed_phase_only_guards_cannot_stand_in_for_original_native_observations(collected_case, tmp_path):
+    value=collected_case
+    result=collect(value)
+    doc=json.loads(artifact_bytes(value.case,result.manifest))
+    archive=ArtifactArchive(value.case.storage,'org-one')
+    for name in ('journal_original','final_original','stdout_original'):
+        previous=doc['guards'][name]
+        raw=json.loads(artifact_bytes(value.case,replace(result.manifest,**previous)))
+        raw.pop('current_observations',None)
+        phases=['before_business','after_business'] if name=='journal_original' else ['after_all_streams']
+        raw['guards']=[{'phase':phase} for phase in phases]
+        retained=archive.retain_bytes('guard:'+name,(json.dumps(raw)+'\n').encode()).to_dict()
+        doc['guards'][name]=retained
+        for item in doc['files']:
+            if item['artifact']==previous:item['artifact']=retained
+    manifest=archive.retain_bytes('collection_manifest',(json.dumps(doc)+'\n').encode())
+    with pytest.raises(NativeReplayError,match='native_archive_replay_failed'):
+        replay(value,replace(result,manifest=manifest),tmp_path)

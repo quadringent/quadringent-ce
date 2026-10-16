@@ -189,7 +189,7 @@ def _binary(encoded, digest, *, maximum, length=None):
     return data
 
 
-def validate_observation(document, *, context, phase):
+def validate_observation(document, *, context, phase, witness_window=None):
     _context(context)
     _fields(
         document,
@@ -228,7 +228,8 @@ def validate_observation(document, *, context, phase):
     ):
         if document[field] != request["source"][key]:
             raise ValueError("copy_observation_source_mismatch")
-    window = request["witness_window"]
+    window = (request["witness_window"] if witness_window is None else
+              validate_request(dict(request, witness_window=witness_window))["witness_window"])
     if document["witness_window"] != {
         "receiver_library": window["receiver_library"],
         "receiver_name": window["receiver_name"],

@@ -2,7 +2,7 @@ apiVersion: v2
 name: quadringent
 description: IBM i change capture into Snowflake through DB2 journals and raw S3 or GCS storage.
 type: application
-version: 0.4.6
-appVersion: "0.4.6"
+version: 0.4.7
+appVersion: "0.4.7"
 maintainers:
   - name: Quadringent Contributors

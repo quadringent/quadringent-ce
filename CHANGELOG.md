@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-Source candidate 0.4.6; changes not yet in a published release.
+Source candidate 0.4.7; changes not yet in a published release.
+
+- Compile the portable Java reader on the native build platform when producing multi-architecture images; keep each runtime on its target architecture.
 
 - Wire native table observations into the configured Linux control plane and cockpit. A supervised worker bounds blocked SDK calls and cleans up native descendants; archived collection and replay results remain Incomplete without native admission.
 

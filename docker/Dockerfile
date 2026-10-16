@@ -4,7 +4,8 @@
 # Bases épinglées par digest : une image de production ne dépend jamais d'un tag
 # mouvant, et la chart refuse de se rendre sans digest pour la même raison.
 
-FROM maven:3.9-eclipse-temurin-21@sha256:c07f7ccfb8ca6c9fa29ee523f00afa7d2ca6132c92f8652c4aebb5ee3491f502 AS build
+# JVM bytecode is portable; compile on the builder without emulation.
+FROM --platform=$BUILDPLATFORM maven:3.9-eclipse-temurin-21@sha256:c07f7ccfb8ca6c9fa29ee523f00afa7d2ca6132c92f8652c4aebb5ee3491f502 AS build
 
 WORKDIR /workspace
 COPY java/pom.xml java/pom.xml

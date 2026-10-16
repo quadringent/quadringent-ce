@@ -94,6 +94,38 @@ Canonical 0.4.5 source at
 [verification command](https://github.com/quadringent/quadringent-ce/blob/ad30f16ae9346bd332a482dc1d6de84f2b3e75f1/scripts/quadringent_autonomous_verify.py#L24-L33)
 and [Snowpipe queries](https://github.com/quadringent/quadringent-ce/blob/ad30f16ae9346bd332a482dc1d6de84f2b3e75f1/src/quadringent/snowflake_autonomous.py#L229-L294).
 
+## 0.4.5, 2026-10-16: campaign closeout
+
+The [dated followup](../site/qualification-0.4.5.json) preserves the October 15
+snapshot. The endurance supervisor stopped after 30 of 97 planned bursts
+completed within the 120-second guard. Burst index 30 had three source
+acknowledgements and was recovered after the stop, beyond that guard; index 31
+missed its fixed cadence. The 97-burst, 24-hour contract failed. Receiver rotation
+was not validated, and the 10 s target remains failed.
+
+Measured after the stop: an independent comparison matched 1,000,000 SOURCE,
+original RAW snapshot and MIRROR rows, 124 native journal images against 124 RAW
+journal images, and 1,000,124 HISTORY rows. It compared seven business fields and
+four HISTORY identity fields, with 0 ignored fields and 0 logical duplicates.
+RAW coverage is the current published logical batch set, not all physical object
+versions. This separate qualification harness supplies no stock-verifier,
+native-SDK or latency-SLA qualification, and does not qualify Unreleased changes.
+
+The current cloud campaign is closed: its AWS VM, boot volume, network interface,
+security group and foundation were removed, along with five Snowflake
+site/service/warehouse sets, ten site roles, the temporary operator service and
+role, and the shared resource monitor.
+The million-row source fixture was deleted at `2026-10-16T04:19:20Z`, after a
+fresh full hash matched the retained archive. Both protected 55-row tables kept
+their hashes; journal/receiver identities and attachment were retained. This
+asserts neither unchanged journal positions nor receiver rotation.
+
+The last resource-monitor readback was 5.33 of 8 credits, without a quota reset;
+it is not a final invoice. Final billing is Not measured. Historical provider
+backups and soft-delete retentions remain separate, with no global zero-cost
+claim. SHA-256 fingerprints for the comparison, closure and cleanup are in the
+followup JSON.
+
 ## 0.4.2: historical published prerelease
 
 Native continuity, reader outage, latency, complete cloud-loss recovery and the operator path are Not tested on 0.4.2. This version binds native capture to the original admitted receiver, refuses automatic adoption of legacy v1 checkpoints, and adds selected replay backup and restore with guarded RAW retention. Keep the previous version and its state until a migration has been verified; see the [native capture guide](product/native-qualification.md).

@@ -500,7 +500,8 @@ public final class NativeCopyObservationExport {
                 throw failure;
             }
         }
-        private void sockets(int seconds) throws Exception {
+        void sockets(int seconds) throws Exception {
+            system.setThreadUsed(false);
             SocketProperties p = new SocketProperties();
             p.setSoTimeout(seconds * 1000);
             p.setLoginTimeout(seconds * 1000);

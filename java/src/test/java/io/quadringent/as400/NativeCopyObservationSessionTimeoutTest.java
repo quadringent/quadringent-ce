@@ -71,6 +71,14 @@ public final class NativeCopyObservationSessionTimeoutTest {
     }
     public static void main(String[] args) throws Exception {
         System.setProperty("java.awt.headless", "true");
+        SecureAS400 initial = new SecureAS400();
+        check(initial.isThreadUsed(), "JTOpen default uses a background reader");
+        var initialSession = session(initial, null, () -> JOB);
+        initialSession.sockets(60);
+        check(!initial.isThreadUsed(), "native transport disables background reader before services");
+        check(initial.getSocketProperties().getSoTimeout() == 60000
+            && initial.getSocketProperties().getLoginTimeout() == 60000
+            && !initial.isConnected(), "initial socket/login budgets retained without connection");
         SecureAS400 system = connected();
         SocketProperties changed = new SocketProperties();
         changed.setSoTimeout(45000);

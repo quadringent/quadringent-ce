@@ -92,7 +92,7 @@ FORMAT_IDENTITY_BLOCKS = {
 # from the write-API detector; SQL/CL and other APIs remain checked.
 COPY_NATIVE_ADAPTERS = {
     "NativeCopyObservationExport.java": (
-        "25669183076919416f2b698f8b5ff63e32a37291304d9184b2c4d261bde7884f",
+        "3cff39fb870e91f0389f98c01dc8fc162e8730a88b67e9c2c82e5f8c5098e9d8",
         frozenset({"AS400JDBCConnection", "Job", "ProgramCall", "ProgramParameter", "SocketProperties", "Trace"}),
     ),
     "NativeJournalPrefixForce.java": (

@@ -183,6 +183,13 @@ public final class NativeBusinessImageExportTest {
         List<String> sql = new ArrayList<>();
         List<Map<Integer, Object>> binds = new ArrayList<>();
         List<StatementState> statements = new ArrayList<>();
+        final int[] catalogueTypes = {
+            Types.VARCHAR, Types.CHAR, Types.INTEGER, Types.VARCHAR, Types.INTEGER, Types.INTEGER, Types.CHAR, Types.INTEGER,
+                Types.VARCHAR, Types.VARCHAR
+        }, cataloguePrecision = {
+            128, 10, 10, 8, 10, 10, 1, 10, 1, 1
+        }, catalogueScale = new int[10];
+        int nextCalls;
         boolean closed, closeFailure, wrongTypedMetadata, extraCatalogue, shortBlob, extraBlob, wrongText;
         BigDecimal countOverride;
         Fake() {
@@ -270,12 +277,7 @@ public final class NativeBusinessImageExportTest {
                 return records(new String[] {
                     "COLUMN_NAME", "SYSTEM_COLUMN_NAME", "ORDINAL_POSITION", "DATA_TYPE", "LENGTH", "NUMERIC_SCALE", "IS_NULLABLE",
                         "CCSID", "HIDDEN", "HAS_FLDPROC"
-                }, new int[] {
-                    Types.VARCHAR, Types.CHAR, Types.INTEGER, Types.VARCHAR, Types.INTEGER, Types.INTEGER, Types.CHAR, Types.INTEGER,
-                        Types.CHAR, Types.CHAR
-                }, new int[] {
-                    128, 10, 10, 8, 10, 10, 1, 10, 1, 1
-                }, new int[10], data);
+                }, catalogueTypes, cataloguePrecision, catalogueScale, data);
             }
             if (q.contains("ENTRY_COUNT")) {
                 return records(new String[] {
@@ -365,6 +367,7 @@ public final class NativeBusinessImageExportTest {
                 ResultSet.class
             },(o, m, a) -> {
                 if (m.getName().equals("next")) {
+                    nextCalls++;
                     return ++pos[0]<data.size();
                 }
                 if (m.getName().equals("getMetaData")) {

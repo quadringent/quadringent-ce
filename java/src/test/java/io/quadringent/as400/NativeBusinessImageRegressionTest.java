@@ -83,7 +83,7 @@ public final class NativeBusinessImageRegressionTest {
         if (sql.contains("QSYS2.SYSCOLUMNS")) {
             return records(CATALOG, new int[] {
                 Types.VARCHAR, Types.CHAR, Types.INTEGER, Types.VARCHAR, Types.INTEGER, Types.INTEGER, Types.CHAR, Types.INTEGER,
-                    Types.CHAR, Types.CHAR
+                    Types.VARCHAR, Types.VARCHAR
             }, new int[] {
                 128, 10, 10, 8, 10, 10, 1, 10, 1, 1
             }, new int[10], new Object[] {
@@ -165,6 +165,42 @@ public final class NativeBusinessImageRegressionTest {
             check(failure.code().equals("unsupported_layout"), "descriptor tail refused");
         }
     }
+    static void catalogueMetadataCase() throws Exception {
+        var valid = new NativeBusinessImageExportTest.Fake();
+        check(NativeBusinessImageExport.columns(valid.connection(), "TESTLIB", "ITEMS", 60)
+            .equals(NativeBusinessImageExportTest.request().columns()), "measured VARCHAR(1) catalogue flags accepted");
+        check(valid.nextCalls == 4, "valid catalogue rows consumed");
+        for (boolean exporting : new boolean[]{false, true}) {
+            for (int column : new int[]{8, 9}) {
+                for (int fault = 0;fault<4;fault++) {
+                    var invalid = new NativeBusinessImageExportTest.Fake();
+                    switch (fault) {
+                        case 0 -> invalid.catalogueTypes[column] = Types.CHAR;
+                        case 1 -> invalid.catalogueTypes[column] = Types.INTEGER;
+                        case 2 -> invalid.cataloguePrecision[column] = 2;
+                        case 3 -> invalid.catalogueScale[column] = 1;
+                    }
+                    var out = new ByteArrayOutputStream();
+                    try {
+                        if (exporting) {
+                            var layout = NativeBusinessImageExportTest.layout();
+                            export(invalid.connection(), NativeBusinessImageExportTest.request(), layout,
+                                NativeBusinessImageExportTest.permit(layout), Limits.defaults(), out);
+                        } else {
+                            NativeBusinessImageExport.columns(invalid.connection(), "TESTLIB", "ITEMS", 60);
+                        }
+                        throw new AssertionError("invalid catalogue flag metadata accepted");
+                    } catch (ExportFailure failure) {
+                        check(failure.code().equals("metadata_mismatch"), "strict catalogue metadata refusal");
+                    }
+                    check(invalid.nextCalls == 0, "metadata refused before row iteration");
+                    check(out.size() == 0, "metadata refused before emission");
+                    check(invalid.statements.size() == 1 && invalid.statements.getFirst().closed,
+                        "catalogue statement closed on metadata refusal");
+                }
+            }
+        }
+    }
     public static void main(String[] args) throws Exception {
         if (args.length == 1 && args[0].equals("tail")) {
             tailCase();
@@ -174,6 +210,7 @@ public final class NativeBusinessImageRegressionTest {
             check(textCase("literal_pointer_business_value", "*POINTER"), "literal business value preserved");
             return;
         }
+        catalogueMetadataCase();
         check(textCase("plain_char_control", "ABCDEFGH"), "fixed CHAR control");
         check(textCase("near_marker_control", "*POINTE "), "near marker control");
         check(textCase("literal_pointer_business_value", "*POINTER"), "literal business value preserved");

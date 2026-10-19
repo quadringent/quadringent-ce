@@ -466,7 +466,7 @@ public final class NativeBusinessImageExport {
             try (ResultSet r = s.executeQuery()) {
                 metadata(r.getMetaData(), CATALOG, new int[] {
                     Types.VARCHAR, Types.CHAR, Types.INTEGER, Types.VARCHAR, Types.INTEGER, Types.INTEGER, Types.CHAR, Types.INTEGER,
-                        Types.CHAR, Types.CHAR
+                        Types.VARCHAR, Types.VARCHAR
                 }, new int[] {
                     128, 10, 10, 8, 10, 10, 1, 10, 1, 1
                 }, new int[10]);
@@ -502,7 +502,7 @@ public final class NativeBusinessImageExport {
             try (ResultSet r = s.executeQuery()) {
                 metadata(r.getMetaData(), CATALOG, new int[] {
                     Types.VARCHAR, Types.CHAR, Types.INTEGER, Types.VARCHAR, Types.INTEGER, Types.INTEGER, Types.CHAR, Types.INTEGER,
-                        Types.CHAR, Types.CHAR
+                        Types.VARCHAR, Types.VARCHAR
                 }, new int[] {
                     128, 10, 10, 8, 10, 10, 1, 10, 1, 1
                 }, new int[10]);

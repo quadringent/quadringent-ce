@@ -221,7 +221,7 @@ spec:
     spec:
       serviceAccountName: {{ .Values.controlPlane.serviceAccount.name }}
       automountServiceAccountToken: {{ $kubeApi }}
-      {{- if $launch }}
+      {{- if or $launch $v2.enabled }}
       securityContext:
         fsGroup: 10001
         fsGroupChangePolicy: OnRootMismatch
@@ -552,9 +552,17 @@ spec:
             runAsGroup: 10001
             capabilities:
               drop: ["ALL"]
+          volumeMounts:
+            - name: v2-tmp
+              mountPath: /tmp
         {{- end }}
-      {{- if or $launch .Values.controlPlane.telemetry.enabled }}
+      {{- if or $launch .Values.controlPlane.telemetry.enabled $v2.enabled }}
       volumes:
+        {{- if $v2.enabled }}
+        - name: v2-tmp
+          emptyDir:
+            sizeLimit: 128Mi
+        {{- end }}
         {{- if $launch }}
         {{- include "quadringent.caVolume" . | nindent 8 }}
         - name: launch-config

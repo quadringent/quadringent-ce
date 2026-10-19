@@ -34,6 +34,29 @@ def render(*values: str) -> subprocess.CompletedProcess[str]:
 
 
 class ControlPlaneV2Tests(unittest.TestCase):
+    def test_v2_has_bounded_writable_tmp_with_read_only_root(self) -> None:
+        for backend in ((), GCS_OVERRIDES):
+            for launch in ("true", "false"):
+                with self.subTest(backend=bool(backend), launch=launch):
+                    result = render(*backend, "controlPlane.v2.enabled=true", "postgres.enabled=true",
+                                    f"controlPlane.launch.enabled={launch}",
+                                    "controlPlane.telemetry.enabled=false")
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    deployment = next(d for d in yaml.safe_load_all(result.stdout)
+                                      if d and d.get("kind") == "Deployment"
+                                      and d["metadata"]["name"].endswith("-control-plane"))
+                    pod = deployment["spec"]["template"]["spec"]
+                    v2 = next(c for c in pod["containers"] if c["name"] == "control-plane-v2")
+                    mounts = {m["mountPath"]: m for m in v2["volumeMounts"]}
+                    temporary = mounts["/tmp"]
+                    self.assertFalse(temporary.get("readOnly", False))
+                    volume = next(v for v in pod["volumes"] if v["name"] == temporary["name"])
+                    self.assertEqual(volume["emptyDir"], {"sizeLimit": "128Mi"})
+                    self.assertEqual(pod["securityContext"]["fsGroup"], 10001)
+                    self.assertTrue(v2["securityContext"]["readOnlyRootFilesystem"])
+                    self.assertTrue(v2["securityContext"]["runAsNonRoot"])
+                    self.assertEqual(v2["securityContext"]["runAsUser"], 10001)
+
     def test_aws_v2_region_is_explicit_for_vm_and_eks(self) -> None:
         # Le rendu Helm précède les webhooks EKS : la VM doit disposer du
         # même contrat régional explicite, sans dépendre d'une injection IRSA.

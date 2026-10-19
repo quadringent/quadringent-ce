@@ -24,6 +24,10 @@ See [native qualification](product/native-qualification.md).
 
 ## Scenario
 
+This mixed-type scenario does not satisfy the fixed-layout native business-image
+proof contract. That producer requires a dedicated non-null integer, packed
+decimal and fixed-character fixture; keep its coverage and results separate.
+
 The default generator expects ORDER_ID, LABEL, CODE, AMOUNT, EVENT_DATE,
 UPDATED_AT and NOTE:
 

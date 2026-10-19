@@ -118,6 +118,9 @@ public final class NativeCopyObservationExport {
     @FunctionalInterface interface SessionFactory {
         Session open(String host, String user, String password, int seconds) throws Exception;
     }
+    @FunctionalInterface interface JobReader {
+        JobState read() throws Exception;
+    }
     public static final class Result {
         private final byte[] metadata;
         private final NativeBusinessImageExport.Layout layout;
@@ -445,11 +448,22 @@ public final class NativeCopyObservationExport {
         final Connection connection;
         final JobState initial;
         final JdbcJob jdbc;
+        final JobReader jobReader;
         final List<JobPair> jobs = new ArrayList<>();
+        NativeSession(SecureAS400 system, ProgramCall call, Connection connection, JobState initial, JdbcJob jdbc,
+            JobReader jobReader) {
+            this.system = system;
+            this.call = call;
+            this.connection = connection;
+            this.initial = initial;
+            this.jdbc = jdbc;
+            this.jobReader = jobReader;
+        }
         NativeSession(String host, String user, String password, int seconds) throws Exception {
             requireTls();
             TlsTrust.install(true);
             system = new SecureAS400(host, user, password.toCharArray());
+            jobReader = this::freshJob;
             Connection opened = null;
             try {
                 system.setGuiAvailable(false);
@@ -459,7 +473,7 @@ public final class NativeCopyObservationExport {
                 call.setThreadSafe(false);
                 call.setProgram("/QSYS.LIB/QDBRTVFD.PGM");
                 call.setTimeOut(seconds);
-                initial = freshJob();
+                initial = jobReader.read();
                 Class.forName("com.ibm.as400.access.AS400JDBCDriver");
                 Properties properties = NativeVerificationSourceExport.connectionProperties(user, password);
                 properties.setProperty("socket timeout", Integer.toString(seconds * 1000));
@@ -500,17 +514,17 @@ public final class NativeCopyObservationExport {
             Job fresh = new Job(system, known.getName(), known.getUser(), known.getNumber());
             return new JobState(fresh.getName(), fresh.getUser(), fresh.getNumber(), fresh.getCodedCharacterSetID());
         }
-        private boolean dispatch(String program, ProgramParameter[] params, int seconds) throws Exception {
+        boolean dispatch(String program, ProgramParameter[] params, int seconds) throws Exception {
             requireTls();
-            sockets(seconds);
+            // JTOpen freezes socket properties at connection; only the call timeout may decrease.
             call.setTimeOut(seconds);
-            JobState before = freshJob();
+            JobState before = jobReader.read();
             if (!before.equals(initial)) {
                 throw new ObservationFailure("native_job_changed");
             }
             call.setProgram("/QSYS.LIB/" + program + ".PGM", params);
             boolean result = call.run();
-            JobState after = freshJob();
+            JobState after = jobReader.read();
             jobs.add(new JobPair(before, after));
             if (!before.equals(after)) {
                 throw new ObservationFailure("native_job_changed");

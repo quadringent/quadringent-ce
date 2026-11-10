@@ -4,6 +4,14 @@ Source version **0.4.9** with Unreleased changes; the latest published prereleas
 
 We use four words for evidence, here and everywhere else: Measured (we have a number, with its scope), Not measured (we have no number), Not tested (we ran nothing) and Not supported (it does not work, or we do not intend it to). Every result stays bound to the version, targets and clock it was observed with. A result on 0.3.4 does not qualify 0.4.5 or the Unreleased changes.
 
+## Production experience
+
+Our maintainer has repeatedly tested Quadringent on production IBM i machines and tables containing several million rows, under real cluster and VPC endpoint conditions. This first-hand experience is separate from the dated synthetic qualification campaigns below. Customer systems and data stay private.
+
+This account is not a release-specific measurement or a service-level commitment. It supplies no release number, test date, IBM i OS version, duration, throughput or latency figure.
+
+The public installation profile currently accepts dev, int, test and staging, with production promotion disabled in the packaged configuration. Those configuration gates describe the default installation path; they do not negate the maintainer's production testing. Use the [installation](product/install-default.md) and [qualification](product/native-qualification.md) guides to review the prerequisites for a particular deployment.
+
 ## Unreleased source candidate 0.4.9
 
 Configured Linux control planes can collect, archive and replay native table
@@ -27,7 +35,7 @@ In the first 0.3.4 cold-warehouse trial, 3 of 4 targets missed our 10 s bar per 
 
 IBM i CPU and I/O cost is Not measured. The footprint page says what the reader does on your IBM i; it does not say how much that costs your system.
 
-Only IBM i 7.5 has been tested, on one shared qualification server, in a historical measurement on one table. The published summaries do not name the release. IBM i 7.4 and 7.6 are Not tested. See [compatibility](product/compatibility.md).
+In the historical qualification records: Only IBM i 7.5 has been tested, on one shared qualification server, in a historical measurement on one table. The published summaries do not name the release. IBM i 7.4 and 7.6 are Not tested. See [compatibility](product/compatibility.md).
 
 Reconciliation counts events, not business values by key, in the product's destination proof. Independent qualification comparisons, such as the initial 0.4.5 comparison below, are separate evidence.
 
@@ -42,7 +50,7 @@ Latency beyond the campaigns below is Not measured. We have no P95, no SLA and n
 | GCP VM | Compute Engine VM with k3s | GCS |
 | GKE | Existing GKE cluster | GCS |
 
-Snowflake held history and mirror tables in a dedicated schema, behind a scoped role. IBM i held synthetic journaled tables with before and after images, read over TLS. All tests used synthetic tables on isolated installations. These are maintainer-observed results, not an external certification. The source receipts behind the published summaries are retained privately; the summaries on this page and the linked JSON files are what is public.
+Snowflake held history and mirror tables in a dedicated schema, behind a scoped role. IBM i held synthetic journaled tables with before and after images, read over TLS. All tests in the dated qualification campaigns below used synthetic tables on isolated installations. These are maintainer-observed results, not an external certification. The source receipts behind the published summaries are retained privately; the summaries on this page and the linked JSON files are what is public.
 
 ## 0.4.5, 2026-10-15: initial comparison and scoped reader recovery
 

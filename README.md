@@ -9,9 +9,11 @@ We build open-source change data capture from IBM i (formerly AS/400 and iSeries
 
 Version 0.4 · Apache-2.0. Source 0.4.9 with Unreleased changes; latest published prerelease 0.4.5.
 
-The [0.4.5 prerelease](https://github.com/quadringent/quadringent-ce/releases/tag/v0.4.5) has [October 15 observed results](site/qualification-0.4.5.json): an independent initial comparison matched one million rows across SOURCE, RAW, HISTORY and MIRROR on AWS VM. Reader-recovery checks passed within their recorded scopes on AWS VM, EKS and GCP VM. At that dated snapshot the 24-hour run was in progress; GKE and general qualification remained incomplete, and the 10 s observation target had not passed. These are scoped results, with no P95 or SLA.
+Our maintainer has tested Quadringent on production IBM i tables containing several million rows. See the [production experience and published measurements](docs/evidence.md#production-experience).
 
-Historical initial copy of synthetic tables was tested against a real IBM i and a real Snowflake account on four cloud targets (release 0.3.5, 2026-10-12), plus reader-kill recovery with source writes on 0.3.4. Receipt summaries are public. Limits (latency, IBM i CPU and I/O cost, IBM i 7.5 as the only release tested) and figures: [evidence page](docs/evidence.md).
+The [0.4.5 prerelease](https://github.com/quadringent/quadringent-ce/releases/tag/v0.4.5) has [October 15 observed results](site/qualification-0.4.5.json): an independent initial comparison matched one million rows across SOURCE, RAW, HISTORY and MIRROR on AWS VM. Reader-recovery checks passed within their recorded scopes on AWS VM, EKS and GCP VM. The [October 16 closeout](docs/evidence.md#045-2026-10-16-campaign-closeout) adds a matching final comparison after the stop: one million source and mirror rows and 1,000,124 history rows. The 24-hour contract and 10 s observation target failed; GKE and general qualification remained incomplete. These are scoped results, with no P95 or SLA.
+
+Historical initial copy of synthetic tables was tested against a real IBM i and a real Snowflake account on four cloud targets (release 0.3.5, 2026-10-12), plus reader-kill recovery with source writes on 0.3.4. Receipt summaries are public. Limits (latency, IBM i CPU and I/O cost, IBM i 7.5 as the only release named in the historical qualification records) and figures: [evidence page](docs/evidence.md).
 
 What a proof of concept touches:
 
@@ -21,7 +23,7 @@ What a proof of concept touches:
 - `quadringent uninstall` removes the Helm release. The bucket, checkpoints and identities stay until you review and destroy them with Terraform ([uninstall](docs/product/install-default.md#uninstall)).
 - Apache-2.0, with no license key.
 
-[Run a POC on your DEV IBM i](docs/product/install-default.md): the installation guide is the path that exists today. `quadringent local`, one machine with Docker, is not in a published release yet. Or [talk to us about a pilot](#talk-to-us-about-a-pilot). The synthetic demo below needs no IBM i.
+[Install Quadringent](docs/product/install-default.md): the installation guide is the path that exists today. `quadringent local`, one machine with Docker, is not in a published release yet. Or [talk to us about a pilot](#talk-to-us-about-a-pilot). The synthetic demo below needs no IBM i.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="site/assets/cockpit-evidence-dark.png">

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Quadringent — IBM i (AS/400) CDC replication to Snowflake</title>
-<meta name="description" content="Open-source CDC engine, API and cockpit for replicating IBM i (AS/400) journals to Snowflake on your AWS or GCP infrastructure. Apache-2.0 Community edition. Run a proof of concept on your non-production IBM i.">
+<meta name="description" content="Replicate IBM i (AS/400) journals to Snowflake with open-source CDC. Self-host on AWS or GCP, without Kafka. Apache-2.0. Explore code and installation guide.">
 <meta name="color-scheme" content="light dark">
 <meta name="google-site-verification" content="pyK_XDNhLhI1W2LiFLH90aWQMGz5TiLilfTiwPnAuB8">
 <meta name="msvalidate.01" content="4BDA52F28F3CFFE2B4DBE9503DE47701">
@@ -37,19 +37,20 @@
 
   <section class="hero" aria-labelledby="title">
     <div class="hero__copy">
-      <h1 id="title">A running reader doesn’t mean your data arrived.</h1>
+      <h1 id="title">Open-source IBM i CDC to Snowflake.</h1>
       <p class="hero__lead">Open-source IBM&nbsp;i (AS/400) to Snowflake CDC in your own AWS or GCP account, no Kafka and no license key. Each table reports journal reading, Snowflake delivery and event-count reconciliation.</p>
       <p class="status-line"><span class="status-word">Version 0.4 · Apache-2.0</span> Source <span class="mono" data-source-version>0.4.9</span> with Unreleased changes, latest published prerelease <span class="mono">0.4.5</span>.</p>
+      <p>Our maintainer has tested Quadringent on production IBM i tables containing several million rows. See the <a data-repo-path="docs/evidence.md" href="../docs/evidence.md#production-experience">production experience and published measurements</a>.</p>
       <p class="proof-line">One million synthetic rows compared across the source, original RAW snapshot, Snowflake history and mirror on AWS VM (release <span class="mono">0.4.5</span>, <time datetime="2026-10-15">2026-10-15</time>). <a data-repo-path="docs/evidence.md" href="../docs/evidence.md">Receipt summaries, volumes and limits</a></p>
       <div class="actions">
-        <a class="action-button action-button--primary" data-repo-path="docs/product/install-default.md" href="../docs/product/install-default.md">Run a POC on your DEV IBM i</a>
+        <a class="action-button action-button--primary" data-repo-path="docs/product/install-default.md" href="../docs/product/install-default.md">Install Quadringent</a>
         <a class="text-link" href="#pilot-contact">Talk to us about a pilot</a>
       </div>
     </div>
     <div class="hero__aside">
       <figure class="product-frame hero__figure" data-capture-version="0.4.7">
         <picture><source srcset="assets/cockpit-evidence-strip-dark.png" media="(prefers-color-scheme: dark)"><img src="assets/cockpit-evidence-strip-light.png" width="1220" height="420" fetchpriority="high" alt="Quadringent cockpit, Evidence tab of a synthetic demo table, cropped to its three readings: journal capture shows 120 events and Snowflake delivery 118 events, both marked Synthetic, and destination reconciliation is marked Not measured."></picture>
-        <figcaption>Demonstration, synthetic data, source <span class="mono">0.4.7</span>. <a href="assets/cockpit-evidence-light.png">Full capture</a>. <a href="#try">Run it yourself, no setup</a>.</figcaption>
+        <figcaption>Demonstration, synthetic data, source <span class="mono">0.4.7</span>. <a href="assets/cockpit-evidence-light.png">Full capture</a>. <a href="#try">Run the synthetic demo</a>.</figcaption>
       </figure>
       <div class="poc">
         <h2 class="poc__title">What a POC touches</h2>
@@ -135,7 +136,7 @@
     </div>
     <div class="try">
       <div class="try__col">
-        <h3>Your DEV IBM i, from AWS or GCP</h3>
+        <h3>Install on AWS or GCP</h3>
         <pre class="screen" tabindex="0" aria-label="Cloud installation dry-run command"><code><span class="screen__dim"># Complete plan, without executing it</span>
 quadringent install --cloud gcp --target cluster \
   --region europe-west1 --project my-project \
@@ -145,7 +146,7 @@ quadringent install --cloud gcp --target cluster \
         <p class="try__links"><a data-repo-path="docs/product/install-default.md" href="../docs/product/install-default.md">Installation guide</a><a data-repo-path="docs/product/install-client.md" href="../docs/product/install-client.md">Expert Helm guide</a><a data-repo-path="docs/product/try-it-local.md" href="../docs/product/try-it-local.md">Local mode</a></p>
       </div>
       <div class="try__col">
-        <h3>No setup: the cockpit with generated data</h3>
+        <h3>Explore the cockpit with generated data</h3>
         <pre class="screen" tabindex="0" aria-label="Synthetic demo commands"><code>git clone https://github.com/quadringent/quadringent-ce.git
 cd quadringent-ce
 npm ci --prefix ui
@@ -185,8 +186,12 @@ exit 1</code></pre>
         <p><span class="mono">0.4.5</span> reader-outage recovery passed on 3 of 4 targets: AWS VM, EKS and GCP VM. AWS VM and EKS rebuilds retained RAW, checkpoints and capture authority. GCP VM reconstruction reached component restore only; GKE recovery did not pass.</p>
       </li>
       <li>
-        <span class="status-word status-word--absent">Not measured</span>
-        <p>Completed 24-hour continuity on <span class="mono">0.4.5</span>. Snapshot: 1 of 97 planned bursts completed; run in progress. Receiver rotation and the independent final journal, RAW, history and mirror comparison remained unproven. This snapshot does not report the run’s current state.</p>
+        <span class="status-word">Measured</span>
+        <p><span class="mono">0.4.5</span>, 2026-10-16 campaign closeout: 1,000,000 SOURCE, RAW snapshot and MIRROR rows, 1,000,124 HISTORY rows and 124 journal images matched in a separate qualification harness. <a data-repo-path="docs/evidence.md" href="../docs/evidence.md#045-2026-10-16-campaign-closeout">Closeout scope and receipt</a>.</p>
+      </li>
+      <li>
+        <span class="status-word">Measured</span>
+        <p><span class="mono">0.4.5</span>, 2026-10-16: 30 of 97 planned bursts completed within 120 seconds. The 24-hour contract failed. Receiver rotation was not validated. The 10 s target failed.</p>
       </li>
       <li>
         <span class="status-word">Measured</span>

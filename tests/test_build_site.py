@@ -94,6 +94,23 @@ def test_generated_links_target_selected_repository(tmp_path: Path):
     assert (output / "style.css").read_bytes() == (site / "style.css").read_bytes()
 
 
+@pytest.mark.parametrize("published", [False, True])
+def test_landing_links_keep_the_requested_evidence_section(tmp_path, published):
+    source = tmp_path / "source"
+    (source / "site").mkdir(parents=True)
+    (source / "docs").mkdir()
+    (source / "site/index.html").write_text(
+        '<html><head></head><body><a data-repo-path="docs/evidence.md" '
+        'href="../docs/evidence.md#campaign-closeout">Closeout</a></body></html>'
+    )
+    (source / "docs/evidence.md").write_text("# Evidence\n\n## Campaign closeout\n\nDated results.")
+    output = tmp_path / "built"
+    build("https://github.com/example/project", output, source_root=source,
+          site_url="https://example.org/" if published else None)
+    target = "docs/evidence/" if published else "https://github.com/example/project/blob/main/docs/evidence.md"
+    assert f'href="{target}#campaign-closeout"' in (output / "index.html").read_text()
+
+
 def test_existing_output_is_preserved(tmp_path: Path):
     (tmp_path / "kept").write_text("retained")
     with pytest.raises(ValueError):

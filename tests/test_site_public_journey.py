@@ -64,7 +64,7 @@ def test_each_entry_point_offers_the_same_cta_and_a_private_contact(path):
 
 def test_home_offers_the_pilot_call_to_action_in_the_charter_words():
     html = read("site/index.html")
-    assert "Talk to us about a pilot" in html and "Run a POC on your DEV IBM i" in html
+    assert "Talk to us about a pilot" in html and "Install Quadringent" in html
     assert "Discuss a DEV/INT pilot" not in html and "DEV%2FINT" not in html
 
 
@@ -249,14 +249,14 @@ def test_status_line_and_evidence_section_use_latest_scoped_observations_without
     assert f'(release {current["version"]}, {initial["finished_utc"][:10]})' in proof
     evidence = text_of(homepage_section(html, "evidence"))
     assert current["artifact_source_sha"][:12] in evidence
-    assert "18:08:54 UTC snapshot" in evidence and "This snapshot does not report the run’s current state" in evidence
+    assert "18:08:54 UTC snapshot" in evidence and "2026-10-16 campaign closeout" in evidence
     assert "7 business fields, none ignored, no logical duplicates" in evidence
     assert "reader-outage recovery passed on 3 of 4 targets: AWS VM, EKS and GCP VM" in evidence
     assert "RAW, checkpoints and capture authority" in evidence
     assert "Complete cloud-loss recovery on 0.4.5, with all original provider storage removed" in evidence
     assert "retained-storage rebuilds above do not cover it" in evidence
     assert "GCP VM reconstruction reached component restore only" in evidence and "GKE recovery did not pass" in evidence
-    assert "1 of 97 planned bursts" in evidence and "Receiver rotation" in evidence and "remained unproven" in evidence
+    assert "30 of 97 planned bursts" in evidence and "Receiver rotation" in evidence and "was not validated" in evidence
     assert "exceeded our 10 s observation target" in evidence and "12.383206 s" in evidence
     assert "Intermediate insert/update mirror visibility was not proven" in evidence
     assert "polling upper bounds, not a P95 or an SLA" in evidence

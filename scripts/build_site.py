@@ -99,7 +99,10 @@ def seo_head(url: str, title: str, description: str, base: str, repository: str,
     }
     if home:
         schema.update(applicationCategory="DeveloperApplication", operatingSystem="Linux",
-                      license=repository + "/blob/main/LICENSE", isAccessibleForFree=True)
+                      license=repository + "/blob/main/LICENSE", isAccessibleForFree=True,
+                      sameAs=repository,
+                      isBasedOn={"@type": "SoftwareSourceCode", "codeRepository": repository,
+                                 "license": repository + "/blob/main/LICENSE"})
     else:
         schema["publisher"] = {"@type": "Organization", "name": "Quadringent", "url": base}
     structured = json.dumps(schema, ensure_ascii=False).replace("<", "\\u003c")
@@ -244,8 +247,12 @@ def build(repository_url: str, output: Path, *, source_root: Path | None = None,
                                      stylesheet.read_text()))
     page = output / "index.html"
     text = page.read_text()
-    text = re.sub(r'data-repo-path="([A-Za-z0-9_./-]+)" href="[^"]+"',
-                  lambda m: f'href="{base}/blob/main/{m[1]}"', text)
+    def repository_link(match):
+        fragment = urlsplit(unescape(match[2])).fragment
+        target = f"{base}/blob/main/{match[1]}" + (f"#{fragment}" if fragment else "")
+        return f'href="{escape(target, quote=True)}"'
+
+    text = re.sub(r'data-repo-path="([A-Za-z0-9_./-]+)" href="([^"]+)"', repository_link, text)
     text = re.sub(r'data-repo-root="true" href="[^"]+"', f'href="{base}"', text)
     page.write_text(text)
     if site_base:
@@ -256,7 +263,8 @@ def build(repository_url: str, output: Path, *, source_root: Path | None = None,
         text = text.replace("</head>", seo_head(site_base, title, description, site_base, base, home=True) + "</head>")
         for source, (slug, _) in DOC_PAGES.items():
             if (root / source).is_file():
-                text = text.replace(f'href="{base}/blob/main/{source}"', f'href="docs/{slug}/"')
+                text = re.sub(re.escape(f'href="{base}/blob/main/{source}') + r'(?=[#"])',
+                              f'href="docs/{slug}/', text)
         page.write_text(text)
         urls = publish_guides(root, output, site_base, base)
         (output / "sitemap.xml").write_text('<?xml version="1.0" encoding="UTF-8"?>\n'

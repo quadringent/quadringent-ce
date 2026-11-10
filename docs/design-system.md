@@ -129,8 +129,8 @@ a focusable scrolling region with `tabindex="0"` and `role="region"`.
 
 ## Site composition and verification
 
-The page reads as a thesis, a product, then evidence. The hero holds the title
-("A running reader doesn't mean your data arrived."), one lead of two sentences,
+The page identifies the product and its use case, then shows evidence. The hero holds the title
+("Open-source IBM i CDC to Snowflake."), one lead of two sentences,
 one status line, the uncomfortable fact as plain text, one primary action and
 one text link, with a 1x crop of the cockpit Evidence tab (the three readings,
 1220 x 420) beside it, so its text stays legible and the product is visible at
@@ -143,7 +143,7 @@ Site-only elements, built from the tokens above:
 
 | Element | Contract |
 |---|---|
-| Status line | One paragraph under the lead: the words Preview, DEV/INT only, the production statement, the source version and the latest observed release with its date, and a link to `docs/evidence.md`. It is the only place that states the preview status at length |
+| Status line | One paragraph under the lead: Version 0.4, Apache-2.0, the source version and the latest published prerelease. Measured scope and operational limits stay in the linked evidence page; installation prerequisites stay in the installation guide |
 | Uncomfortable fact | One plain paragraph, no rule, box or colour; figures come from the published receipts |
 | Receiver chain | A horizontal ordered list of IBM i journal receivers (names are illustrative, labelled detached or attached, with a neutral read bar), the reader position drawn as a 1 px tick that is also the checkpoint, then raw storage and Snowflake, each in a 1 px outline with no fill. Below it, the three readings from the synthetic demo as words and values. Stacked vertically below 900 px. Tokens only: no gradient, no icon, no animation |
 | Screen block (`.screen`) | Commands only: green text (`--site-screen-fg`) on a near-black ground (`--site-screen-bg`), monospace, the same in both themes. Command output stays on `.code`. The green is limited to this block; there is no green theme, CRT typeface or scanline |
@@ -153,7 +153,7 @@ Site-only elements, built from the tokens above:
 
 Qualification tables, historical results and open limits live in
 `docs/evidence.md`, published as a site page by `scripts/build_site.py`. The
-landing page keeps a four-row ledger and links there. The `BandedTable`
+landing page keeps a dated evidence ledger and links there. The `BandedTable`
 component and its small-screen rule apply to those tables.
 
 Screenshots come from the local v2 fixture

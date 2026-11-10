@@ -12,6 +12,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 import re
 import subprocess
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -128,7 +129,7 @@ def test_repository_links_target_existing_files(page: _Page):
         target = ROOT / link["data-repo-path"]
         assert target.is_file(), link
         # Le rendu local (servi depuis la racine) et le build Pages ciblent le même fichier.
-        assert link["href"] == f"../{link['data-repo-path']}"
+        assert urlsplit(link["href"]).path == f"../{link['data-repo-path']}"
 
 
 def test_local_references_and_anchors_resolve(page: _Page):

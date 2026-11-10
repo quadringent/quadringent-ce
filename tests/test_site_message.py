@@ -96,7 +96,7 @@ def test_readme_first_screen_is_thesis_status_proof_risk_reversal_and_a_poc_call
     top = flat(readme_first_screen())
     order = ["A running reader doesn't mean your data arrived.", "Version 0.4 \u00b7 Apache-2.0",
              "tested against a real IBM i and a real Snowflake account",
-             "What a proof of concept touches", "[Run a POC on your DEV IBM i]",
+             "What a proof of concept touches", "[Install Quadringent]",
              "[talk to us about a pilot]"]
     positions = [top.index(item) for item in order]
     assert positions == sorted(positions)
@@ -182,7 +182,7 @@ def historical_worst_sql_start() -> float:
 def test_hero_leads_with_the_thesis_and_one_sentence_of_value():
     section = hero()
     title = text_of_home(re.search(r"<h1[^>]*>(.*?)</h1>", section, re.S)[1])
-    assert title == "A running reader doesn\u2019t mean your data arrived."
+    assert title == "Open-source IBM i CDC to Snowflake."
     leads = [text_of_home(p) for p in re.findall(r'<p class="hero__lead">(.*?)</p>', section, re.S)]
     assert len(leads) == 1, "one lead paragraph"
     lead = leads[0]
@@ -248,7 +248,7 @@ def test_hero_proof_line_matches_the_receipts_and_claims_nothing_more():
     evidence = re.search(r'<section class="section" id="evidence".*?</section>', home(), re.S)[0]
     assert current["artifact_source_sha"][:12] in evidence
     assert "UTC snapshot" in text_of_home(evidence)
-    assert "This snapshot does not report the run’s current state" in text_of_home(evidence)
+    assert "2026-10-16 campaign closeout" in text_of_home(evidence)
     for receipt in ("qualification-0.4.5.json", "runtime-0.3.5.json", "recovery-0.3.4.json"):
         assert f'href="{receipt}"' in evidence and (ROOT / "site" / receipt).is_file()
     assert 'data-repo-path="docs/evidence.md" href="../docs/evidence.md"' in evidence
@@ -290,14 +290,14 @@ def test_hero_has_one_poc_call_to_action_one_text_link_and_reaches_the_zero_setu
     assert actions.count("action-button--primary") == 1
     assert actions.count("<a ") == 2, "W7: one call to action and one text link"
     assert re.search(r'action-button--primary" data-repo-path="docs/product/install-default.md" '
-                     r'href="\.\./docs/product/install-default\.md">Run a POC on your DEV IBM i</a>', actions)
+                     r'href="\.\./docs/product/install-default\.md">Install Quadringent</a>', actions)
     assert 'href="#pilot-contact">Talk to us about a pilot</a>' in actions
     assert "mailto:" not in actions, "the pilot contact stays lower on the page"
     assert "mailto:" in home()
     assert (ROOT / "docs/product/install-default.md").is_file()
     # The zero-setup demo stays one click from the hero, in the screenshot caption, and is the second column of #try.
     figure = re.search(r"<figcaption>(.*?)</figcaption>", section, re.S)[1]
-    assert '<a href="#try">Run it yourself, no setup</a>' in figure
+    assert '<a href="#try">Run the synthetic demo</a>' in figure
     assert "node ui/scripts/build-demo.mjs --serve" in home()
 
 
@@ -407,10 +407,11 @@ def test_landing_page_stays_concise():
     """W7 asked for 1085 words (30% under the 1551-word page it replaced). W8 adds three things that reviewers asked for
     and that a buyer decides on: the scoped proof line, the IBM i preconditions (journaling, receiver growth, billable
     resources after uninstall) and the short list of what a POC needs. That is about 100 words more, so the page cap is
-    1200 and the hero is capped on its own; doc rows stay a title and a few words."""
+    1200, plus 35 words for attributed production experience linked separately from receipts.
+    The hero is capped on its own; doc rows stay a title and a few words."""
     html = home()
     body = re.search(r"<body>.*</body>", html, re.S)[0]
-    assert words(body) <= 1200
+    assert words(body) <= 1235
     assert words(hero()) <= 290, "the hero: lead, status, proof, two links, list of five, screenshot caption"
     assert words(re.search(r'<div class="hero__copy">.*?</div>\s*<div class="hero__aside">', hero(), re.S)[0]) <= 160
     assert words(re.search(r'<div class="needs">.*?</ul>', html, re.S)[0]) <= 75
@@ -531,7 +532,7 @@ def test_evidence_section_links_the_evidence_page_and_every_receipt():
     assert "Earlier published 0.4.2 has no receipt here" in text
     assert "Upper bounds, not a P95" in text
     assert "polling upper bounds, not a P95 or an SLA" in text
-    assert "1 of 97 planned bursts" in text and "remained unproven" in text
+    assert "30 of 97 planned bursts" in text and "The 24-hour contract failed" in text
     from build_site import DOC_PAGES
     assert DOC_PAGES["docs/evidence.md"][0] == "evidence"
     assert (ROOT / "docs/evidence.md").is_file()

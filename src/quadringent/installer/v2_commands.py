@@ -521,11 +521,12 @@ def run_v2_command(
             if config is not None
             else (load_config(env={}, config_path=users_config) if users_config is not None else load_config())
         )
+        client = ApiClient(resolved_config, transport=transport)
     except ConfigError as error:
         print(json.dumps({"error": {"code": "config_error", "message": str(error)}}), file=stdout)
         return EXIT_CONFIG_ERROR
 
-    with ApiClient(resolved_config, transport=transport) as client:
+    with client:
         if getattr(args, "is_stream", False):
             return _cmd_events_stream(client, args, stdout)
         result: ApiResult = args.handler(client, args)

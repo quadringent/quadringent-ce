@@ -455,12 +455,31 @@ authorized identity, then replay the bound action with its approved token.
 | 7 | capability_unavailable / action_in_progress |
 | 8 | store_unavailable / executor_unavailable |
 | 9 | Network failure |
-| 10 | Missing or unsafe client configuration |
+| 10 | Missing client dependencies or missing/unsafe client configuration |
 | 1 | Unclassified failure |
 
 mcp --stdio exposes the same tools but calls the configured remote /v2 API over
 HTTP. httpx/mcp are imported lazily so base installation commands work without
 the api extra.
+
+### Install the client dependencies
+
+The `/v2` CLI commands and local MCP bridge need the `api` extra in the same
+Python environment that launches `quadringent`. From the matching source checkout:
+
+```sh
+python -m pip install '.[api]'
+```
+
+If you installed a release wheel, reinstall that **same release** by adding
+`[api]` to its quoted local wheel path instead. Keep the wheel and deployment
+assets on the same release; do not silently switch to a different source version.
+
+When `httpx`, `mcp` or FastAPI is missing, the client reports JSON
+`config_error` with exit code `10` and this installation guidance before
+connecting. This is a local dependency issue, not a rejected token or an
+unreachable control plane. Base installer commands and `--help` do not require
+the `api` extra.
 
 ## Cryptographic configuration
 

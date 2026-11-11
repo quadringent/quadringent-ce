@@ -16,7 +16,7 @@ from __future__ import annotations
 import argparse
 from typing import TextIO
 
-from .api_client import ConfigError, load_config
+from .api_client import API_EXTRA_REQUIRED, ConfigError, EXIT_CONFIG_ERROR, load_config
 
 
 def add_mcp_subcommand(subparsers: argparse._SubParsersAction) -> None:
@@ -35,15 +35,22 @@ def run_mcp_command(args: argparse.Namespace, *, stdout: TextIO) -> int:
         config = load_config()
     except ConfigError as error:
         print(json.dumps({"error": {"code": "config_error", "message": str(error)}}), file=stdout)
-        return 10
+        return EXIT_CONFIG_ERROR
 
     # Imports différés : ``mcp``/``httpx`` sont dans l'extra ``api``, pas
     # une dépendance de base de la CLI d'installation (``quadringent
     # install``/``uninstall``/``status`` n'en ont pas besoin).
-    import httpx
-    from mcp.server.mcpserver import Context
+    try:
+        import httpx
+        from mcp.server.mcpserver import Context
 
-    from quadringent_control_plane.v2.mcp_server import build_mcp_server
+        from quadringent_control_plane.v2.mcp_server import build_mcp_server
+    except ModuleNotFoundError as error:
+        # Do not disguise unrelated import bugs or incompatible installed modules.
+        if error.name not in {"httpx", "mcp", "fastapi"}:
+            raise
+        print(json.dumps({"error": {"code": "config_error", "message": API_EXTRA_REQUIRED}}), file=stdout)
+        return EXIT_CONFIG_ERROR
 
     def make_client(ctx: Context | None) -> httpx.AsyncClient:
         headers = {}

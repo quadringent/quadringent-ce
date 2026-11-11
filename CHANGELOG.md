@@ -4,6 +4,8 @@
 
 Source candidate 0.4.8; changes not yet in a published release.
 
+- Report missing optional API client dependencies as an actionable JSON configuration error instead of a traceback for `/v2` commands and the local MCP bridge. Keep base installer commands usable without the `api` extra.
+
 - Include the linked roadmap and support documents in source distributions.
 
 - Compile the portable Java reader on the native build platform when producing multi-architecture images; keep each runtime on its target architecture.

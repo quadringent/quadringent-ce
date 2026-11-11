@@ -20,7 +20,8 @@ Clients with Streamable HTTP support can connect directly to `/mcp`:
 ```
 
 Client configuration syntax varies. For a client that launches local stdio
-servers, install the `api` extra and use the CLI bridge:
+servers, [install the `api` extra in the CLI's Python environment](api-v2.md#install-the-client-dependencies)
+and use the CLI bridge:
 
 ```json
 {

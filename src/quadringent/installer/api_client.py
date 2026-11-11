@@ -49,10 +49,14 @@ _EXIT_CODES = {
 EXIT_NETWORK_ERROR = 9
 EXIT_CONFIG_ERROR = 10
 EXIT_UNKNOWN_ERROR = 1
+API_EXTRA_REQUIRED = (
+    "This command needs the api extra. Reinstall the same release wheel with [api], "
+    "or run python -m pip install '.[api]' from its matching source checkout."
+)
 
 
 class ConfigError(RuntimeError):
-    """Configuration manquante ou invalide (URL/jeton introuvables, fichier trop ouvert)."""
+    """Missing client dependencies or missing/unsafe client configuration."""
 
 
 @dataclass(frozen=True)
@@ -103,7 +107,12 @@ class ApiClient:
     """Client mince ``/v2`` — une méthode par verbe HTTP, jamais de logique métier ici."""
 
     def __init__(self, config: ClientConfig, *, transport: "httpx.BaseTransport | None" = None) -> None:
-        import httpx
+        try:
+            import httpx
+        except ModuleNotFoundError as error:
+            if error.name != "httpx":
+                raise
+            raise ConfigError(API_EXTRA_REQUIRED) from None
 
         self._httpx = httpx
         headers = {"Authorization": f"Bearer {config.token}"} if config.token else {}

@@ -586,10 +586,10 @@ def test_production_guidance_is_poc_first_advice_where_a_deployer_decides():
     assert POC_ADVICE in production and "We help with pilots" in production and "(../evidence.md)" in production
     assert not re.search(r"\bNo\.|not supported|no production|blocks production", production, re.I), "no denial phrasing"
     short = flat(read(FAQ))
-    assert f"| Production | {POC_ADVICE}" in short
+    assert "| Production | Maintainer-reported production testing" in short
     # The factual limits the old answer carried stay findable on the evidence page.
     evidence = flat(read("docs/evidence.md"))
-    assert "blocks production promotion" in evidence and "Production use | Not tested" in evidence
+    assert "blocks production promotion" in evidence and "Production use | Maintainer-reported experience" in evidence
 
 
 def test_removed_disclaimers_do_not_come_back_on_the_front_pages():
@@ -616,15 +616,16 @@ def test_faq_covers_what_a_buyer_asks_first():
     assert len(faq_questions()) >= 25
 
 
-def test_every_faq_answer_carries_exactly_one_of_the_four_statuses():
+def test_every_faq_answer_carries_exactly_one_evidence_status():
+    statuses = (*STATUSES, "Maintainer-reported experience")
     seen = set()
     for title, body in faq_questions():
-        found = re.findall(r"^(Tested|Required|Not tested|Not supported)\. ", body, re.M)
+        found = re.findall(r"^(Tested|Required|Not tested|Not supported|Maintainer-reported experience)\. ", body, re.M)
         assert len(found) == 1, (title, found)
-        assert found[0] in STATUSES, (title, found[0])
+        assert found[0] in statuses, (title, found[0])
         assert "Status:" not in body, title
         seen.add(found[0])
-    assert seen == set(STATUSES), "each status should be used at least once"
+    assert seen == set(statuses), "each status should be used at least once"
 
 
 def test_every_faq_answer_cites_sources_that_exist():

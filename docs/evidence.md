@@ -249,8 +249,8 @@ Release notes define the verified scope of each batch.
 
 | Area | Status | Detail |
 |---|---|---|
-| Production use | Not tested | Production-scale capacity, minimal IBM i authority and external-user validation are all Not tested. |
-| 0.4.5 general qualification | Not measured | Completed 24-hour continuity, receiver rotation, the final independent oracle and GKE recovery remain unproven in the October 15 snapshot. Native local CDC is unsupported or unproven. Historical measurements apply only to their original artifacts and scopes. |
+| Production use | Maintainer-reported experience | Repeated production IBM i tests on multi-million-row tables are described [above](#production-experience). No release-specific capacity, throughput or SLA is established by that account. Minimal IBM i authority and external-user validation remain Not tested. |
+| 0.4.5 general qualification | Mixed, dated scope | The October 16 closeout records a successful independent final comparison of 1,000,000 rows and 124 journal images, superseding that open item in the October 15 snapshot. Completed 24-hour continuity, receiver rotation and GKE recovery remain unproven. No general latency SLA is established. Native local CDC is unsupported or unproven; historical measurements retain their original artifact and target scopes. |
 | 0.4.2 native and cloud operation | Not tested | Native continuity, reader outage, latency, complete cloud-loss recovery and the operator path need fresh qualification. Historical measurements apply only to their original artifacts and scopes. |
 | 0.3.5 native CDC writes, reader outage, latency | Not tested | The copy and the EKS cycle involved no new source mutation and no acknowledged write during a reader failure. |
 | 0.3.5 complete infrastructure loss | Not tested | EKS reinstall retained the same PostgreSQL PVC. |

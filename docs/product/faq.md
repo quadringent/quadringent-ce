@@ -4,7 +4,8 @@ Every answer comes from this repository: the code, the tests and the dated
 qualification files. Where nothing was measured, we say Not measured. The
 [evidence page](../evidence.md) lists what was measured, on which version.
 
-Each answer opens with one of four tags.
+Answers distinguish repository tests, prerequisites, unsupported features and
+maintainer-reported experience. A first-hand report is not a measured SLA.
 
 | Tag | Meaning |
 |---|---|
@@ -12,11 +13,13 @@ Each answer opens with one of four tags.
 | Required | The code or the installer needs it. A prerequisite, not a test result. |
 | Not tested | No qualification covers it. It may work; we do not say so. |
 | Not supported | The repository has no code for it, the product refuses it, or we do not offer it. |
+| Maintainer-reported experience | First-hand use reported by the maintainer, without release-specific measurements or a general qualification claim. |
 
-We checked the answers against source version 0.4.2 on 2026-10-13. The latest
-published scoped receipts are [0.3.5](../../site/runtime-0.3.5.json) (2026-10-12)
-and [0.3.4](../../site/recovery-0.3.4.json) (2026-10-12); each describes only the
-version it names. The detailed tables are in [compatibility and prerequisites](compatibility.md).
+The version and volume answers were refreshed on 2026-11-12 against
+source version 0.4.9 at `fe4db47` and the published 0.4.5 prerelease receipts,
+including the [2026-10-16 closeout](../../site/qualification-0.4.5.json).
+Historical answers below retain their explicit 0.3.x scopes; this refresh is not
+a new qualification run. See [compatibility and prerequisites](compatibility.md).
 If you are still choosing a method, [Options to replicate AS/400 (IBM i) data to Snowflake](../articles/as400-to-snowflake-options.md)
 covers batch extracts, commercial CDC and Kafka-based CDC, and
 [how Quadringent compares](comparison.md) names the products.
@@ -27,7 +30,7 @@ covers batch extracts, commercial CDC and Kafka-based CDC, and
 |---|---|
 | IBM i release | 7.5 was tested, on one server. Other releases: Not tested. [Details](#which-ibm-i-release-was-tested). |
 | Primary key | Needed. A table must be journaled with before and after images and have a primary key or unique constraint. [Details](#which-tables-can-be-replicated). |
-| Production | Start with a proof of concept on a non-production IBM i; we help with pilots. [Details](#can-i-run-it-in-production). |
+| Production | Maintainer-reported production testing on multi-million-row tables; packaged installation gates remain. [Details](#can-i-run-it-in-production). |
 | Latency | In the first 0.3.4 cold-warehouse trial, three of four targets missed our 10 s bar. In a later run, eight observations on two synthetic tables stayed within 10 s. On the current version: Not measured. [Details](#what-latency-should-i-expect-on-the-current-version). |
 | Cost | No license fee and no table limit. You pay for your own IBM i, cloud and Snowflake usage; the amounts are Not measured. [Details](#is-there-a-license-fee-or-a-table-limit). |
 
@@ -131,11 +134,18 @@ of each table in a quiet window until this is qualified.
 
 ### How long does the copy of a large table take?
 
-Not tested. Not measured. The largest published copy is 55 rows per table.
-Copy duration, memory use and Snowflake warehouse use for large tables have no
-published figure.
+Tested. This is a scoped dataset result, not a throughput benchmark. The published
+0.4.5 campaign includes a 1,000,000-row synthetic fixture. Its 2026-10-16 final
+comparison reconciled 1,000,000 source and mirror rows, 124 independent native
+journal images against 124 stored raw images, and 1,000,124 history rows.
+This result came from a separate qualification harness, not automatic product
+verification. The earlier 55-row trials belong to 0.3.5, not the largest
+published dataset. See the [dated receipt](../../site/qualification-0.4.5.json).
 
-<!-- source: site/runtime-0.3.5.json, docs/product/compatibility.md -->
+A portable copy-duration, memory-use or cost estimate for your table is Not measured. Final equality does not establish sustained throughput, 24-hour
+continuity or a latency SLA.
+
+<!-- source: site/runtime-0.3.5.json, site/qualification-0.4.5.json, docs/product/compatibility.md -->
 
 ### What happens when I add a column or change a table?
 
@@ -162,21 +172,26 @@ not a guarantee.
 
 ### What latency should I expect on the current version?
 
-Not tested. Not measured. Native CDC writes, reader outage and latency are
-Not tested on 0.3.5, and the published 0.4.2 prerelease and the 0.4.5 candidate source need fresh qualification. Default
-polling is one second, which targets low latency but does not guarantee
-visibility within ten seconds. Warehouse wake-up, volume and `MERGE` time remain
-part of the delay.
+Not tested. Current source version 0.4.9 has no new live qualification. Not measured for that source. The published 0.4.5 prerelease
+has dated measurements: its 2026-10-16 closeout records 30 of 97 planned bursts
+completed within 120 seconds before the campaign stopped. The ten-second target
+was not achieved, and completed 24-hour continuity and receiver rotation were
+not proven. The successful final reconciliation is a separate result, not a
+P95 or latency guarantee. See the [closeout](../../site/qualification-0.4.5.json).
+Default polling is one second; warehouse wake-up, volume and `MERGE` time still
+contribute to delay. Measure the version and configuration you deploy.
 
-<!-- source: site/runtime-0.3.5.json, docs/product/snowflake-destination.md, README.md -->
+<!-- source: site/runtime-0.3.5.json, site/qualification-0.4.5.json, docs/product/snowflake-destination.md, README.md -->
 
 ### How much data per day can it carry?
 
-Not tested. Not measured. The published trials used two synthetic tables, 110
-rows per target and six source writes. Production-scale capacity and
-throughput have no published figure.
+Not tested. Not measured as a sustained daily capacity. The older 0.3.x trials used two
+synthetic tables; the later 0.4.5 campaign reconciled a million-row fixture and
+124 journal images. Neither result establishes a production throughput rate.
+Its fixed 97-burst endurance contract did not pass. See the
+[version-scoped evidence](../evidence.md) before planning your own load test.
 
-<!-- source: site/recovery-0.3.4.json, site/runtime-0.3.5.json, README.md -->
+<!-- source: site/recovery-0.3.4.json, site/runtime-0.3.5.json, site/qualification-0.4.5.json, README.md -->
 
 ## Outages and recovery
 
@@ -354,10 +369,17 @@ remains if the maintainers stop is on the [governance](../governance.md) page. S
 
 ### Can I run it in production?
 
-Not tested. Start with a proof of concept on a non-production IBM i. We help
-with pilots; the [pilot guide](positioning-and-offer.md) says how to start and what
-to prepare. What we have measured, and on which version, is on the
-[evidence page](../evidence.md). The chart installs into the environments `dev`,
-`int`, `test` and `staging`.
+Maintainer-reported experience. Our maintainer reports repeated tests on production IBM i machines
+and tables containing several million rows, in real cluster and VPC endpoint
+conditions. This is first-hand experience, not a release-specific measurement,
+throughput benchmark or SLA; customer systems and data remain private.
+
+The packaged installation profile still accepts `dev`, `int`, `test` and
+`staging`, with production promotion disabled. Those configuration gates do not
+mean the tool has never been tested in production. Review the
+[production experience and dated evidence](../evidence.md#production-experience)
+and use the [pilot guide](positioning-and-offer.md) to validate the selected
+release and your own configuration. Start with a proof of concept on a non-production IBM i.
+We help with pilots; see the [evidence page](../evidence.md) for its distinct scopes.
 
 <!-- source: chart/templates/_helpers.tpl, README.md, docs/product/positioning-and-offer.md -->
